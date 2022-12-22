@@ -1,16 +1,16 @@
 pub mod memory;
-mod st2205u;
-
-use st2205u::St2205u;
+mod miuchiz;
 
 fn main() {
     let otp_data = std::fs::read("OTP.dat").unwrap();
     let flash_data = std::fs::read("Flash.dat").unwrap();
-    let mut mcu = St2205u::new(&otp_data, &flash_data).unwrap();
+    let mut handheld = miuchiz::Handheld::new(&otp_data, &flash_data).unwrap();
 
     for _count in 0u64..800_000_000 {
-        mcu.step();
+        // let inst = handheld.mcu.core.decode_next_instruction();
+        // println!("{}", inst.instruction.to_string());
+        handheld.mcu.step();
         // println!("{}", mcu.core.registers.to_string());
     }
-    println!("{} cycles", mcu.core.cycles);
+    println!("{} cycles", handheld.mcu.core.cycles);
 }

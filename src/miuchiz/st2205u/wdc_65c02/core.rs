@@ -110,8 +110,12 @@ impl<A: AddressSpace> Core<A> {
         }
     }
 
+    pub fn decode_next_instruction(&mut self) -> DecodedInstruction {
+        DecodedInstruction::decode(&mut self.address_space, self.registers.pc.into())
+    }
+
     pub fn step(&mut self) {
-        let dins = DecodedInstruction::decode(&mut self.address_space, self.registers.pc.into());
+        let dins = self.decode_next_instruction();
         let ins = &dins.instruction;
 
         // The program counter should be incremented before execution.
