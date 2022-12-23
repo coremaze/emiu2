@@ -1,4 +1,4 @@
-use super::st2205u;
+use super::{st2205u, st7626};
 use crate::memory::AddressSpace;
 use std::error::Error;
 
@@ -28,6 +28,7 @@ impl AddressType {
 pub struct HandheldAddressSpace {
     otp: Box<st2205u::Otp>,
     flash: Box<Flash>,
+    lcd: st7626::Lcd,
 }
 
 impl HandheldAddressSpace {
@@ -41,9 +42,12 @@ impl HandheldAddressSpace {
             Flash::try_from(flash).map_err(|err| ConfigurationError::InvalidFlash(err.into()))?,
         );
 
+        let lcd = st7626::Lcd::new();
+
         Ok(Self {
             otp: otp_box,
             flash: flash_box,
+            lcd,
         })
     }
 }
@@ -51,9 +55,7 @@ impl HandheldAddressSpace {
 impl AddressSpace for HandheldAddressSpace {
     fn read_u8(&mut self, address: usize) -> u8 {
         match AddressType::parse_machine_addr(address) {
-            (AddressType::Video, _vid_addr) => {
-                todo!("Read video registers")
-            }
+            (AddressType::Video, vid_addr) => self.lcd.read_u8(vid_addr),
             (AddressType::Otp, otp_addr) => self.otp[otp_addr % self.otp.len()],
             (AddressType::Flash, flash_addr) => self.flash[flash_addr % self.flash.len()],
         }
@@ -61,10 +63,7 @@ impl AddressSpace for HandheldAddressSpace {
 
     fn write_u8(&mut self, address: usize, value: u8) {
         match AddressType::parse_machine_addr(address) {
-            (AddressType::Video, vid_addr) => {
-                // todo!("Write video registers")
-                println!("Video write {value:02X} to {vid_addr:X}")
-            }
+            (AddressType::Video, vid_addr) => self.lcd.write_u8(vid_addr, value),
             (AddressType::Otp, _otp_addr) => {
                 todo!("Write OTP???")
             }

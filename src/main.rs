@@ -7,8 +7,9 @@ fn main() {
     let mut handheld = miuchiz::Handheld::new(&otp_data, &flash_data).unwrap();
 
     for _count in 0u64..800_000_000 {
-        // let inst = handheld.mcu.core.decode_next_instruction();
-        // println!("{}", inst.instruction.to_string());
+        let inst = handheld.mcu.core.decode_next_instruction();
+        let pc = handheld.mcu.core.registers.pc;
+        // println!("{pc:04X}: {}", inst.instruction.to_string());
         handheld.mcu.step();
         // println!("{}", mcu.core.registers.to_string());
     }
