@@ -1,6 +1,8 @@
 mod addr_space;
+mod dma;
 mod mcu;
-pub(self) mod vector;
+mod reg;
+mod vector;
 mod wdc_65c02;
 
 pub use addr_space::Otp;

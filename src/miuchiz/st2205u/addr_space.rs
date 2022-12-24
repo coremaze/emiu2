@@ -1,3 +1,5 @@
+use super::dma;
+use super::reg::{U16Register, U8Register};
 use crate::memory::AddressSpace;
 
 pub type Otp = [u8; 0x4000];
@@ -48,6 +50,15 @@ const DRRH: u16 = 0x0035;
 const BRRL: u16 = 0x0036;
 const BRRH: u16 = 0x0037;
 
+const DPRTL: u16 = 0x0058;
+const DPRTH: u16 = 0x0059;
+const DBKRL: u16 = 0x005A;
+const DBKRH: u16 = 0x005B;
+const DCNTL: u16 = 0x005C;
+const DCNTH: u16 = 0x005D;
+const DSEL: u16 = 0x005E;
+const DMOD: u16 = 0x005F;
+
 pub struct St2205uAddressSpace<A: AddressSpace> {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
     /// larger address space through the use of its memory bank registers.
@@ -58,29 +69,8 @@ pub struct St2205uAddressSpace<A: AddressSpace> {
     brr: U16Register,
     prr: U16Register,
     drr: U16Register,
-}
 
-#[derive(Default)]
-pub struct U16Register {
-    l: u8,
-    h: u8,
-}
-
-impl U16Register {
-    pub fn new(value: u16) -> Self {
-        let mut reg = Self::default();
-        reg.set_u16(value);
-        reg
-    }
-
-    pub fn u16(&self) -> u16 {
-        (self.l as u16) | ((self.h as u16) << 8)
-    }
-
-    pub fn set_u16(&mut self, value: u16) {
-        self.l = (value & 0x00FF) as u8;
-        self.h = ((value & 0xFF00) >> 8) as u8;
-    }
+    dma: dma::State,
 }
 
 impl<A: AddressSpace> St2205uAddressSpace<A> {
@@ -88,10 +78,71 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
         Self {
             machine_addr_space,
             ram: [0u8; 0x8000],
-            brr: U16Register::new(0),
-            prr: U16Register::new(0),
-            drr: U16Register::new(0),
+            // BRR is the only bank register with a nonzero default value
+            brr: U16Register::new(0b1000_0000_0000_0000, 0b1001_1111_1111_1111),
+            prr: U16Register::new(0b0000_0000_0000_0000, 0b1000_1111_1111_1111),
+            drr: U16Register::new(0b0000_0000_0000_0000, 0b1000_0111_1111_1111),
+
+            dma: dma::State::new(),
         }
+    }
+
+    fn read_register(&mut self, address: u16) -> u8 {
+        // println!("Read from register {address:X}");
+        match address {
+            PRRL => self.prr.l(),
+            PRRH => self.prr.h(),
+            DRRL => self.drr.l(),
+            DRRH => self.drr.h(),
+            BRRL => self.brr.l(),
+            BRRH => self.brr.h(),
+            DPRTL => dma::read_dptrl(self),
+            DPRTH => dma::read_dptrh(self),
+            DBKRL => dma::read_dbkrl(self),
+            DBKRH => dma::read_dbkrh(self),
+            DCNTL => dma::read_dcntl(self),
+            DCNTH => dma::read_dcnth(self),
+            DSEL => dma::read_dsel(self),
+            DMOD => dma::read_dmod(self),
+            0 => 0xFF, // TODO: controls
+            1 => 0xFF, // TODO: controls
+            _ => {
+                println!("Unimplemented read of register {address:02X}");
+                0
+            }
+        }
+    }
+
+    fn write_register(&mut self, address: u16, value: u8) {
+        // println!("Write to register {address:X}");
+        match address as u16 {
+            PRRL => self.prr.set_l(value),
+            PRRH => self.prr.set_h(value),
+            DRRL => self.drr.set_l(value),
+            DRRH => self.drr.set_h(value),
+            BRRL => self.brr.set_l(value),
+            BRRH => self.brr.set_h(value),
+            DPRTL => dma::write_dptrl(self, value),
+            DPRTH => dma::write_dptrh(self, value),
+            DBKRL => dma::write_dbkrl(self, value),
+            DBKRH => dma::write_dbkrh(self, value),
+            DCNTL => dma::write_dcntl(self, value),
+            DCNTH => dma::write_dcnth(self, value),
+            DSEL => dma::write_dsel(self, value),
+            DMOD => dma::write_dmod(self, value),
+            _ => {
+                println!("Unimplemented write of register {address:02X}");
+            }
+        }
+    }
+
+    fn read_ram(&self, address: usize) -> u8 {
+        self.ram[address % self.ram.len()]
+    }
+
+    fn write_ram(&mut self, address: usize, value: u8) {
+        // println!("Write to RAM {address:X}");
+        self.ram[address % self.ram.len()] = value;
     }
 }
 
@@ -99,24 +150,8 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
     fn read_u8(&mut self, address: usize) -> u8 {
         // The ST2205U address space is only 16 bits wide
         match address as u16 {
-            REGISTERS_START..=REGISTERS_END => {
-                println!("Read from register {address:X}");
-                match address as u16 {
-                    PRRL => self.prr.l,
-                    PRRH => self.prr.h,
-                    DRRL => self.drr.l,
-                    DRRH => self.drr.h,
-                    BRRL => self.brr.l,
-                    BRRH => self.brr.h,
-                    0 => 0xFF, // TODO: controls
-                    1 => 0xFF, // TODO: controls
-                    _ => {
-                        println!("Unimplemented read of register {address:02X}");
-                        0
-                    }
-                }
-            }
-            0x80..=0x1FFF => self.ram[address % self.ram.len()],
+            REGISTERS_START..=REGISTERS_END => self.read_register(address as u16),
+            0x80..=0x1FFF => self.read_ram(address),
             BRR_START..=BRR_END | PRR_START..=PRR_END | DRR_START..=DRR_END => {
                 // left_shift represents how much the bank register needs to be shifted
                 // to represent its component of the larger machine address.
@@ -147,24 +182,8 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
 
     fn write_u8(&mut self, address: usize, value: u8) {
         match address as u16 {
-            REGISTERS_START..=REGISTERS_END => {
-                // println!("Write to register {address:X}");
-                match address as u16 {
-                    PRRL => self.prr.l = value,
-                    PRRH => self.prr.h = value,
-                    DRRL => self.drr.l = value,
-                    DRRH => self.drr.h = value,
-                    BRRL => self.brr.l = value,
-                    BRRH => self.brr.h = value,
-                    _ => {
-                        println!("Unimplemented write of register {address:02X}");
-                    }
-                }
-            }
-            LOW_RAM_START..=LOW_RAM_END => {
-                // println!("Write to RAM {address:X}");
-                self.ram[address % self.ram.len()] = value;
-            }
+            REGISTERS_START..=REGISTERS_END => self.write_register(address as u16, value),
+            LOW_RAM_START..=LOW_RAM_END => self.write_ram(address, value),
             BRR_START..=BRR_END | PRR_START..=PRR_END | DRR_START..=DRR_END => {
                 // left_shift represents how much the bank register needs to be shifted
                 // to represent its component of the larger machine address.
