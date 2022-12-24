@@ -155,7 +155,7 @@ impl<A: AddressSpace> Core<A> {
 
     fn execute_instruction(&mut self, dec_inst: &DecodedInstruction) {
         let op_fn = match dec_inst.instruction.opcode {
-            Opcode::Adc => todo!(),
+            Opcode::Adc => instr::adc,
             Opcode::And => instr::and,
             Opcode::Asl => todo!(),
             Opcode::Bbr0 => todo!(),
@@ -185,7 +185,7 @@ impl<A: AddressSpace> Core<A> {
             Opcode::Brk => todo!(),
             Opcode::Bvc => todo!(),
             Opcode::Bvs => todo!(),
-            Opcode::Clc => todo!(),
+            Opcode::Clc => instr::clc,
             Opcode::Cld => instr::cld,
             Opcode::Cli => instr::cli,
             Opcode::Clv => todo!(),

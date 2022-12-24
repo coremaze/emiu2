@@ -108,6 +108,8 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
                     DRRH => self.drr.h,
                     BRRL => self.brr.l,
                     BRRH => self.brr.h,
+                    0 => 0xFF, // TODO: controls
+                    1 => 0xFF, // TODO: controls
                     _ => {
                         println!("Unimplemented read of register {address:02X}");
                         0
@@ -134,7 +136,9 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
                 } else {
                     // Otherwise, access a larger address which is governed by the machine
                     // (i.e. hardware configuration, not ST2205U's responsibility)
-                    let machine_addr = ((reg as usize) << left_shift) | address;
+                    // Only the relevant bits of the address should be kept
+                    let addr_mask = (1 << left_shift) - 1;
+                    let machine_addr = ((reg as usize) << left_shift) | (address & addr_mask);
                     self.machine_addr_space.read_u8(machine_addr)
                 }
             }
@@ -146,14 +150,8 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
             REGISTERS_START..=REGISTERS_END => {
                 // println!("Write to register {address:X}");
                 match address as u16 {
-                    PRRL => {
-                        // println!("PRRL set to {value:02X}");
-                        self.prr.l = value
-                    }
-                    PRRH => {
-                        // println!("PRRH set to {value:02X}");
-                        self.prr.h = value
-                    }
+                    PRRL => self.prr.l = value,
+                    PRRH => self.prr.h = value,
                     DRRL => self.drr.l = value,
                     DRRH => self.drr.h = value,
                     BRRL => self.brr.l = value,
@@ -186,7 +184,9 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
                 } else {
                     // Otherwise, access a larger address which is governed by the machine
                     // (i.e. hardware configuration, not ST2205U's responsibility)
-                    let machine_addr = ((reg as usize) << left_shift) | address;
+                    // Only the relevant bits of the address should be kept
+                    let addr_mask = (1 << left_shift) - 1;
+                    let machine_addr = ((reg as usize) << left_shift) | (address & addr_mask);
                     self.machine_addr_space.write_u8(machine_addr, value);
                 }
             }

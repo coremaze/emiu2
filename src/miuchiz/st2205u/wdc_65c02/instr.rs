@@ -388,6 +388,11 @@ pub fn cld<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     false
 }
 
+pub fn clc<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.flags.carry = false;
+    false
+}
+
 pub fn sed<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     core.flags.decimal = true;
     false
@@ -431,4 +436,35 @@ pub fn php<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
 pub fn plp<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     core.flags = Flags::from_u8(core.pop_u8());
     false
+}
+
+pub fn adc<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (operand, bound_crossed) = inst.addressing_mode.read_operand_u8(core);
+
+    let mut sum = operand as u16 + core.registers.a as u16 + core.flags.carry as u16;
+
+    if core.flags.decimal {
+        let mut low_result =
+            (core.registers.a as u16 & 0x0F) + (operand as u16 & 0x0F) + (core.flags.carry as u16);
+        if low_result > 9 {
+            low_result = ((low_result + 6) & 0x0F) + 16;
+        }
+        sum = (core.registers.a as u16 & 0xF0) + (operand as u16 & 0xF0) + low_result;
+        if sum > 0x90 {
+            sum = sum + 0x60;
+        }
+        core.cycles += 1;
+    }
+
+    core.registers.a = (sum & 0xFF) as u8;
+    core.flags.carry = sum >= 0x100;
+    core.flags.zero = core.registers.a == 0;
+    core.flags.negative = is_negative(core.registers.a);
+
+    let c_6 = (((core.registers.a & 0x7F) + (operand & 0x7F) + (core.flags.carry as u8))
+        & 0b10000000)
+        != 0;
+    core.flags.overflow = c_6 ^ core.flags.carry;
+
+    bound_crossed
 }

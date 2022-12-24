@@ -4,6 +4,7 @@ use std::error::Error;
 
 pub type Flash = [u8; 0x200000];
 
+#[derive(Debug)]
 enum AddressType {
     Video,
     Otp,

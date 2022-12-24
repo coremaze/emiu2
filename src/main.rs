@@ -11,7 +11,10 @@ fn main() {
         let pc = handheld.mcu.core.registers.pc;
         // println!("{pc:04X}: {}", inst.instruction.to_string());
         handheld.mcu.step();
-        // println!("{}", mcu.core.registers.to_string());
+        // println!("{}", handheld.mcu.core.registers.to_string());
+        // if pc == 0x5972 {
+        //     break;
+        // }
     }
     println!("{} cycles", handheld.mcu.core.cycles);
 }

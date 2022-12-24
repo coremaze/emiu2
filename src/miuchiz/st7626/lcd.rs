@@ -145,7 +145,9 @@ impl Lcd {
         match command {
             Command::ExtOn => self.ext = true,
             Command::ExtOff => self.ext = false,
-            _ => println!("Unimplemented LCD command {command:?}"),
+            _ => {
+                // println!("Unimplemented LCD command {command:?}")
+            }
         }
         self.active_command = Some(command);
     }
@@ -155,7 +157,7 @@ impl Lcd {
             println!("LCD received data with no active command.");
             return;
         };
-        println!("LCD data {value:02X} to command {:?}", command);
+        // println!("LCD data {value:02X} to command {:?}", command);
     }
 }
 

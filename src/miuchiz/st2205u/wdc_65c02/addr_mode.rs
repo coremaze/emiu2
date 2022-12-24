@@ -63,7 +63,12 @@ impl AddressingMode {
                 let value = core.address_space.read_u8(read_address as usize);
                 (value, false)
             }
-            AddressingMode::IndirectYIndexed(_) => todo!(),
+            AddressingMode::IndirectYIndexed(addr) => {
+                let ptr = core.address_space.read_u16_le(*addr as usize);
+                let ptr_offset = ptr.wrapping_add(core.registers.y.into());
+                let value = core.address_space.read_u8(ptr_offset as usize);
+                (value, crosses_page(ptr, ptr_offset))
+            }
             AddressingMode::Relative(_) => todo!(),
             AddressingMode::ZeroPage(zp_addr) => {
                 (core.address_space.read_u8(*zp_addr as usize), false)
