@@ -73,7 +73,10 @@ impl AddressingMode {
             AddressingMode::ZeroPage(zp_addr) => {
                 (core.address_space.read_u8(*zp_addr as usize), false)
             }
-            AddressingMode::IndirectZeroPage(_) => todo!(),
+            AddressingMode::IndirectZeroPage(zp_addr) => {
+                let read_address = core.address_space.read_u16_le(*zp_addr as usize);
+                (core.address_space.read_u8(read_address as usize), false)
+            }
             AddressingMode::ZeroPageXIndexed(_) => todo!(),
             AddressingMode::ZeroPageYIndexed(_) => todo!(),
             AddressingMode::ZeroPageRelative(_, _) => todo!(),

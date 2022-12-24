@@ -228,11 +228,39 @@ pub fn pha<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     false
 }
 
+pub fn phx<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.push_u8(core.registers.x);
+    false
+}
+
+pub fn phy<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.push_u8(core.registers.y);
+    false
+}
+
 pub fn pla<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     core.registers.a = core.pop_u8();
 
     core.flags.zero = core.registers.a == 0;
     core.flags.negative = is_negative(core.registers.a);
+
+    false
+}
+
+pub fn plx<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.registers.x = core.pop_u8();
+
+    core.flags.zero = core.registers.x == 0;
+    core.flags.negative = is_negative(core.registers.x);
+
+    false
+}
+
+pub fn ply<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.registers.y = core.pop_u8();
+
+    core.flags.zero = core.registers.y == 0;
+    core.flags.negative = is_negative(core.registers.y);
 
     false
 }
@@ -416,6 +444,33 @@ pub fn tsx<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     false
 }
 
+pub fn tay<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.registers.y = core.registers.a;
+
+    core.flags.zero = core.registers.y == 0;
+    core.flags.negative = is_negative(core.registers.y);
+
+    false
+}
+
+pub fn tax<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.registers.x = core.registers.a;
+
+    core.flags.zero = core.registers.x == 0;
+    core.flags.negative = is_negative(core.registers.x);
+
+    false
+}
+
+pub fn txa<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.registers.a = core.registers.x;
+
+    core.flags.zero = core.registers.a == 0;
+    core.flags.negative = is_negative(core.registers.a);
+
+    false
+}
+
 pub fn beq<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
     let (operand, bound_crossed) = inst.addressing_mode.read_operand_i8(core);
 
@@ -465,6 +520,34 @@ pub fn adc<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
         & 0b10000000)
         != 0;
     core.flags.overflow = c_6 ^ core.flags.carry;
+
+    bound_crossed
+}
+
+pub fn lsr<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (mut operand, bound_crossed) = inst.addressing_mode.read_operand_u8(core);
+
+    core.flags.carry = operand & 1 != 0;
+    operand >>= 1;
+    core.flags.zero = operand == 0;
+    core.flags.negative = is_negative(operand);
+
+    let _ = inst.addressing_mode.write_operand_u8(core, operand);
+
+    bound_crossed
+}
+
+pub fn rol<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (mut operand, bound_crossed) = inst.addressing_mode.read_operand_u8(core);
+
+    let old_carry = core.flags.carry;
+    core.flags.carry = operand & (1 << 7) != 0;
+    operand <<= 1;
+    operand |= if old_carry { 1 } else { 0 };
+    core.flags.zero = operand == 0;
+    core.flags.negative = is_negative(operand);
+
+    let _ = inst.addressing_mode.write_operand_u8(core, operand);
 
     bound_crossed
 }
