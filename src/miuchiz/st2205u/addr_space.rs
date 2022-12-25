@@ -1,5 +1,5 @@
 use super::dma;
-use super::reg::{U16Register, U8Register};
+use super::bank;
 use crate::memory::AddressSpace;
 
 pub type Otp = [u8; 0x4000];
@@ -66,10 +66,7 @@ pub struct St2205uAddressSpace<A: AddressSpace> {
 
     ram: Ram,
 
-    pub brr: U16Register,
-    pub prr: U16Register,
-    pub drr: U16Register,
-
+    pub banks: bank::State,
     pub dma: dma::State,
 }
 
@@ -78,11 +75,8 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
         Self {
             machine_addr_space,
             ram: [0u8; 0x8000],
-            // BRR is the only bank register with a nonzero default value
-            brr: U16Register::new(0b1000_0000_0000_0000, 0b1001_1111_1111_1111),
-            prr: U16Register::new(0b0000_0000_0000_0000, 0b1000_1111_1111_1111),
-            drr: U16Register::new(0b0000_0000_0000_0000, 0b1000_0111_1111_1111),
 
+            banks: bank::State::new(),
             dma: dma::State::new(),
         }
     }
@@ -90,12 +84,12 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
     fn read_register(&mut self, address: u16) -> u8 {
         // println!("Read from register {address:X}");
         match address {
-            PRRL => self.prr.l(),
-            PRRH => self.prr.h(),
-            DRRL => self.drr.l(),
-            DRRH => self.drr.h(),
-            BRRL => self.brr.l(),
-            BRRH => self.brr.h(),
+            PRRL => bank::read_prrl(self),
+            PRRH => bank::read_prrh(self),
+            DRRL => bank::read_drrl(self),
+            DRRH => bank::read_drrh(self),
+            BRRL => bank::read_brrl(self),
+            BRRH => bank::read_brrh(self),
             DPRTL => dma::read_dptrl(self),
             DPRTH => dma::read_dptrh(self),
             DBKRL => dma::read_dbkrl(self),
@@ -116,12 +110,12 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
     fn write_register(&mut self, address: u16, value: u8) {
         // println!("Write to register {address:X}");
         match address as u16 {
-            PRRL => self.prr.set_l(value),
-            PRRH => self.prr.set_h(value),
-            DRRL => self.drr.set_l(value),
-            DRRH => self.drr.set_h(value),
-            BRRL => self.brr.set_l(value),
-            BRRH => self.brr.set_h(value),
+            PRRL => bank::write_prrl(self, value),
+            PRRH => bank::write_prrh(self, value),
+            DRRL => bank::write_drrl(self, value),
+            DRRH => bank::write_drrh(self, value),
+            BRRL => bank::write_brrl(self, value),
+            BRRH => bank::write_brrh(self, value),
             DPRTL => dma::write_dptrl(self, value),
             DPRTH => dma::write_dptrh(self, value),
             DBKRL => dma::write_dbkrl(self, value),
@@ -157,9 +151,9 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
                 // to represent its component of the larger machine address.
                 // i.e. BRR will use the address as its lower 13 bits
                 let (reg, left_shift) = match address as u16 {
-                    BRR_START..=BRR_END => (self.brr.u16(), BRR_BITS),
-                    PRR_START..=PRR_END => (self.prr.u16(), PRR_BITS),
-                    DRR_START..=DRR_END => (self.drr.u16(), DRR_BITS),
+                    BRR_START..=BRR_END => (bank::brr(self), BRR_BITS),
+                    PRR_START..=PRR_END => (bank::prr(self), PRR_BITS),
+                    DRR_START..=DRR_END => (bank::drr(self), DRR_BITS),
                     0..=0x1FFF => {
                         unreachable!("This range is excluded by parent match.");
                     }
@@ -189,9 +183,9 @@ impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
                 // to represent its component of the larger machine address.
                 // i.e. BRR will use the address as its lower 13 bits
                 let (reg, left_shift) = match address as u16 {
-                    BRR_START..=BRR_END => (self.brr.u16(), BRR_BITS),
-                    PRR_START..=PRR_END => (self.prr.u16(), PRR_BITS),
-                    DRR_START..=DRR_END => (self.drr.u16(), DRR_BITS),
+                    BRR_START..=BRR_END => (bank::brr(self), BRR_BITS),
+                    PRR_START..=PRR_END => (bank::prr(self), PRR_BITS),
+                    DRR_START..=DRR_END => (bank::drr(self), DRR_BITS),
                     0..=0x1FFF => {
                         unreachable!("This range is excluded by parent match.");
                     }

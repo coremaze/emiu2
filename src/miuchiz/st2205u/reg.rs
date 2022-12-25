@@ -18,6 +18,10 @@ impl U8Register {
         self.mask = mask;
     }
 
+    pub fn mask(&self) -> u8 {
+        self.mask
+    }
+
     pub fn set(&mut self, value: u8) {
         self.val = value;
         self.apply_mask();
@@ -79,5 +83,17 @@ impl U16Register {
     fn set_mask_u16(&mut self, value: u16) {
         self.l.set_mask((value & 0x00FF) as u8);
         self.h.set_mask(((value & 0xFF00) >> 8) as u8);
+    }
+
+    pub fn mask_u16(&self) -> u16 {
+        (self.l_mask() as u16) | ((self.h_mask() as u16) << 8)
+    }
+
+    pub fn l_mask(&self) -> u8 {
+        self.l.mask()
+    }
+
+    pub fn h_mask(&self) -> u8 {
+        self.h.mask()
     }
 }

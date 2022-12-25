@@ -13,7 +13,7 @@ enum AddressType {
 
 impl AddressType {
     pub fn parse_machine_addr(address: usize) -> (Self, usize) {
-        let selection_bits = address >> 21;
+        let selection_bits = (address >> 21) & 0b00011111;
         let address_bits = address & ((1 << 21) - 1);
 
         let addr_type = match selection_bits {
@@ -55,6 +55,7 @@ impl HandheldAddressSpace {
 
 impl AddressSpace for HandheldAddressSpace {
     fn read_u8(&mut self, address: usize) -> u8 {
+        // println!("Read {address:X}");
         match AddressType::parse_machine_addr(address) {
             (AddressType::Video, vid_addr) => self.lcd.read_u8(vid_addr),
             (AddressType::Otp, otp_addr) => self.otp[otp_addr % self.otp.len()],

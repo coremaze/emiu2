@@ -1,4 +1,5 @@
 mod addr_space;
+mod bank;
 mod dma;
 mod mcu;
 mod reg;

@@ -1,6 +1,6 @@
 use super::{
     reg::{U16Register, U8Register},
-    St2205uAddressSpace,
+    St2205uAddressSpace, bank,
 };
 use crate::memory::AddressSpace;
 
@@ -201,7 +201,7 @@ pub fn read_dmod<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
 
 fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
     // Must be restored at end
-    let original_drr = st2205u.drr.clone();
+    let original_drr = bank::drr(st2205u);
 
     // Can be restored at end if reload mode
     let original_src_dptr = st2205u.dma.src_dptr.clone();
@@ -210,11 +210,11 @@ fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
     let original_dest_dptr = st2205u.dma.dest_dptr.clone();
 
     for _ in 0..st2205u.dma.dcnt.u16() {
-        st2205u.drr = st2205u.dma.src_dbkr.clone(); // Switch to src bank
+        bank::set_drr(st2205u, st2205u.dma.src_dbkr.u16());// Switch to src bank
         let src_ptr = st2205u.dma.src_dptr.u16() | (1 << 15); // Get src ptr
         let src_byte = st2205u.read_u8(src_ptr as usize); // Read src byte
 
-        st2205u.drr = st2205u.dma.dest_dbkr.clone(); // Switch to dest bank
+        bank::set_drr(st2205u, st2205u.dma.dest_dbkr.u16());// Switch to dest bank
         let dest_ptr = st2205u.dma.dest_dptr.u16() | (1 << 15); // Get dest ptr
         st2205u.write_u8(dest_ptr as usize, src_byte); // Write dest byte
 
@@ -253,5 +253,5 @@ fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
     }
 
     // Restore original DRR bank register
-    st2205u.drr = original_drr;
+    bank::set_drr(st2205u, original_drr);
 }
