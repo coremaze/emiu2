@@ -66,11 +66,11 @@ pub struct St2205uAddressSpace<A: AddressSpace> {
 
     ram: Ram,
 
-    brr: U16Register,
-    prr: U16Register,
-    drr: U16Register,
+    pub brr: U16Register,
+    pub prr: U16Register,
+    pub drr: U16Register,
 
-    dma: dma::State,
+    pub dma: dma::State,
 }
 
 impl<A: AddressSpace> St2205uAddressSpace<A> {
