@@ -257,7 +257,7 @@ impl<A: AddressSpace> Core<A> {
         let bounds_extra_cycle = op_fn(self, &dec_inst.instruction);
 
         self.cycles += dec_inst.cycles;
-        if bounds_extra_cycle {
+        if bounds_extra_cycle && dec_inst.extra_page_boundary_cycle {
             self.cycles += 1;
         }
     }
