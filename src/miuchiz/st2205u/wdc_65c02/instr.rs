@@ -426,6 +426,11 @@ pub fn sed<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     false
 }
 
+pub fn sec<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.flags.carry = true;
+    false
+}
+
 pub fn tya<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     core.registers.a = core.registers.y;
 
@@ -548,6 +553,16 @@ pub fn rol<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
     core.flags.negative = is_negative(operand);
 
     let _ = inst.addressing_mode.write_operand_u8(core, operand);
+
+    bound_crossed
+}
+
+pub fn eor<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (operand, bound_crossed) = inst.addressing_mode.read_operand_u8(core);
+
+    core.registers.a ^= operand;
+    core.flags.zero = core.registers.a == 0;
+    core.flags.negative = is_negative(core.registers.a);
 
     bound_crossed
 }

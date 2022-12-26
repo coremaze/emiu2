@@ -55,10 +55,14 @@ impl AddressingMode {
                 let value = core.address_space.read_u8(read_address as usize);
                 (value, crosses_page(*addr, read_address))
             }
-            AddressingMode::AbsoluteYIndexed(_) => todo!(),
+            AddressingMode::AbsoluteYIndexed(addr) => {
+                let read_address = addr.wrapping_add(core.registers.y.into());
+                let value = core.address_space.read_u8(read_address as usize);
+                (value, crosses_page(*addr, read_address))
+            }
             AddressingMode::AbsoluteXIndexedIndirect(_) => todo!(),
             AddressingMode::Immediate(imm) => (*imm, false),
-            AddressingMode::Indirect(addr) => todo!(),
+            AddressingMode::Indirect(_) => todo!(),
             AddressingMode::XIndexedIndirect(addr) => {
                 // (0,X) should only access ZP, meaning page boundaries can never be crossed
                 let read_address = addr.wrapping_add(core.registers.x);
@@ -125,7 +129,11 @@ impl AddressingMode {
                 core.address_space.write_u8(write_address as usize, value);
                 crosses_page(*addr, write_address)
             }
-            AddressingMode::AbsoluteYIndexed(_) => todo!(),
+            AddressingMode::AbsoluteYIndexed(addr) => {
+                let write_address = addr.wrapping_add(core.registers.y.into());
+                core.address_space.write_u8(write_address as usize, value);
+                crosses_page(*addr, write_address)
+            }
             AddressingMode::AbsoluteXIndexedIndirect(_) => todo!(),
             AddressingMode::Immediate(_) => todo!(),
             AddressingMode::Indirect(_) => todo!(),
