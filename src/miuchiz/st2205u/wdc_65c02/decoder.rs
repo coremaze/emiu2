@@ -309,7 +309,7 @@ impl DecodedInstruction {
                     opcode: Opcode::Jsr,
                     // This should be Absolute, but JMP and JSR do not dereference
                     // the pointer. It is instead used as a literal to set PC to.
-                    addressing_mode: AddressingMode::AbsoluteImmediate(to_word(
+                    addressing_mode: AddressingMode::AbsoluteAddress(to_word(
                         memory.read_u8(offset + 1),
                         memory.read_u8(offset + 2),
                     )),
@@ -693,7 +693,7 @@ impl DecodedInstruction {
                     opcode: Opcode::Jmp,
                     // This should be Absolute, but JMP and JSR do not dereference
                     // the pointer. It is instead used as a literal to set PC to.
-                    addressing_mode: AddressingMode::AbsoluteImmediate(to_word(
+                    addressing_mode: AddressingMode::AbsoluteAddress(to_word(
                         memory.read_u8(offset + 1),
                         memory.read_u8(offset + 2),
                     )),
@@ -977,7 +977,7 @@ impl DecodedInstruction {
                 instruction: Instruction {
                     opcode: Opcode::Jmp,
                     // This should be Indirect, but JMP only dereferences this once
-                    addressing_mode: AddressingMode::JmpIndirect(to_word(
+                    addressing_mode: AddressingMode::IndirectAddress(to_word(
                         memory.read_u8(offset + 1),
                         memory.read_u8(offset + 2),
                     )),

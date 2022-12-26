@@ -19,8 +19,8 @@ pub enum AddressingMode {
     ZeroPageYIndexed(u8),          // OPCODE $LL,Y
     ZeroPageRelative(u8, i8),      // OPCODE $BB,$bb
     Implied,                       // OPCODE
-    AbsoluteImmediate(u16),        // OPCODE $WWWW; For JMP and JSR since they do not dereference
-    JmpIndirect(u16), // OPCODE ($WWWW); For JMP since it just gets the 16 bit value at $WWWW, instead of 8 bits at ($WWWW)
+    AbsoluteAddress(u16),          // OPCODE $WWWW; For JMP and JSR since they do not dereference
+    IndirectAddress(u16),          // OPCODE ($WWWW); For JMP
 }
 
 impl AddressingMode {
@@ -41,8 +41,8 @@ impl AddressingMode {
             AddressingMode::ZeroPageYIndexed(_) => 1,
             AddressingMode::ZeroPageRelative(_, _) => 2,
             AddressingMode::Implied => 0,
-            AddressingMode::AbsoluteImmediate(_) => 2,
-            AddressingMode::JmpIndirect(_) => 2,
+            AddressingMode::AbsoluteAddress(_) => 2,
+            AddressingMode::IndirectAddress(_) => 2,
         }
     }
 
@@ -87,8 +87,8 @@ impl AddressingMode {
             AddressingMode::ZeroPageYIndexed(_) => todo!(),
             AddressingMode::ZeroPageRelative(_, _) => todo!(),
             AddressingMode::Implied => (core.registers.a, false),
-            AddressingMode::AbsoluteImmediate(_) => todo!(),
-            AddressingMode::JmpIndirect(_) => todo!(),
+            AddressingMode::AbsoluteAddress(_) => todo!(),
+            AddressingMode::IndirectAddress(_) => todo!(),
         }
     }
 
@@ -105,8 +105,8 @@ impl AddressingMode {
     // Basically for JMP and JSR
     pub fn read_operand_u16<A: AddressSpace>(&self, core: &mut Core<A>) -> (u16, bool) {
         match &self {
-            AddressingMode::AbsoluteImmediate(addr) => (*addr, false),
-            AddressingMode::JmpIndirect(addr) => {
+            AddressingMode::AbsoluteAddress(addr) => (*addr, false),
+            AddressingMode::IndirectAddress(addr) => {
                 let value = core.address_space.read_u16_le(*addr as usize);
                 (value, false)
             }
@@ -160,8 +160,8 @@ impl AddressingMode {
                 core.registers.a = value;
                 false
             }
-            AddressingMode::AbsoluteImmediate(_) => todo!(),
-            AddressingMode::JmpIndirect(_) => todo!(),
+            AddressingMode::AbsoluteAddress(_) => todo!(),
+            AddressingMode::IndirectAddress(_) => todo!(),
         }
     }
 }
@@ -196,8 +196,8 @@ impl ToString for AddressingMode {
                 }
             }
             AddressingMode::Implied => "".to_owned(),
-            AddressingMode::AbsoluteImmediate(addr) => format!("${addr:04X}"),
-            AddressingMode::JmpIndirect(addr) => format!("(${addr:04X})"),
+            AddressingMode::AbsoluteAddress(addr) => format!("${addr:04X}"),
+            AddressingMode::IndirectAddress(addr) => format!("(${addr:04X})"),
         }
     }
 }
