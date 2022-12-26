@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::mpsc::{channel, Receiver};
 use std::{error::Error, sync::mpsc::Sender};
 
@@ -17,7 +18,7 @@ pub struct Pixel {
 pub struct MiniFbScreen {
     tx: Sender<MiniFBMessage>,
     rx: Receiver<MiniFBWorkerMessage>,
-    closed: bool,
+    closed: RefCell<bool>,
 }
 
 impl MiniFbScreen {
@@ -32,21 +33,21 @@ impl MiniFbScreen {
         Self {
             tx: host_tx,
             rx: worker_rx,
-            closed: false,
+            closed: RefCell::new(false),
         }
     }
 
-    pub fn close(&mut self) {
+    pub fn close(&self) {
         self.tx.send(MiniFBMessage::Close).unwrap_or_else(|err| {
             println!("Couldn't send close message to display client: {err:?}");
         });
     }
 
-    pub fn is_open(&mut self) -> bool {
+    pub fn is_open(&self) -> bool {
         if let Ok(MiniFBWorkerMessage::Close(_result)) = self.rx.try_recv() {
-            self.closed = true;
+            *self.closed.borrow_mut() = true;
         }
-        !self.closed
+        !*self.closed.borrow()
     }
 }
 
@@ -99,8 +100,13 @@ fn run_minifb_worker(
 
     let mut pixel_update: Option<Vec<Pixel>> = None;
     let mut close = false;
-    while window.is_open() && !window.is_key_down(Key::Escape) && !close {
+    while !close {
         loop {
+            if !window.is_open() {
+                close = true;
+                break;
+            }
+
             match rx.try_recv() {
                 Ok(MiniFBMessage::UpdatePixels(pixels)) => {
                     pixel_update = Some(pixels);
@@ -138,14 +144,14 @@ fn run_minifb_worker(
                         }
                     }
                 }
-                // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
             }
 
             pixel_update = None;
+        }
 
-            window
-                .update_with_buffer(&buffer, width * scale, height * scale)
-                .unwrap();
+        if let Err(err) = window.update_with_buffer(&buffer, width * scale, height * scale) {
+            eprintln!("Failed to update window: {err:?}");
+            close = true;
         }
     }
 

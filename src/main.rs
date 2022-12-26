@@ -6,7 +6,7 @@ use display::Screen;
 use display::Pixel;
 
 fn main() {
-    let mut screen = display::MiniFbScreen::open("emiu2", 98, 67, 10);
+    let screen = display::MiniFbScreen::open("emiu2", 98, 67, 3);
 
     let otp_data = std::fs::read("OTP.dat").unwrap();
     let flash_data = std::fs::read("Flash.dat").unwrap();
@@ -21,9 +21,9 @@ fn main() {
         // if pc == 0x5972 {
         //     break;
         // }
-        // if !screen.is_open() {
-        //     break;
-        // }
+        if !screen.is_open() {
+            break;
+        }
     }
     println!("{} cycles", handheld.mcu.core.cycles);
 }
