@@ -976,7 +976,8 @@ impl DecodedInstruction {
             0x6C => DecodedInstruction {
                 instruction: Instruction {
                     opcode: Opcode::Jmp,
-                    addressing_mode: AddressingMode::Indirect(to_word(
+                    // This should be Indirect, but JMP only dereferences this once
+                    addressing_mode: AddressingMode::JmpIndirect(to_word(
                         memory.read_u8(offset + 1),
                         memory.read_u8(offset + 2),
                     )),

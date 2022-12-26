@@ -20,6 +20,7 @@ pub enum AddressingMode {
     ZeroPageRelative(u8, i8),      // OPCODE $BB,$bb
     Implied,                       // OPCODE
     AbsoluteImmediate(u16),        // OPCODE $WWWW; For JMP and JSR since they do not dereference
+    JmpIndirect(u16), // OPCODE ($WWWW); For JMP since it just gets the 16 bit value at $WWWW, instead of 8 bits at ($WWWW)
 }
 
 impl AddressingMode {
@@ -41,6 +42,7 @@ impl AddressingMode {
             AddressingMode::ZeroPageRelative(_, _) => 2,
             AddressingMode::Implied => 0,
             AddressingMode::AbsoluteImmediate(_) => 2,
+            AddressingMode::JmpIndirect(_) => 2,
         }
     }
 
@@ -56,9 +58,9 @@ impl AddressingMode {
             AddressingMode::AbsoluteYIndexed(_) => todo!(),
             AddressingMode::AbsoluteXIndexedIndirect(_) => todo!(),
             AddressingMode::Immediate(imm) => (*imm, false),
-            AddressingMode::Indirect(_) => todo!(),
+            AddressingMode::Indirect(addr) => todo!(),
             AddressingMode::XIndexedIndirect(addr) => {
-                // ($00,X) should only access ZP, meaning page boundaries can never be crossed
+                // (0,X) should only access ZP, meaning page boundaries can never be crossed
                 let read_address = addr.wrapping_add(core.registers.x);
                 let value = core.address_space.read_u8(read_address as usize);
                 (value, false)
@@ -82,6 +84,7 @@ impl AddressingMode {
             AddressingMode::ZeroPageRelative(_, _) => todo!(),
             AddressingMode::Implied => (core.registers.a, false),
             AddressingMode::AbsoluteImmediate(_) => todo!(),
+            AddressingMode::JmpIndirect(_) => todo!(),
         }
     }
 
@@ -99,6 +102,10 @@ impl AddressingMode {
     pub fn read_operand_u16<A: AddressSpace>(&self, core: &mut Core<A>) -> (u16, bool) {
         match &self {
             AddressingMode::AbsoluteImmediate(addr) => (*addr, false),
+            AddressingMode::JmpIndirect(addr) => {
+                let value = core.address_space.read_u16_le(*addr as usize);
+                (value, false)
+            }
             _ => {
                 let (value, crossed_boundary) = self.read_operand_u8(core);
                 (value.into(), crossed_boundary)
@@ -146,6 +153,7 @@ impl AddressingMode {
                 false
             }
             AddressingMode::AbsoluteImmediate(_) => todo!(),
+            AddressingMode::JmpIndirect(_) => todo!(),
         }
     }
 }
@@ -181,6 +189,7 @@ impl ToString for AddressingMode {
             }
             AddressingMode::Implied => "".to_owned(),
             AddressingMode::AbsoluteImmediate(addr) => format!("${addr:04X}"),
+            AddressingMode::JmpIndirect(addr) => format!("(${addr:04X})"),
         }
     }
 }
