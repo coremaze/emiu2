@@ -1,5 +1,5 @@
-use super::dma;
 use super::bank;
+use super::dma;
 use crate::memory::AddressSpace;
 
 pub type Otp = [u8; 0x4000];
@@ -101,7 +101,7 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
             0 => 0xFF, // TODO: controls
             1 => 0xFF, // TODO: controls
             _ => {
-                println!("Unimplemented read of register {address:02X}");
+                // println!("Unimplemented read of register {address:02X}");
                 0
             }
         }

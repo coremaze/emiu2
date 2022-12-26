@@ -1,12 +1,36 @@
-use crate::memory::AddressSpace;
+use crate::{
+    display::{Pixel, Screen},
+    memory::AddressSpace,
+};
 
 const COMMAND_REG: usize = 0;
 const DATA_REG: usize = 1;
 const REG_COUNT: usize = 2;
 
-pub struct Lcd {
+const LCD_WIDTH: usize = 98;
+const LCD_HEIGHT: usize = 67;
+
+const DDRAM_PAGE: usize = 68;
+const DDRAM_COLUMN: usize = 98;
+const DDRAM_WIDTH: usize = 2;
+const DDRAM_COUNT: usize = DDRAM_COLUMN * DDRAM_PAGE;
+
+pub struct Lcd<'a> {
     ext: bool,
     active_command: Option<Command>,
+    byte_since_command: usize,
+    ddram: [u8; DDRAM_COUNT * DDRAM_WIDTH],
+    ddram_ptr: usize,
+
+    // Controlled by PASET, both are inclusive
+    start_page: u8,
+    end_page: u8,
+
+    // controlled by CASET, both are inclusive
+    start_column: u8,
+    end_column: u8,
+
+    screen: &'a dyn Screen,
 }
 
 #[derive(Debug)]
@@ -130,18 +154,26 @@ impl Register {
     }
 }
 
-impl Lcd {
-    pub fn new() -> Self {
+impl<'a> Lcd<'a> {
+    pub fn new(screen: &'a impl Screen) -> Self {
         Self {
             ext: false,
             active_command: None,
+            byte_since_command: 0,
+            ddram: [0u8; DDRAM_COUNT * DDRAM_WIDTH],
+            ddram_ptr: 0,
+            start_page: 0,
+            end_page: 0,
+            start_column: 0,
+            end_column: 0,
+            screen,
         }
     }
 }
 
-impl Lcd {
+impl<'a> Lcd<'a> {
     fn handle_command(&mut self, command: Command) {
-        println!("Video write command {command:?}");
+        // println!("Video write command {command:?}");
         match command {
             Command::ExtOn => self.ext = true,
             Command::ExtOff => self.ext = false,
@@ -150,6 +182,7 @@ impl Lcd {
             }
         }
         self.active_command = Some(command);
+        self.byte_since_command = 0;
     }
 
     fn handle_data(&mut self, value: u8) {
@@ -157,11 +190,92 @@ impl Lcd {
             println!("LCD received data with no active command.");
             return;
         };
-        // println!("LCD data {value:02X} to command {:?}", command);
+        // println!("LCD data {value:02X} to command {:?} (byte {})", command, self.byte_since_command);
+
+        match command {
+            Command::PageAddressSet => {
+                // println!("PASET {value}");
+                if self.byte_since_command == 0 {
+                    self.start_page = value;
+                } else if self.byte_since_command == 1 {
+                    self.end_page = value;
+                    self.ddram_set_column_and_page(self.ddram_column(), self.start_page);
+                }
+            }
+            Command::ColumnAddressSet => {
+                // println!("CASET {value}");
+                if self.byte_since_command == 0 {
+                    self.start_column = value;
+                } else if self.byte_since_command == 1 {
+                    self.end_column = value;
+                    self.ddram_set_column_and_page(self.start_column, self.ddram_page());
+                }
+            }
+            Command::WritingToMemory => {
+                self.ddram[self.ddram_ptr] = value;
+
+                self.ddram_ptr += 1;
+
+                // println!("ddram ptr: {} column: {} end column: {} page: {} end page {}", self.ddram_ptr, self.ddram_column(), self.end_column, self.ddram_page(), self.end_page);
+                if self.ddram_column() > self.end_column {
+                    // println!("Resetting column");
+                    self.ddram_set_column_and_page(self.start_column, self.ddram_page() + 1);
+                }
+
+                if self.ddram_page() > self.end_page {
+                    // println!("Resetting page");
+                    self.ddram_set_column_and_page(self.ddram_column(), self.start_page);
+                    self.update_display();
+                }
+            }
+            _ => {
+                println!("Received unhandled data for command {command:?}");
+            }
+        }
+
+        self.byte_since_command += 1;
+    }
+
+    fn ddram_page(&self) -> u8 {
+        ((self.ddram_ptr / DDRAM_WIDTH) / DDRAM_COLUMN) as u8
+    }
+
+    fn ddram_column(&self) -> u8 {
+        ((self.ddram_ptr / DDRAM_WIDTH) % DDRAM_COLUMN) as u8
+    }
+
+    fn ddram_set_column_and_page(&mut self, column: u8, page: u8) {
+        self.ddram_ptr = Self::column_and_page_ptr(column, page);
+    }
+
+    fn column_and_page_ptr(column: u8, page: u8) -> usize {
+        (page as usize * DDRAM_COLUMN + column as usize) * DDRAM_WIDTH
+    }
+
+    fn update_display(&self) {
+        let mut pixels = Vec::<Pixel>::new();
+
+        for page in (self.start_page..=self.end_page) {
+            for column in (self.start_column..=self.end_column) {
+                let addr = Self::column_and_page_ptr(column, page);
+                let pix_1 = self.ddram[addr];
+                let pix_2 = self.ddram[addr + 1];
+
+                let red = 255 - ((pix_1 & 0x0F) as u8 * 17);
+                let green = 255 - (((pix_2 & 0xF0) >> 4) as u8 * 17);
+                let blue = 255 - ((pix_2 & 0x0F) as u8 * 17);
+                let pixel = Pixel { red, green, blue };
+                pixels.push(pixel);
+            }
+        }
+
+        // println!("Pixel len {}, pages {} col {}", pixels.len(), self.end_page, self.end_column);
+
+        self.screen.set_pixels(&pixels);
     }
 }
 
-impl AddressSpace for Lcd {
+impl<'a> AddressSpace for Lcd<'a> {
     fn read_u8(&mut self, address: usize) -> u8 {
         todo!("Read u8 LCD");
     }
