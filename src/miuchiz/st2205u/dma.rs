@@ -209,7 +209,7 @@ fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
     // Can be restored at end if reload mode
     let original_dest_dptr = st2205u.dma.dest_dptr.clone();
 
-    for _ in 0..st2205u.dma.dcnt.u16() {
+    for _ in 0..st2205u.dma.dcnt.u16() + 1{
         bank::set_drr(st2205u, st2205u.dma.src_dbkr.u16());// Switch to src bank
         let src_ptr = st2205u.dma.src_dptr.u16() | (1 << 15); // Get src ptr
         let src_byte = st2205u.read_u8(src_ptr as usize); // Read src byte
