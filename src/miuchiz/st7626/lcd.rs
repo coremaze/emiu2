@@ -30,6 +30,8 @@ pub struct Lcd<'a> {
     start_column: u8,
     end_column: u8,
 
+    display_on: bool,
+
     screen: &'a dyn Screen,
 }
 
@@ -166,6 +168,7 @@ impl<'a> Lcd<'a> {
             end_page: 0,
             start_column: 0,
             end_column: 0,
+            display_on: false,
             screen,
         }
     }
@@ -177,8 +180,13 @@ impl<'a> Lcd<'a> {
         match command {
             Command::ExtOn => self.ext = true,
             Command::ExtOff => self.ext = false,
+            Command::WritingToMemory => {}
+            Command::PageAddressSet => {}
+            Command::ColumnAddressSet => {}
+            Command::DisplayOff => self.display_on = false,
+            Command::DisplayOn => self.display_on = true,
             _ => {
-                // println!("Unimplemented LCD command {command:?}")
+                println!("Unimplemented LCD command {command:?}")
             }
         }
         self.active_command = Some(command);
@@ -255,18 +263,29 @@ impl<'a> Lcd<'a> {
     fn update_display(&self) {
         let mut pixels = Vec::<Pixel>::new();
 
-        for page in (self.start_page..=self.end_page) {
-            for column in (self.start_column..=self.end_column) {
-                let addr = Self::column_and_page_ptr(column, page);
-                let pix_1 = self.ddram[addr];
-                let pix_2 = self.ddram[addr + 1];
+        if self.display_on {
+            for page in (self.start_page..=self.end_page) {
+                for column in (self.start_column..=self.end_column) {
+                    let addr = Self::column_and_page_ptr(column, page);
+                    let pix_1 = self.ddram[addr];
+                    let pix_2 = self.ddram[addr + 1];
 
-                let red = 255 - ((pix_1 & 0x0F) as u8 * 17);
-                let green = 255 - (((pix_2 & 0xF0) >> 4) as u8 * 17);
-                let blue = 255 - ((pix_2 & 0x0F) as u8 * 17);
-                let pixel = Pixel { red, green, blue };
-                pixels.push(pixel);
+                    let red = 255 - ((pix_1 & 0x0F) as u8 * 17);
+                    let green = 255 - (((pix_2 & 0xF0) >> 4) as u8 * 17);
+                    let blue = 255 - ((pix_2 & 0x0F) as u8 * 17);
+                    let pixel = Pixel { red, green, blue };
+                    pixels.push(pixel);
+                }
             }
+        } else {
+            pixels = vec![
+                Pixel {
+                    red: 0,
+                    green: 0,
+                    blue: 0
+                };
+                LCD_WIDTH * LCD_HEIGHT
+            ];
         }
 
         // println!("Pixel len {}, pages {} col {}", pixels.len(), self.end_page, self.end_column);
