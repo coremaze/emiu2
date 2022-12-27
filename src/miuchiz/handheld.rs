@@ -43,9 +43,8 @@ impl<'a> HandheldAddressSpace<'a> {
                 .map_err(|err| ConfigurationError::InvalidOtp(err.into()))?,
         );
 
-        let flash_box = Box::new(
-            Flash::try_from(flash).map_err(|err| ConfigurationError::InvalidFlash(err.into()))?,
-        );
+        let flash_box = Box::<Flash>::try_from(flash.to_vec().into_boxed_slice())
+            .map_err(|err| ConfigurationError::InvalidFlash("Flash invalid".into()))?;
 
         let lcd = st7626::Lcd::new(screen);
 
