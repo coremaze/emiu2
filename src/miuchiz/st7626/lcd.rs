@@ -261,7 +261,13 @@ impl<'a> Lcd<'a> {
     }
 
     fn update_display(&self) {
-        let mut pixels = Vec::<Pixel>::new();
+        let mut pixels = [Pixel {
+            red: 0,
+            green: 0,
+            blue: 0,
+        }; LCD_WIDTH * LCD_HEIGHT];
+
+        let mut pixel_iter = pixels.iter_mut();
 
         if self.display_on {
             for page in (self.start_page..=self.end_page) {
@@ -273,19 +279,11 @@ impl<'a> Lcd<'a> {
                     let red = 255 - ((pix_1 & 0x0F) as u8 * 17);
                     let green = 255 - (((pix_2 & 0xF0) >> 4) as u8 * 17);
                     let blue = 255 - ((pix_2 & 0x0F) as u8 * 17);
-                    let pixel = Pixel { red, green, blue };
-                    pixels.push(pixel);
+                    if let Some(px) = pixel_iter.next() {
+                        *px = Pixel { red, green, blue };
+                    }
                 }
             }
-        } else {
-            pixels = vec![
-                Pixel {
-                    red: 0,
-                    green: 0,
-                    blue: 0
-                };
-                LCD_WIDTH * LCD_HEIGHT
-            ];
         }
 
         // println!("Pixel len {}, pages {} col {}", pixels.len(), self.end_page, self.end_column);
