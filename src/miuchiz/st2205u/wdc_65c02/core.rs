@@ -80,6 +80,7 @@ pub struct Registers {
 }
 
 impl Registers {
+    #[inline(always)]
     pub fn full_sp(&self) -> u16 {
         self.sp as u16 | 0x100
     }
@@ -127,18 +128,21 @@ impl<A: AddressSpace> Core<A> {
         self.execute_instruction(&dins);
     }
 
+    #[inline(always)]
     pub fn push_u8(&mut self, val: u8) {
         self.address_space
             .write_u8(self.registers.full_sp() as usize, val);
         self.registers.sp -= 1;
     }
 
+    #[inline(always)]
     pub fn pop_u8(&mut self) -> u8 {
         self.registers.sp += 1;
         self.address_space
             .read_u8(self.registers.full_sp() as usize)
     }
 
+    #[inline(always)]
     pub fn push_u16(&mut self, val: u16) {
         let low = (val & 0xFF) as u8;
         let high = ((val & 0xFF00) >> 8) as u8;
@@ -146,6 +150,7 @@ impl<A: AddressSpace> Core<A> {
         self.push_u8(low);
     }
 
+    #[inline(always)]
     pub fn pop_u16(&mut self) -> u16 {
         let low = self.pop_u8();
         let high = self.pop_u8();
