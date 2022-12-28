@@ -1,4 +1,4 @@
-use super::{st2205u, st7626};
+use super::{sst39vf1681, st2205u, st7626};
 use crate::{display::Screen, gpio::Gpio, memory::AddressSpace};
 use std::error::Error;
 
@@ -28,7 +28,7 @@ impl AddressType {
 
 pub struct HandheldAddressSpace<'a> {
     otp: Box<st2205u::Otp>,
-    flash: Box<Flash>,
+    flash: sst39vf1681::Flash,
     lcd: st7626::Lcd<'a>,
 }
 
@@ -43,14 +43,14 @@ impl<'a, 'b> HandheldAddressSpace<'a> {
                 .map_err(|err| ConfigurationError::InvalidOtp(err.into()))?,
         );
 
-        let flash_box = Box::<Flash>::try_from(flash.to_vec().into_boxed_slice())
-            .map_err(|err| ConfigurationError::InvalidFlash("Flash invalid".into()))?;
+        let flash = sst39vf1681::Flash::new(flash)
+            .map_err(|err| ConfigurationError::InvalidFlash(err.into()))?;
 
         let lcd = st7626::Lcd::new(screen);
 
         Ok(Self {
             otp: otp_box,
-            flash: flash_box,
+            flash,
             lcd,
         })
     }
@@ -62,19 +62,15 @@ impl<'a, 'b> AddressSpace for HandheldAddressSpace<'a> {
         match AddressType::parse_machine_addr(address) {
             (AddressType::Video, vid_addr) => self.lcd.read_u8(vid_addr),
             (AddressType::Otp, otp_addr) => self.otp[otp_addr % self.otp.len()],
-            (AddressType::Flash, flash_addr) => self.flash[flash_addr % self.flash.len()],
+            (AddressType::Flash, flash_addr) => self.flash.read_u8(flash_addr),
         }
     }
 
     fn write_u8(&mut self, address: usize, value: u8) {
         match AddressType::parse_machine_addr(address) {
             (AddressType::Video, vid_addr) => self.lcd.write_u8(vid_addr, value),
-            (AddressType::Otp, _otp_addr) => {
-                todo!("Write OTP???")
-            }
-            (AddressType::Flash, _flash_addr) => {
-                todo!("Write Flash")
-            }
+            (AddressType::Otp, otp_addr) => println!("Attempt to write to OTP addr {otp_addr:X}"),
+            (AddressType::Flash, flash_addr) => self.flash.write_u8(flash_addr, value),
         }
     }
 }
