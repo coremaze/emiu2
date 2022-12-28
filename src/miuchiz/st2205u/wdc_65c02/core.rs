@@ -132,12 +132,12 @@ impl<A: AddressSpace> Core<A> {
     pub fn push_u8(&mut self, val: u8) {
         self.address_space
             .write_u8(self.registers.full_sp() as usize, val);
-        self.registers.sp -= 1;
+        self.registers.sp = self.registers.sp.wrapping_sub(1);
     }
 
     #[inline(always)]
     pub fn pop_u8(&mut self) -> u8 {
-        self.registers.sp += 1;
+        self.registers.sp = self.registers.sp.wrapping_add(1);
         self.address_space
             .read_u8(self.registers.full_sp() as usize)
     }
