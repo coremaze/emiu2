@@ -1,6 +1,7 @@
 mod addr_space;
 mod bank;
 mod dma;
+mod gpio;
 mod mcu;
 mod reg;
 mod vector;

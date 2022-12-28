@@ -1,5 +1,7 @@
 use super::bank;
 use super::dma;
+use super::gpio;
+use crate::gpio::Gpio;
 use crate::memory::AddressSpace;
 
 pub type Otp = [u8; 0x4000];
@@ -43,12 +45,33 @@ const fn bank_end(bits: usize) -> usize {
 const LOW_RAM_START: u16 = 0x0080;
 const LOW_RAM_END: u16 = 0x1FFF;
 
+const PA: u16 = 0x0000;
+const PB: u16 = 0x0001;
+const PC: u16 = 0x0002;
+const PD: u16 = 0x0003;
+const PE: u16 = 0x0004;
+const PF: u16 = 0x0005;
+const PSC: u16 = 0x0006;
+const PSE: u16 = 0x0007;
+const PCA: u16 = 0x0008;
+const PCB: u16 = 0x0009;
+const PCC: u16 = 0x000A;
+const PCD: u16 = 0x000B;
+const PCE: u16 = 0x000C;
+const PCF: u16 = 0x000D;
+const PFC: u16 = 0x000E;
+const PFD: u16 = 0x000F;
+
 const PRRL: u16 = 0x0032;
 const PRRH: u16 = 0x0033;
 const DRRL: u16 = 0x0034;
 const DRRH: u16 = 0x0035;
 const BRRL: u16 = 0x0036;
 const BRRH: u16 = 0x0037;
+
+const PMCR: u16 = 0x003A;
+const PL: u16 = 0x004E;
+const PCL: u16 = 0x004F;
 
 const DPRTL: u16 = 0x0058;
 const DPRTH: u16 = 0x0059;
@@ -59,7 +82,7 @@ const DCNTH: u16 = 0x005D;
 const DSEL: u16 = 0x005E;
 const DMOD: u16 = 0x005F;
 
-pub struct St2205uAddressSpace<A: AddressSpace> {
+pub struct St2205uAddressSpace<'a, A: AddressSpace> {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
     /// larger address space through the use of its memory bank registers.
     machine_addr_space: A,
@@ -68,16 +91,18 @@ pub struct St2205uAddressSpace<A: AddressSpace> {
 
     pub banks: bank::State,
     pub dma: dma::State,
+    pub gpio: gpio::State<'a>,
 }
 
-impl<A: AddressSpace> St2205uAddressSpace<A> {
-    pub fn new(machine_addr_space: A) -> Self {
+impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
+    pub fn new(machine_addr_space: A, io: &'a impl Gpio) -> Self {
         Self {
             machine_addr_space,
             ram: [0u8; 0x8000],
 
             banks: bank::State::new(),
             dma: dma::State::new(),
+            gpio: gpio::State::new(io),
         }
     }
 
@@ -98,8 +123,25 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
             DCNTH => dma::read_dcnth(self),
             DSEL => dma::read_dsel(self),
             DMOD => dma::read_dmod(self),
-            0 => 0xFF, // TODO: controls
-            1 => 0xFF, // TODO: controls
+            PA => gpio::read_pa(&self.gpio),
+            PB => gpio::read_pb(&self.gpio),
+            PC => gpio::read_pc(&self.gpio),
+            PD => gpio::read_pd(&self.gpio),
+            PE => gpio::read_pe(&self.gpio),
+            PF => gpio::read_pf(&self.gpio),
+            PSC => gpio::read_psc(&self.gpio),
+            PSE => gpio::read_pse(&self.gpio),
+            PCA => gpio::read_pca(&self.gpio),
+            PCB => gpio::read_pcb(&self.gpio),
+            PCC => gpio::read_pcc(&self.gpio),
+            PCD => gpio::read_pcd(&self.gpio),
+            PCE => gpio::read_pce(&self.gpio),
+            PCF => gpio::read_pcf(&self.gpio),
+            PFC => gpio::read_pfc(&self.gpio),
+            PFD => gpio::read_pfd(&self.gpio),
+            PMCR => gpio::read_pmcr(&self.gpio),
+            PL => gpio::read_pl(&self.gpio),
+            PCL => gpio::read_pcl(&self.gpio),
             _ => {
                 // println!("Unimplemented read of register {address:02X}");
                 0
@@ -124,6 +166,25 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
             DCNTH => dma::write_dcnth(self, value),
             DSEL => dma::write_dsel(self, value),
             DMOD => dma::write_dmod(self, value),
+            PA => gpio::write_pa(&mut self.gpio, value),
+            PB => gpio::write_pb(&mut self.gpio, value),
+            PC => gpio::write_pc(&mut self.gpio, value),
+            PD => gpio::write_pd(&mut self.gpio, value),
+            PE => gpio::write_pe(&mut self.gpio, value),
+            PF => gpio::write_pf(&mut self.gpio, value),
+            PSC => gpio::write_psc(&mut self.gpio, value),
+            PSE => gpio::write_pse(&mut self.gpio, value),
+            PCA => gpio::write_pca(&mut self.gpio, value),
+            PCB => gpio::write_pcb(&mut self.gpio, value),
+            PCC => gpio::write_pcc(&mut self.gpio, value),
+            PCD => gpio::write_pcd(&mut self.gpio, value),
+            PCE => gpio::write_pce(&mut self.gpio, value),
+            PCF => gpio::write_pcf(&mut self.gpio, value),
+            PFC => gpio::write_pfc(&mut self.gpio, value),
+            PFD => gpio::write_pfd(&mut self.gpio, value),
+            PMCR => gpio::write_pmcr(&mut self.gpio, value),
+            PL => gpio::write_pl(&mut self.gpio, value),
+            PCL => gpio::write_pcl(&mut self.gpio, value),
             _ => {
                 println!("Unimplemented write of register {address:02X}");
             }
@@ -140,7 +201,7 @@ impl<A: AddressSpace> St2205uAddressSpace<A> {
     }
 }
 
-impl<A: AddressSpace> AddressSpace for St2205uAddressSpace<A> {
+impl<'a, A: AddressSpace> AddressSpace for St2205uAddressSpace<'a, A> {
     fn read_u8(&mut self, address: usize) -> u8 {
         // The ST2205U address space is only 16 bits wide
         match address as u16 {

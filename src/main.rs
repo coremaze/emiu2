@@ -2,6 +2,7 @@ mod display;
 pub mod memory;
 mod miuchiz;
 use display::Screen;
+mod gpio;
 
 use display::Pixel;
 
@@ -10,7 +11,7 @@ fn main() {
 
     let otp_data = std::fs::read("OTP.dat").unwrap();
     let flash_data = std::fs::read("Flash.dat").unwrap();
-    let mut handheld = miuchiz::Handheld::new(&otp_data, &flash_data, &screen).unwrap();
+    let mut handheld = miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen).unwrap();
 
     for _count in 0u64..800_000_000 {
         // let inst = handheld.mcu.core.decode_next_instruction();

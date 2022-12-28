@@ -1,5 +1,5 @@
 use super::{st2205u, st7626};
-use crate::{display::Screen, memory::AddressSpace};
+use crate::{display::Screen, gpio::Gpio, memory::AddressSpace};
 use std::error::Error;
 
 pub type Flash = [u8; 0x200000];
@@ -32,7 +32,7 @@ pub struct HandheldAddressSpace<'a> {
     lcd: st7626::Lcd<'a>,
 }
 
-impl<'a> HandheldAddressSpace<'a> {
+impl<'a, 'b> HandheldAddressSpace<'a> {
     pub fn new(
         otp: &[u8],
         flash: &[u8],
@@ -56,7 +56,7 @@ impl<'a> HandheldAddressSpace<'a> {
     }
 }
 
-impl<'a> AddressSpace for HandheldAddressSpace<'a> {
+impl<'a, 'b> AddressSpace for HandheldAddressSpace<'a> {
     fn read_u8(&mut self, address: usize) -> u8 {
         // println!("Read {address:X}");
         match AddressType::parse_machine_addr(address) {
@@ -85,20 +85,21 @@ pub enum ConfigurationError {
     InvalidFlash(Box<dyn Error>),
 }
 
-pub struct Handheld<'a> {
-    pub mcu: st2205u::Mcu<HandheldAddressSpace<'a>>,
+pub struct Handheld<'a, 'b> {
+    pub mcu: st2205u::Mcu<'b, HandheldAddressSpace<'a>>,
 }
 
-impl<'a> Handheld<'a> {
+impl<'a, 'b> Handheld<'a, 'b> {
     pub fn new(
         otp: &[u8],
         flash: &[u8],
         screen: &'a impl Screen,
+        io: &'b impl Gpio,
     ) -> Result<Self, ConfigurationError> {
         let machine_address_space = HandheldAddressSpace::new(otp, flash, screen)?;
 
         let mcu = Self {
-            mcu: st2205u::Mcu::new(machine_address_space),
+            mcu: st2205u::Mcu::new(machine_address_space, io),
         };
 
         Ok(mcu)

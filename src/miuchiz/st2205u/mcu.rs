@@ -1,6 +1,7 @@
 use super::vector;
 use super::wdc_65c02;
 use super::St2205uAddressSpace;
+use crate::gpio::Gpio;
 use crate::memory::AddressSpace;
 
 /// Representation of a ST2205U microcontroller.
@@ -11,14 +12,14 @@ use crate::memory::AddressSpace;
 ///
 /// This device also implements its own address space, which is addressible using
 /// 16 bits, which is directly exposed to the underlying 65C02.
-pub struct Mcu<A: AddressSpace> {
-    pub core: wdc_65c02::Core<St2205uAddressSpace<A>>,
+pub struct Mcu<'a, A: AddressSpace> {
+    pub core: wdc_65c02::Core<St2205uAddressSpace<'a, A>>,
 }
 
-impl<A: AddressSpace> Mcu<A> {
-    pub fn new(address_space: A) -> Self {
+impl<'a, A: AddressSpace> Mcu<'a, A> {
+    pub fn new(address_space: A, io: &'a impl Gpio) -> Self {
         let mut mcu = Self {
-            core: wdc_65c02::Core::new(St2205uAddressSpace::new(address_space)),
+            core: wdc_65c02::Core::new(St2205uAddressSpace::new(address_space, io)),
         };
 
         mcu.reset();

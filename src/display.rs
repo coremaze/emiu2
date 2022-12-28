@@ -4,6 +4,8 @@ use std::{error::Error, sync::mpsc::Sender};
 
 use minifb::{Key, Window, WindowOptions};
 
+use crate::gpio::Button;
+
 pub trait Screen {
     fn set_pixels(&self, pixels: &[Pixel]);
 }
@@ -19,6 +21,7 @@ pub struct MiniFbScreen {
     tx: Sender<MiniFBMessage>,
     rx: Receiver<MiniFBWorkerMessage>,
     closed: RefCell<bool>,
+    keys: RefCell<Vec<Key>>,
 }
 
 impl MiniFbScreen {
@@ -34,6 +37,7 @@ impl MiniFbScreen {
             tx: host_tx,
             rx: worker_rx,
             closed: RefCell::new(false),
+            keys: RefCell::new(Vec::<Key>::new()),
         }
     }
 
@@ -43,11 +47,41 @@ impl MiniFbScreen {
         });
     }
 
-    pub fn is_open(&self) -> bool {
-        if let Ok(MiniFBWorkerMessage::Close(_result)) = self.rx.try_recv() {
-            *self.closed.borrow_mut() = true;
+    fn update(&self) {
+        loop {
+            match self.rx.try_recv() {
+                Ok(message) => match message {
+                    MiniFBWorkerMessage::Keys(keys) => *self.keys.borrow_mut() = keys,
+                    MiniFBWorkerMessage::Close(_result) => *self.closed.borrow_mut() = true,
+                },
+                Err(_) => break,
+            }
         }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.update();
         !*self.closed.borrow()
+    }
+
+    pub fn is_button_pressed(&self, button: Button) -> bool {
+        let keys = self.keys.borrow();
+        match button {
+            Button::Up => keys.contains(&Key::Up),
+            Button::Down => keys.contains(&Key::Down),
+            Button::Left => keys.contains(&Key::Left),
+            Button::Right => keys.contains(&Key::Right),
+            Button::Power => keys.contains(&Key::P),
+            Button::Menu => keys.contains(&Key::Menu),
+            Button::UpsideUp => false,
+            Button::UpsideDown => false,
+            Button::ScreenTopLeft => false,
+            Button::ScreenTopRight => false,
+            Button::ScreenBottomLeft => false,
+            Button::ScreenBottomRight => false,
+            Button::Action => keys.contains(&Key::A),
+            Button::Mute => false,
+        }
     }
 }
 
@@ -64,6 +98,7 @@ impl Screen for MiniFbScreen {
 }
 
 enum MiniFBWorkerMessage {
+    Keys(Vec<Key>),
     Close(Result<(), minifb::Error>),
 }
 
@@ -153,6 +188,8 @@ fn run_minifb_worker(
             eprintln!("Failed to update window: {err:?}");
             close = true;
         }
+
+        tx.send(MiniFBWorkerMessage::Keys(window.get_keys()));
     }
 
     tx.send(MiniFBWorkerMessage::Close(Ok(())));
