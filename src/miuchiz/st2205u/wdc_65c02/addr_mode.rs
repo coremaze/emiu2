@@ -65,8 +65,9 @@ impl AddressingMode {
             AddressingMode::Indirect(_) => todo!(),
             AddressingMode::XIndexedIndirect(addr) => {
                 // (0,X) should only access ZP, meaning page boundaries can never be crossed
-                let read_address = addr.wrapping_add(core.registers.x);
-                let value = core.address_space.read_u8(read_address as usize);
+                let offset_addr = addr.wrapping_add(core.registers.x);
+                let read_addr = core.address_space.read_u16_le(offset_addr as usize);
+                let value = core.address_space.read_u8(read_addr as usize);
                 (value, false)
             }
             AddressingMode::IndirectYIndexed(addr) => {
