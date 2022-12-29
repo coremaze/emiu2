@@ -83,7 +83,12 @@ impl AddressingMode {
                 let read_address = core.address_space.read_u16_le(*zp_addr as usize);
                 (core.address_space.read_u8(read_address as usize), false)
             }
-            AddressingMode::ZeroPageXIndexed(_) => todo!(),
+            AddressingMode::ZeroPageXIndexed(zp_addr) => {
+                let value = core
+                    .address_space
+                    .read_u8(zp_addr.wrapping_add(core.registers.x) as usize);
+                (value, false)
+            }
             AddressingMode::ZeroPageYIndexed(_) => todo!(),
             AddressingMode::ZeroPageRelative(_, _) => todo!(),
             AddressingMode::Implied => (core.registers.a, false),
@@ -117,6 +122,17 @@ impl AddressingMode {
         }
     }
 
+    // BBR and BBS
+    pub fn read_operand_u8_i8<A: AddressSpace>(&self, core: &mut Core<A>) -> ((u8, i8), bool) {
+        match &self {
+            AddressingMode::ZeroPageRelative(zp_addr, offset) => {
+                let value = core.address_space.read_u8(*zp_addr as usize);
+                ((value, *offset), false)
+            }
+            _ => todo!(),
+        }
+    }
+
     // Returns whether a page boundary was crossed
     pub fn write_operand_u8<A: AddressSpace>(&self, core: &mut Core<A>, value: u8) -> bool {
         match &self {
@@ -138,7 +154,12 @@ impl AddressingMode {
             AddressingMode::Immediate(_) => todo!(),
             AddressingMode::Indirect(_) => todo!(),
             AddressingMode::XIndexedIndirect(_) => todo!(),
-            AddressingMode::IndirectYIndexed(_) => todo!(),
+            AddressingMode::IndirectYIndexed(addr) => {
+                let address1 = core.address_space.read_u16_le(*addr as usize);
+                let address2 = address1.wrapping_add(core.registers.y.into());
+                core.address_space.write_u8(address2 as usize, value);
+                crosses_page(address1, address2)
+            }
             AddressingMode::Relative(_) => todo!(),
             AddressingMode::ZeroPage(zp_addr) => {
                 core.address_space.write_u8(*zp_addr as usize, value);

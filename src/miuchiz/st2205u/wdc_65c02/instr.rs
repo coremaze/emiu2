@@ -223,6 +223,30 @@ pub fn bne<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
     bound_crossed
 }
 
+pub fn bmi<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (operand, bound_crossed) = inst.addressing_mode.read_operand_i8(core);
+
+    if core.flags.negative {
+        branch(core, operand);
+        // Extra cycle taken if branch succeeds
+        core.cycles += 1;
+    }
+
+    bound_crossed
+}
+
+pub fn bpl<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (operand, bound_crossed) = inst.addressing_mode.read_operand_i8(core);
+
+    if !core.flags.negative {
+        branch(core, operand);
+        // Extra cycle taken if branch succeeds
+        core.cycles += 1;
+    }
+
+    bound_crossed
+}
+
 pub fn pha<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
     core.push_u8(core.registers.a);
     false
@@ -307,6 +331,21 @@ pub fn and<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
     core.registers.a &= operand;
     core.flags.zero = core.registers.a == 0;
     core.flags.negative = is_negative(core.registers.a);
+
+    bound_crossed
+}
+
+pub fn asl<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (mut operand, bound_crossed) = inst.addressing_mode.read_operand_u8(core);
+
+    core.flags.carry = operand & (1 << 7) != 0;
+
+    operand <<= 1;
+
+    core.flags.negative = is_negative(operand);
+    core.flags.zero = operand == 0;
+
+    inst.addressing_mode.write_operand_u8(core, operand);
 
     bound_crossed
 }
@@ -404,6 +443,94 @@ pub fn bcs<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
     }
 
     bound_crossed
+}
+
+pub fn bbr<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction, bit: u8) -> bool {
+    let ((operand, offset), bound_crossed) = inst.addressing_mode.read_operand_u8_i8(core);
+
+    if operand & (1 << bit) == 0 {
+        branch(core, offset);
+        // Extra cycle taken if branch succeeds
+        core.cycles += 1;
+    }
+
+    bound_crossed
+}
+
+pub fn bbr0<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 0)
+}
+
+pub fn bbr1<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 1)
+}
+
+pub fn bbr2<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 2)
+}
+
+pub fn bbr3<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 3)
+}
+
+pub fn bbr4<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 4)
+}
+
+pub fn bbr5<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 5)
+}
+
+pub fn bbr6<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 6)
+}
+
+pub fn bbr7<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbr(core, inst, 7)
+}
+
+pub fn bbs<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction, bit: u8) -> bool {
+    let ((operand, offset), bound_crossed) = inst.addressing_mode.read_operand_u8_i8(core);
+
+    if operand & (1 << bit) != 0 {
+        branch(core, offset);
+        // Extra cycle taken if branch succeeds
+        core.cycles += 1;
+    }
+
+    bound_crossed
+}
+
+pub fn bbs0<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 0)
+}
+
+pub fn bbs1<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 1)
+}
+
+pub fn bbs2<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 2)
+}
+
+pub fn bbs3<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 3)
+}
+
+pub fn bbs4<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 4)
+}
+
+pub fn bbs5<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 5)
+}
+
+pub fn bbs6<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 6)
+}
+
+pub fn bbs7<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    bbs(core, inst, 7)
 }
 
 pub fn cli<A: AddressSpace>(core: &mut Core<A>, _inst: &Instruction) -> bool {
@@ -525,6 +652,38 @@ pub fn adc<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
         & 0b10000000)
         != 0;
     core.flags.overflow = c_6 ^ core.flags.carry;
+
+    bound_crossed
+}
+
+pub fn sbc<A: AddressSpace>(core: &mut Core<A>, inst: &Instruction) -> bool {
+    let (operand, bound_crossed) = inst.addressing_mode.read_operand_u8(core);
+
+    let old_carry = core.flags.carry;
+
+    let mut result = u16::from(core.registers.a) + u16::from(!operand) + old_carry as u16;
+
+    core.flags.carry = result > u8::MAX as u16;
+    core.flags.zero = result & 0xFF == 0;
+    core.flags.overflow =
+        ((core.registers.a ^ operand) & (core.registers.a ^ result as u8) & 0b10000000 as u8) > 0;
+
+    core.flags.negative = is_negative((result & 0xFF) as u8);
+
+    if core.flags.decimal {
+        let value = operand as i16;
+
+        let mut sum = (core.registers.a & 0xf) as i16 - (value & 0xf) + old_carry as i16 - 1;
+        if sum < 0 {
+            sum = ((sum - 0x6) & 0xf) - 0x10;
+        }
+        let mut sum = (core.registers.a & 0xf0) as i16 - (value & 0xf0) + sum;
+        if sum < 0 {
+            sum -= 0x60;
+        }
+        result = (sum & 0xff) as u16;
+    }
+    core.registers.a = (result & 0xFF) as u8;
 
     bound_crossed
 }
