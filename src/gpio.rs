@@ -4,6 +4,7 @@ pub trait Gpio {
     fn get_input(&self, bit: u32) -> bool;
 }
 
+#[derive(PartialEq, Copy, Clone, Debug)]
 pub enum Button {
     Up,
     Down,

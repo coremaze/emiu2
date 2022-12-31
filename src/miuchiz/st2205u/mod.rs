@@ -1,7 +1,10 @@
 mod addr_space;
 mod bank;
+mod base_timer;
+mod clock;
 mod dma;
 mod gpio;
+mod interrupt;
 mod mcu;
 mod reg;
 mod vector;

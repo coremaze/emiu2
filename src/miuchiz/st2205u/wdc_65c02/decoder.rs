@@ -1120,7 +1120,7 @@ impl DecodedInstruction {
             0x7C => DecodedInstruction {
                 instruction: Instruction {
                     opcode: Opcode::Jmp,
-                    addressing_mode: AddressingMode::AbsoluteXIndexedIndirect(to_word(
+                    addressing_mode: AddressingMode::AbsoluteXIndexedIndirectAddress(to_word(
                         memory.read_u8(offset + 1),
                         memory.read_u8(offset + 2),
                     )),

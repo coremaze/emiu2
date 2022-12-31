@@ -1,26 +1,28 @@
 use crate::memory::AddressSpace;
 
 use super::Core;
+use super::HandlesInterrupt;
 
 #[derive(Debug)]
 pub enum AddressingMode {
-    Absolute(u16),                 // OPCODE $WWWW
-    AbsoluteXIndexed(u16),         // OPCODE $WWWW,X
-    AbsoluteYIndexed(u16),         // OPCODE $WWWW,Y
-    AbsoluteXIndexedIndirect(u16), // OPCODE ($WWWW,X)
-    Immediate(u8),                 // OPCODE #$BB
-    Indirect(u16),                 // OPCODE ($WWWW)
-    XIndexedIndirect(u8),          // OPCODE ($LL,X)
-    IndirectYIndexed(u8),          // OPCODE ($LL),Y
-    Relative(i8),                  // OPCODE $bb
-    ZeroPage(u8),                  // OPCODE $LL
-    IndirectZeroPage(u8),          // OPCODE ($LL)
-    ZeroPageXIndexed(u8),          // OPCODE $LL,X
-    ZeroPageYIndexed(u8),          // OPCODE $LL,Y
-    ZeroPageRelative(u8, i8),      // OPCODE $BB,$bb
-    Implied,                       // OPCODE
-    AbsoluteAddress(u16),          // OPCODE $WWWW; For JMP and JSR since they do not dereference
-    IndirectAddress(u16),          // OPCODE ($WWWW); For JMP
+    Absolute(u16),                        // OPCODE $WWWW
+    AbsoluteXIndexed(u16),                // OPCODE $WWWW,X
+    AbsoluteYIndexed(u16),                // OPCODE $WWWW,Y
+    AbsoluteXIndexedIndirect(u16),        // OPCODE ($WWWW,X)
+    Immediate(u8),                        // OPCODE #$BB
+    Indirect(u16),                        // OPCODE ($WWWW)
+    XIndexedIndirect(u8),                 // OPCODE ($LL,X)
+    IndirectYIndexed(u8),                 // OPCODE ($LL),Y
+    Relative(i8),                         // OPCODE $bb
+    ZeroPage(u8),                         // OPCODE $LL
+    IndirectZeroPage(u8),                 // OPCODE ($LL)
+    ZeroPageXIndexed(u8),                 // OPCODE $LL,X
+    ZeroPageYIndexed(u8),                 // OPCODE $LL,Y
+    ZeroPageRelative(u8, i8),             // OPCODE $BB,$bb
+    Implied,                              // OPCODE
+    AbsoluteAddress(u16), // OPCODE $WWWW; For JMP and JSR since they do not dereference
+    IndirectAddress(u16), // OPCODE ($WWWW); For JMP
+    AbsoluteXIndexedIndirectAddress(u16), // OPCODE ($WWWW,X); for JMP
 }
 
 impl AddressingMode {
@@ -43,11 +45,15 @@ impl AddressingMode {
             AddressingMode::Implied => 0,
             AddressingMode::AbsoluteAddress(_) => 2,
             AddressingMode::IndirectAddress(_) => 2,
+            AddressingMode::AbsoluteXIndexedIndirectAddress(_) => 2,
         }
     }
 
     // Returns the byte read as well as whether a page boundary was crossed
-    pub fn read_operand_u8<A: AddressSpace>(&self, core: &mut Core<A>) -> (u8, bool) {
+    pub fn read_operand_u8<A: AddressSpace + HandlesInterrupt>(
+        &self,
+        core: &mut Core<A>,
+    ) -> (u8, bool) {
         match &self {
             AddressingMode::Absolute(addr) => (core.address_space.read_u8(*addr as usize), false),
             AddressingMode::AbsoluteXIndexed(addr) => {
@@ -93,13 +99,19 @@ impl AddressingMode {
             AddressingMode::ZeroPageYIndexed(_) => todo!(),
             AddressingMode::ZeroPageRelative(_, _) => todo!(),
             AddressingMode::Implied => (core.registers.a, false),
-            AddressingMode::AbsoluteAddress(_) => todo!(),
-            AddressingMode::IndirectAddress(_) => todo!(),
+            AddressingMode::AbsoluteAddress(_)
+            | AddressingMode::IndirectAddress(_)
+            | AddressingMode::AbsoluteXIndexedIndirectAddress(_) => {
+                panic!("Addressing mode doesn't return u8")
+            }
         }
     }
 
     // Returns the byte read as well as whether a page boundary was crossed
-    pub fn read_operand_i8<A: AddressSpace>(&self, _core: &mut Core<A>) -> (i8, bool) {
+    pub fn read_operand_i8<A: AddressSpace + HandlesInterrupt>(
+        &self,
+        _core: &mut Core<A>,
+    ) -> (i8, bool) {
         match &self {
             AddressingMode::Relative(rel) => (*rel, false),
             _ => {
@@ -109,22 +121,31 @@ impl AddressingMode {
     }
 
     // Basically for JMP and JSR
-    pub fn read_operand_u16<A: AddressSpace>(&self, core: &mut Core<A>) -> (u16, bool) {
+    pub fn read_operand_u16<A: AddressSpace + HandlesInterrupt>(
+        &self,
+        core: &mut Core<A>,
+    ) -> (u16, bool) {
         match &self {
             AddressingMode::AbsoluteAddress(addr) => (*addr, false),
             AddressingMode::IndirectAddress(addr) => {
                 let value = core.address_space.read_u16_le(*addr as usize);
                 (value, false)
             }
-            _ => {
-                let (value, crossed_boundary) = self.read_operand_u8(core);
-                (value.into(), crossed_boundary)
+            AddressingMode::AbsoluteXIndexedIndirectAddress(addr) => {
+                let address_address = addr.wrapping_add(core.registers.x.into());
+                println!("{address_address:X}");
+                let jmp_addr = core.address_space.read_u16_le(address_address as usize);
+                (jmp_addr, crosses_page(*addr, address_address))
             }
+            _ => todo!(),
         }
     }
 
     // BBR and BBS
-    pub fn read_operand_u8_i8<A: AddressSpace>(&self, core: &mut Core<A>) -> ((u8, i8), bool) {
+    pub fn read_operand_u8_i8<A: AddressSpace + HandlesInterrupt>(
+        &self,
+        core: &mut Core<A>,
+    ) -> ((u8, i8), bool) {
         match &self {
             AddressingMode::ZeroPageRelative(zp_addr, offset) => {
                 let value = core.address_space.read_u8(*zp_addr as usize);
@@ -135,7 +156,11 @@ impl AddressingMode {
     }
 
     // Returns whether a page boundary was crossed
-    pub fn write_operand_u8<A: AddressSpace>(&self, core: &mut Core<A>, value: u8) -> bool {
+    pub fn write_operand_u8<A: AddressSpace + HandlesInterrupt>(
+        &self,
+        core: &mut Core<A>,
+        value: u8,
+    ) -> bool {
         match &self {
             AddressingMode::Absolute(addr) => {
                 core.address_space.write_u8(*addr as usize, value);
@@ -182,8 +207,11 @@ impl AddressingMode {
                 core.registers.a = value;
                 false
             }
-            AddressingMode::AbsoluteAddress(_) => todo!(),
-            AddressingMode::IndirectAddress(_) => todo!(),
+            AddressingMode::AbsoluteAddress(_)
+            | AddressingMode::IndirectAddress(_)
+            | AddressingMode::AbsoluteXIndexedIndirectAddress(_) => {
+                panic!("Addressing mode doesn't return u8")
+            }
         }
     }
 }
@@ -220,6 +248,7 @@ impl ToString for AddressingMode {
             AddressingMode::Implied => "".to_owned(),
             AddressingMode::AbsoluteAddress(addr) => format!("${addr:04X}"),
             AddressingMode::IndirectAddress(addr) => format!("(${addr:04X})"),
+            AddressingMode::AbsoluteXIndexedIndirectAddress(addr) => format!("(${addr:04X},X)"),
         }
     }
 }

@@ -169,7 +169,7 @@ pub fn write_pa(gpio: &mut State, value: u8) {
 }
 
 pub fn write_pb(gpio: &mut State, value: u8) {
-    println!("Unimplemented write {value:02X} to PB");
+    // println!("Unimplemented write {value:02X} to PB");
 }
 
 pub fn write_pc(gpio: &mut State, value: u8) {

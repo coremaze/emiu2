@@ -206,29 +206,43 @@ fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
 
     // Can be restored at end if reload mode
     let original_src_dptr = st2205u.dma.src_dptr.clone();
+    let original_src_dbkr = st2205u.dma.src_dbkr.clone();
 
     // Can be restored at end if reload mode
     let original_dest_dptr = st2205u.dma.dest_dptr.clone();
+    let original_dest_dbkr = st2205u.dma.dest_dbkr.clone();
 
     for _ in 0..st2205u.dma.dcnt.u16() + 1 {
-        bank::set_drr(st2205u, st2205u.dma.src_dbkr.u16()); // Switch to src bank
+        let src_bank = st2205u.dma.src_dbkr.u16();
+        bank::set_drr(st2205u, src_bank); // Switch to src bank
         let src_ptr = st2205u.dma.src_dptr.u16() | (1 << 15); // Get src ptr
         let src_byte = st2205u.read_u8(src_ptr as usize); // Read src byte
 
-        bank::set_drr(st2205u, st2205u.dma.dest_dbkr.u16()); // Switch to dest bank
+        let dest_bank = st2205u.dma.dest_dbkr.u16();
+        bank::set_drr(st2205u, dest_bank); // Switch to dest bank
         let dest_ptr = st2205u.dma.dest_dptr.u16() | (1 << 15); // Get dest ptr
         st2205u.write_u8(dest_ptr as usize, src_byte); // Write dest byte
 
         // Increment src ptr if applicable
         match st2205u.dma.get_src_mode() {
-            Mode::Continue | Mode::Reload => st2205u.dma.src_dptr.set_u16(src_ptr.wrapping_add(1)),
+            Mode::Continue | Mode::Reload => {
+                st2205u.dma.src_dptr.set_u16(src_ptr.wrapping_add(1));
+                // If src reaches the end of bank, move to next bank
+                if st2205u.dma.src_dptr.u16() == 0 {
+                    st2205u.dma.src_dbkr.set_u16(src_bank.wrapping_add(1));
+                }
+            }
             Mode::Fixed => { /* Do nothing, pointer is fixed */ }
         }
 
         // Increment dest ptr if applicable
         match st2205u.dma.get_dest_mode() {
             Mode::Continue | Mode::Reload => {
-                st2205u.dma.dest_dptr.set_u16(dest_ptr.wrapping_add(1))
+                st2205u.dma.dest_dptr.set_u16(dest_ptr.wrapping_add(1));
+                // If dest reaches the end of bank, move to next bank
+                if st2205u.dma.dest_dptr.u16() == 0 {
+                    st2205u.dma.dest_dbkr.set_u16(dest_bank.wrapping_add(1));
+                }
             }
             Mode::Fixed => { /* Do nothing, pointer is fixed */ }
         }
@@ -243,14 +257,16 @@ fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
     //     st2205u.dma.dest_dptr.u16() | 0x8000
     // );
 
-    // Restore src ptr if in reload mode
+    // Restore src ptr/bank if in reload mode
     if let Mode::Reload = st2205u.dma.get_src_mode() {
         st2205u.dma.src_dptr = original_src_dptr;
+        st2205u.dma.src_dbkr = original_src_dbkr;
     }
 
-    // Restore dest ptr if in reload mode
+    // Restore dest ptr/bank if in reload mode
     if let Mode::Reload = st2205u.dma.get_dest_mode() {
         st2205u.dma.dest_dptr = original_dest_dptr;
+        st2205u.dma.dest_dbkr = original_dest_dbkr;
     }
 
     // Restore original DRR bank register

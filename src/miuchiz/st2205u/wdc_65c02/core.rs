@@ -1,11 +1,16 @@
-use super::{instr, opcode::Opcode, DecodedInstruction};
+use super::{instr, opcode::Opcode, DecodedInstruction, HandlesInterrupt};
 use crate::memory::AddressSpace;
+
+// This core should tick every 2 oscillations
+const CYCLE_FREQUENCY_DIVISOR: u64 = 2;
 
 /// A WDC 65C02 CPU core
 pub struct Core<A>
 where
-    A: AddressSpace,
+    A: AddressSpace + HandlesInterrupt,
 {
+    frequency: u64,
+
     pub cycles: u64,
 
     pub address_space: A,
@@ -95,9 +100,20 @@ impl ToString for Registers {
     }
 }
 
-impl<A: AddressSpace> Core<A> {
-    pub fn new(address_space: A) -> Self {
+impl<A: AddressSpace + HandlesInterrupt> HandlesInterrupt for Core<A> {
+    fn set_interrupted(&mut self, interrupted: bool) {
+        self.address_space.set_interrupted(interrupted);
+    }
+
+    fn interrupted(&self) -> bool {
+        self.address_space.interrupted()
+    }
+}
+
+impl<A: AddressSpace + HandlesInterrupt> Core<A> {
+    pub fn new(frequency: u64, address_space: A) -> Self {
         Self {
+            frequency,
             cycles: 0,
             flags: Flags::default(),
             address_space,
@@ -109,6 +125,18 @@ impl<A: AddressSpace> Core<A> {
                 y: 0,
             },
         }
+    }
+
+    pub fn cycles_per_second(&self) -> u64 {
+        self.frequency / CYCLE_FREQUENCY_DIVISOR
+    }
+
+    pub fn instruction_cycles(&self) -> u64 {
+        self.cycles
+    }
+
+    pub fn oscillator_cycles(&self) -> u64 {
+        self.cycles * CYCLE_FREQUENCY_DIVISOR
     }
 
     pub fn decode_next_instruction(&mut self) -> DecodedInstruction {
@@ -193,7 +221,7 @@ impl<A: AddressSpace> Core<A> {
             Opcode::Clc => instr::clc,
             Opcode::Cld => instr::cld,
             Opcode::Cli => instr::cli,
-            Opcode::Clv => todo!(),
+            Opcode::Clv => instr::clv,
             Opcode::Cmp => instr::cmp,
             Opcode::Cpx => instr::cpx,
             Opcode::Cpy => instr::cpy,
@@ -229,8 +257,8 @@ impl<A: AddressSpace> Core<A> {
             Opcode::Rmb6 => instr::rmb6,
             Opcode::Rmb7 => instr::rmb7,
             Opcode::Rol => instr::rol,
-            Opcode::Ror => todo!(),
-            Opcode::Rti => todo!(),
+            Opcode::Ror => instr::ror,
+            Opcode::Rti => instr::rti,
             Opcode::Rts => instr::rts,
             Opcode::Sbc => instr::sbc,
             Opcode::Sec => instr::sec,

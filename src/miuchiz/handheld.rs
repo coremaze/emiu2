@@ -2,7 +2,7 @@ use super::{sst39vf1681, st2205u, st7626};
 use crate::{display::Screen, gpio::Gpio, memory::AddressSpace};
 use std::error::Error;
 
-pub type Flash = [u8; 0x200000];
+pub const SYSTEM_FREQ: u64 = 16_000_000;
 
 #[derive(Debug)]
 enum AddressType {
@@ -95,7 +95,7 @@ impl<'a, 'b> Handheld<'a, 'b> {
         let machine_address_space = HandheldAddressSpace::new(otp, flash, screen)?;
 
         let mcu = Self {
-            mcu: st2205u::Mcu::new(machine_address_space, io),
+            mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io),
         };
 
         Ok(mcu)

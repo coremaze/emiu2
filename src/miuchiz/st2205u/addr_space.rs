@@ -1,6 +1,9 @@
 use super::bank;
+use super::base_timer;
 use super::dma;
 use super::gpio;
+use super::interrupt;
+use super::wdc_65c02::HandlesInterrupt;
 use crate::gpio::Gpio;
 use crate::memory::AddressSpace;
 
@@ -62,6 +65,12 @@ const PCF: u16 = 0x000D;
 const PFC: u16 = 0x000E;
 const PFD: u16 = 0x000F;
 
+const BTEN: u16 = 0x002A;
+const BTREQ: u16 = 0x002B;
+const BTC: u16 = 0x002C;
+
+const IRRL: u16 = 0x0030;
+const IRRH: u16 = 0x0031;
 const PRRL: u16 = 0x0032;
 const PRRH: u16 = 0x0033;
 const DRRL: u16 = 0x0034;
@@ -70,6 +79,12 @@ const BRRL: u16 = 0x0036;
 const BRRH: u16 = 0x0037;
 
 const PMCR: u16 = 0x003A;
+
+const IREQL: u16 = 0x003C;
+const IREQH: u16 = 0x003D;
+const IENAL: u16 = 0x003E;
+const IENAH: u16 = 0x003F;
+
 const PL: u16 = 0x004E;
 const PCL: u16 = 0x004F;
 
@@ -92,10 +107,12 @@ pub struct St2205uAddressSpace<'a, A: AddressSpace> {
     pub banks: bank::State,
     pub dma: dma::State,
     pub gpio: gpio::State<'a>,
+    pub base_timer: base_timer::State,
+    pub interrupt: interrupt::State,
 }
 
 impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
-    pub fn new(machine_addr_space: A, io: &'a impl Gpio) -> Self {
+    pub fn new(machine_addr_space: A, io: &'a impl Gpio, frequency: u64) -> Self {
         Self {
             machine_addr_space,
             ram: [0u8; 0x8000],
@@ -103,12 +120,16 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             banks: bank::State::new(),
             dma: dma::State::new(),
             gpio: gpio::State::new(io),
+            base_timer: base_timer::State::new(frequency),
+            interrupt: interrupt::State::new(),
         }
     }
 
     fn read_register(&mut self, address: u16) -> u8 {
         // println!("Read from register {address:X}");
         match address {
+            IRRL => bank::read_irrl(self),
+            IRRH => bank::read_irrh(self),
             PRRL => bank::read_prrl(self),
             PRRH => bank::read_prrh(self),
             DRRL => bank::read_drrl(self),
@@ -142,6 +163,13 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PMCR => gpio::read_pmcr(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
             PCL => gpio::read_pcl(&self.gpio),
+            BTEN => base_timer::read_bten(&self.base_timer),
+            BTREQ => base_timer::read_btreq(&self.base_timer),
+            BTC => base_timer::read_btc(&self.base_timer),
+            IREQL => interrupt::read_ireql(&self.interrupt),
+            IREQH => interrupt::read_ireqh(&self.interrupt),
+            IENAL => interrupt::read_ienal(&self.interrupt),
+            IENAH => interrupt::read_ienah(&self.interrupt),
             _ => {
                 // println!("Unimplemented read of register {address:02X}");
                 0
@@ -152,6 +180,8 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
     fn write_register(&mut self, address: u16, value: u8) {
         // println!("Write to register {address:X}");
         match address as u16 {
+            IRRL => bank::write_irrl(self, value),
+            IRRH => bank::write_irrh(self, value),
             PRRL => bank::write_prrl(self, value),
             PRRH => bank::write_prrh(self, value),
             DRRL => bank::write_drrl(self, value),
@@ -185,6 +215,13 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
             PCL => gpio::write_pcl(&mut self.gpio, value),
+            BTEN => base_timer::write_bten(&mut self.base_timer, value),
+            BTREQ => base_timer::write_btreq(&mut self.base_timer, value),
+            BTC => base_timer::write_btc(&mut self.base_timer, value),
+            IREQL => interrupt::write_ireql(&mut self.interrupt, value),
+            IREQH => interrupt::write_ireqh(&mut self.interrupt, value),
+            IENAL => interrupt::write_ienal(&mut self.interrupt, value),
+            IENAH => interrupt::write_ienah(&mut self.interrupt, value),
             _ => {
                 println!("Unimplemented write of register {address:02X}");
             }
@@ -201,6 +238,16 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
     }
 }
 
+impl<'a, A: AddressSpace> HandlesInterrupt for St2205uAddressSpace<'a, A> {
+    fn set_interrupted(&mut self, interrupted: bool) {
+        self.interrupt.set_interrupted(interrupted);
+    }
+
+    fn interrupted(&self) -> bool {
+        self.interrupt.interrupted()
+    }
+}
+
 impl<'a, A: AddressSpace> AddressSpace for St2205uAddressSpace<'a, A> {
     fn read_u8(&mut self, address: usize) -> u8 {
         // The ST2205U address space is only 16 bits wide
@@ -213,7 +260,13 @@ impl<'a, A: AddressSpace> AddressSpace for St2205uAddressSpace<'a, A> {
                 // i.e. BRR will use the address as its lower 13 bits
                 let (reg, left_shift) = match address as u16 {
                     BRR_START..=BRR_END => (bank::brr(self), BRR_BITS),
-                    PRR_START..=PRR_END => (bank::prr(self), PRR_BITS),
+                    PRR_START..=PRR_END => {
+                        if self.interrupted() {
+                            (bank::irr(self), PRR_BITS)
+                        } else {
+                            (bank::prr(self), PRR_BITS)
+                        }
+                    }
                     DRR_START..=DRR_END => (bank::drr(self), DRR_BITS),
                     0..=0x1FFF => {
                         unreachable!("This range is excluded by parent match.");
@@ -245,7 +298,13 @@ impl<'a, A: AddressSpace> AddressSpace for St2205uAddressSpace<'a, A> {
                 // i.e. BRR will use the address as its lower 13 bits
                 let (reg, left_shift) = match address as u16 {
                     BRR_START..=BRR_END => (bank::brr(self), BRR_BITS),
-                    PRR_START..=PRR_END => (bank::prr(self), PRR_BITS),
+                    PRR_START..=PRR_END => {
+                        if self.interrupted() {
+                            (bank::irr(self), PRR_BITS)
+                        } else {
+                            (bank::prr(self), PRR_BITS)
+                        }
+                    }
                     DRR_START..=DRR_END => (bank::drr(self), DRR_BITS),
                     0..=0x1FFF => {
                         unreachable!("This range is excluded by parent match.");

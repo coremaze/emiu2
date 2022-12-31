@@ -33,6 +33,61 @@ pub struct Lcd<'a> {
     display_on: bool,
 
     screen: &'a dyn Screen,
+
+    voltage: Voltage,
+}
+
+/// Voltage is a weird 9 bit register
+struct Voltage {
+    value: u16,
+}
+
+impl Voltage {
+    pub fn new(value: u16) -> Self {
+        let mut voltage = Voltage { value: 0 };
+        voltage.set(value);
+        voltage
+    }
+
+    pub fn set(&mut self, value: u16) {
+        self.value = value & 0b111111111;
+    }
+
+    pub fn get(&self) -> u16 {
+        self.value
+    }
+
+    /// Sets Vop [5:0]
+    pub fn set_p1(&mut self, low: u8) {
+        let mut val = self.get();
+        let mask = 0b111111;
+        // Clear the bits to be replaced
+        val &= !mask;
+
+        // Replace bits
+        val |= low as u16 & mask;
+
+        self.set(val);
+    }
+
+    /// Sets Vop [8:6]
+    pub fn set_p2(&mut self, high: u8) {
+        let mut val = self.get();
+        let high_mask = 0b111;
+        let val_mask = 0b111000000;
+
+        // Clear the bits to be replaced
+        val &= !val_mask;
+
+        // Replace bits
+        val |= (high as u16 & val_mask) << 6;
+
+        self.set(val);
+    }
+
+    pub fn max() -> u16 {
+        (1 << 9) - 1
+    }
 }
 
 #[derive(Debug)]
@@ -170,6 +225,7 @@ impl<'a> Lcd<'a> {
             end_column: 0,
             display_on: false,
             screen,
+            voltage: Voltage::new(Voltage::max()),
         }
     }
 }
@@ -185,6 +241,7 @@ impl<'a> Lcd<'a> {
             Command::ColumnAddressSet => {}
             Command::DisplayOff => self.display_on = false,
             Command::DisplayOn => self.display_on = true,
+            Command::EcControl => {}
             _ => {
                 println!("Unimplemented LCD command {command:?}")
             }
@@ -236,6 +293,15 @@ impl<'a> Lcd<'a> {
                     self.update_display();
                 }
             }
+            Command::EcControl => {
+                if self.byte_since_command == 0 {
+                    self.voltage.set_p1(value);
+                } else if self.byte_since_command == 1 {
+                    self.voltage.set_p2(value);
+                    // println!("Voltage is now {} of {}", self.voltage.get(), Voltage::max());
+                    self.update_display();
+                }
+            }
             _ => {
                 println!("Received unhandled data for command {command:?}");
             }
@@ -268,6 +334,7 @@ impl<'a> Lcd<'a> {
         }; LCD_WIDTH * LCD_HEIGHT];
 
         let mut pixel_iter = pixels.iter_mut();
+        let voltage_percent = self.get_voltage_percent();
 
         if self.display_on {
             for page in (self.start_page..=self.end_page) {
@@ -276,9 +343,14 @@ impl<'a> Lcd<'a> {
                     let pix_1 = self.ddram[addr];
                     let pix_2 = self.ddram[addr + 1];
 
-                    let red = 255 - ((pix_1 & 0x0F) as u8 * 17);
-                    let green = 255 - (((pix_2 & 0xF0) >> 4) as u8 * 17);
-                    let blue = 255 - ((pix_2 & 0x0F) as u8 * 17);
+                    let mut red = 255 - ((pix_1 & 0x0F) as u8 * 17);
+                    let mut green = 255 - (((pix_2 & 0xF0) >> 4) as u8 * 17);
+                    let mut blue = 255 - ((pix_2 & 0x0F) as u8 * 17);
+
+                    red = (red as f32 * voltage_percent) as u8;
+                    green = (green as f32 * voltage_percent) as u8;
+                    blue = (blue as f32 * voltage_percent) as u8;
+
                     if let Some(px) = pixel_iter.next() {
                         *px = Pixel { red, green, blue };
                     }
@@ -289,6 +361,24 @@ impl<'a> Lcd<'a> {
         // println!("Pixel len {}, pages {} col {}", pixels.len(), self.end_page, self.end_column);
 
         self.screen.set_pixels(&pixels);
+    }
+
+    fn get_voltage_percent(&self) -> f32 {
+        let val = self.voltage.get();
+        // This seems to be the brightest the game gets
+        let bright = 36;
+        // this seems to be fully black
+        let off = 1;
+
+        if val <= off {
+            return 0.0;
+        }
+
+        if val >= bright {
+            return 1.0;
+        }
+
+        (val as f32 - off as f32) / bright as f32
     }
 }
 
