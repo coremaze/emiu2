@@ -38,13 +38,11 @@ pub struct MiniFbScreen {
 }
 
 impl MiniFbScreen {
-    pub fn open(title: &str, width: usize, height: usize, scale: usize) -> Self {
+    pub fn open(title: &str, scale: usize) -> Self {
         let (worker_tx, worker_rx) = channel::<MiniFBWorkerMessage>();
         let (host_tx, host_rx) = channel::<MiniFBMessage>();
         let owned_title = title.to_owned();
-        std::thread::spawn(move || {
-            run_minifb_worker(owned_title, width, height, scale, worker_tx, host_rx)
-        });
+        std::thread::spawn(move || run_minifb_worker(owned_title, scale, worker_tx, host_rx));
 
         Self {
             tx: host_tx,
@@ -132,12 +130,13 @@ struct MiniFbWindowButton {
 
 fn run_minifb_worker(
     title: String,
-    width: usize,
-    height: usize,
     scale: usize,
     tx: Sender<MiniFBWorkerMessage>,
     rx: Receiver<MiniFBMessage>,
 ) {
+    let width = 98;
+    let height = 67;
+
     let extra_player_width = width * scale;
     let extra_player_height = height / 2 * scale;
     let player_width = width * scale + extra_player_width;

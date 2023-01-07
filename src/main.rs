@@ -38,7 +38,7 @@ fn main() {
 
     let scale = args.scale;
 
-    let screen = display::MiniFbScreen::open("emiu2", 98, 67, scale);
+    let screen = display::MiniFbScreen::open("emiu2", scale);
 
     let mut handheld = miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen).unwrap();
     // std::thread::sleep(std::time::Duration::from_secs(3));
