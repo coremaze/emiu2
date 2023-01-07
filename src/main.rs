@@ -31,7 +31,7 @@ fn main() {
     let flash_data = match std::fs::read(args.flash_file) {
         Ok(data) => data,
         Err(why) => {
-            eprintln!("Could not read OTP file: {why}");
+            eprintln!("Could not read flash file: {why}");
             return;
         }
     };
