@@ -48,9 +48,9 @@ fn main() {
     while screen.is_open() {
         let now = std::time::Instant::now();
         let elapsed = now - beginning;
-        let microseconds = elapsed.as_nanos();
+        let nanoseconds = elapsed.as_nanos();
         let cycles_required_so_far =
-            (microseconds * handheld.mcu.core.cycles_per_second() as u128) / 1000000000;
+            (nanoseconds * handheld.mcu.core.cycles_per_second() as u128) / 1000000000;
 
         while (handheld.mcu.core.cycles as u128) < cycles_required_so_far {
             // let pc = handheld.mcu.core.registers.pc;
