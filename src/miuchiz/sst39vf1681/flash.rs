@@ -74,6 +74,10 @@ impl Flash {
         })
     }
 
+    pub fn len() -> usize {
+        CHIP_CAPACITY
+    }
+
     fn sector_erase(&mut self, sector: usize) {
         for i in 0..SECTOR_SIZE {
             let addr = (sector * SECTOR_SIZE + i) % self.data.len();

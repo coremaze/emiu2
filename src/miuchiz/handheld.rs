@@ -1,6 +1,6 @@
 use super::{sst39vf1681, st2205u, st7626};
 use crate::{display::Screen, gpio::Gpio, memory::AddressSpace};
-use std::error::Error;
+use std::fmt::Display;
 
 pub const SYSTEM_FREQ: u64 = 16_000_000;
 
@@ -40,11 +40,11 @@ impl<'a, 'b> HandheldAddressSpace<'a> {
     ) -> Result<Self, ConfigurationError> {
         let otp_box = Box::new(
             st2205u::Otp::try_from(otp)
-                .map_err(|err| ConfigurationError::InvalidOtp(err.into()))?,
+                .map_err(|_| ConfigurationError::InvalidOtpSize(otp.len()))?,
         );
 
         let flash = sst39vf1681::Flash::new(flash)
-            .map_err(|err| ConfigurationError::InvalidFlash(err.into()))?;
+            .map_err(|err| ConfigurationError::InvalidFlashSize(flash.len()))?;
 
         let lcd = st7626::Lcd::new(screen);
 
@@ -77,8 +77,23 @@ impl<'a, 'b> AddressSpace for HandheldAddressSpace<'a> {
 
 #[derive(Debug)]
 pub enum ConfigurationError {
-    InvalidOtp(Box<dyn Error>),
-    InvalidFlash(Box<dyn Error>),
+    InvalidOtpSize(usize),
+    InvalidFlashSize(usize),
+}
+
+impl Display for ConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&match &self {
+            ConfigurationError::InvalidOtpSize(size) => format!(
+                "The OTP is invalid because it is {size} bytes, but must be {} bytes",
+                st2205u::OTP_SIZE
+            ),
+            ConfigurationError::InvalidFlashSize(size) => format!(
+                "The flash is invalid because it is {size} bytes, but must be {} bytes",
+                sst39vf1681::Flash::len()
+            ),
+        })
+    }
 }
 
 pub struct Handheld<'a, 'b> {

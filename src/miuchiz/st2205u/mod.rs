@@ -12,4 +12,5 @@ mod wdc_65c02;
 
 pub use addr_space::Otp;
 pub use addr_space::St2205uAddressSpace;
+pub use addr_space::OTP_SIZE;
 pub use mcu::Mcu;

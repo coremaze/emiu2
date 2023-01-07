@@ -7,7 +7,8 @@ use super::wdc_65c02::HandlesInterrupt;
 use crate::gpio::Gpio;
 use crate::memory::AddressSpace;
 
-pub type Otp = [u8; 0x4000];
+pub const OTP_SIZE: usize = 0x4000;
+pub type Otp = [u8; OTP_SIZE];
 type Ram = [u8; 0x8000];
 
 const REGISTERS_START: u16 = 0x0000;

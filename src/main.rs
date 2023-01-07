@@ -40,7 +40,13 @@ fn main() {
 
     let screen = display::MiniFbScreen::open("emiu2", scale);
 
-    let mut handheld = miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen).unwrap();
+    let mut handheld = match miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen) {
+        Ok(handheld) => handheld,
+        Err(why) => {
+            eprintln!("Could not initialize the Miuchiz handheld device: {why}");
+            return;
+        }
+    };
     // std::thread::sleep(std::time::Duration::from_secs(3));
 
     let beginning = std::time::Instant::now();
