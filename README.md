@@ -14,7 +14,7 @@ To start the emulator, run `emiu2 <OTP_FILE> <FLASH_FILE>`.
 
 This software uses the typical Rust build system `cargo`. Get started with Rust at https://rustup.rs/.
 
-Build a release version of the emiu2 with `cargo build -r`, or run it directly from cargo with `cargo run -r -- <OTP_FILE> <FLASH_FILE>`.
+Build a release version of emiu2 with `cargo build -r`, or run it directly from cargo with `cargo run -r -- <OTP_FILE> <FLASH_FILE>`.
 
 ## Demo
 
