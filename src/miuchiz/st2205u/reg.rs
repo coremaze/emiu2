@@ -1,4 +1,4 @@
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct U8Register {
     val: u8,
     /// Bits which exist in this register
@@ -36,7 +36,7 @@ impl U8Register {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct U16Register {
     /// Low byte of register
     l: U8Register,

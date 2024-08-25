@@ -1,13 +1,16 @@
 use super::reg::U16Register;
 use super::wdc_65c02::HandlesInterrupt;
 
+#[derive(Debug)]
 pub struct State {
     ireq: U16Register,
+    shadow_ireq: U16Register, // Exists to prevent interrupts from firing continuously if the interrupt is not disabled by the program
     iena: U16Register,
 
     interrupted: bool,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum Interrupt {
     Intx,
     Timer0,
@@ -30,6 +33,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             ireq: U16Register::new(0b0000_0000_0000_0000, 0b1101_1111_1111_1111),
+            shadow_ireq: U16Register::new(0b0000_0000_0000_0000, 0b1101_1111_1111_1111),
             iena: U16Register::new(0b0000_0000_0000_0000, 0b1101_1111_1111_1111),
             interrupted: false,
         }
@@ -60,7 +64,61 @@ impl State {
         if self.iena.u16() & mask != 0 {
             // It is now the executor's responsibility to check this register
             self.ireq.set_u16(self.ireq.u16() | mask);
+            self.shadow_ireq.set_u16(self.shadow_ireq.u16() | mask);
         }
+    }
+
+    pub fn highest_priority_interrupt(&self) -> Option<Interrupt> {
+        // if self.shadow_ireq.u16() != 0 {
+        //     dbg!(&self);
+        // }
+        for i in 0..16 {
+            if self.shadow_ireq.u16() & (1 << i) != 0 {
+                return Some(match i {
+                    0 => Interrupt::Intx,
+                    1 => Interrupt::Timer0,
+                    2 => Interrupt::Timer1,
+                    3 => Interrupt::Timer2,
+                    4 => Interrupt::Timer3,
+                    5 => Interrupt::PortATransition,
+                    6 => Interrupt::BaseTimer,
+                    7 => Interrupt::LcdBuffer,
+                    8 => Interrupt::SpiTxEmpty,
+                    9 => Interrupt::SpiRxReady,
+                    10 => Interrupt::UartTx,
+                    11 => Interrupt::UartRx,
+                    12 => Interrupt::Usb,
+                    14 => Interrupt::Pcm,
+                    15 => Interrupt::Rtc,
+                    _ => unreachable!(),
+                });
+            }
+        }
+        None
+    }
+
+    pub fn clear_interrupt_request(&mut self, irq: Interrupt) {
+        let bit = match irq {
+            Interrupt::Intx => 0,
+            Interrupt::Timer0 => 1,
+            Interrupt::Timer1 => 2,
+            Interrupt::Timer2 => 3,
+            Interrupt::Timer3 => 4,
+            Interrupt::PortATransition => 5,
+            Interrupt::BaseTimer => 6,
+            Interrupt::LcdBuffer => 7,
+            Interrupt::SpiTxEmpty => 8,
+            Interrupt::SpiRxReady => 9,
+            Interrupt::UartTx => 10,
+            Interrupt::UartRx => 11,
+            Interrupt::Usb => 12,
+            Interrupt::Pcm => 14,
+            Interrupt::Rtc => 15,
+        };
+
+        let mask = 1u16 << bit;
+
+        self.shadow_ireq.set_u16(self.shadow_ireq.u16() & !mask);
     }
 }
 

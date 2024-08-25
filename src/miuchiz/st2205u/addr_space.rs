@@ -3,6 +3,7 @@ use super::base_timer;
 use super::dma;
 use super::gpio;
 use super::interrupt;
+use super::timer;
 use super::wdc_65c02::HandlesInterrupt;
 use crate::gpio::Gpio;
 use crate::memory::AddressSpace;
@@ -66,6 +67,16 @@ const PCF: u16 = 0x000D;
 const PFC: u16 = 0x000E;
 const PFD: u16 = 0x000F;
 
+const T0CL: u16 = 0x0020;
+const T0CH: u16 = 0x0021;
+const T1CL: u16 = 0x0022;
+const T1CH: u16 = 0x0023;
+const T2CL: u16 = 0x0024;
+const T2CH: u16 = 0x0025;
+const T3CL: u16 = 0x0026;
+const T3CH: u16 = 0x0027;
+const TIEN: u16 = 0x0028;
+
 const BTEN: u16 = 0x002A;
 const BTREQ: u16 = 0x002B;
 const BTC: u16 = 0x002C;
@@ -109,6 +120,7 @@ pub struct St2205uAddressSpace<'a, A: AddressSpace> {
     pub dma: dma::State,
     pub gpio: gpio::State<'a>,
     pub base_timer: base_timer::State,
+    pub timer: timer::TimerBlocksState,
     pub interrupt: interrupt::State,
 }
 
@@ -122,6 +134,7 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             dma: dma::State::new(),
             gpio: gpio::State::new(io),
             base_timer: base_timer::State::new(frequency),
+            timer: timer::TimerBlocksState::new(),
             interrupt: interrupt::State::new(),
         }
     }
@@ -161,6 +174,15 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PCF => gpio::read_pcf(&self.gpio),
             PFC => gpio::read_pfc(&self.gpio),
             PFD => gpio::read_pfd(&self.gpio),
+            T0CL => self.timer.read_txcl(0),
+            T0CH => self.timer.read_txch(0),
+            T1CL => self.timer.read_txcl(1),
+            T1CH => self.timer.read_txch(1),
+            T2CL => self.timer.read_txcl(2),
+            T2CH => self.timer.read_txch(2),
+            T3CL => self.timer.read_txcl(3),
+            T3CH => self.timer.read_txch(3),
+            TIEN => self.timer.read_tien(),
             PMCR => gpio::read_pmcr(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
             PCL => gpio::read_pcl(&self.gpio),
@@ -213,6 +235,15 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PCF => gpio::write_pcf(&mut self.gpio, value),
             PFC => gpio::write_pfc(&mut self.gpio, value),
             PFD => gpio::write_pfd(&mut self.gpio, value),
+            T0CL => self.timer.write_txcl(0, value),
+            T0CH => self.timer.write_txch(0, value),
+            T1CL => self.timer.write_txcl(1, value),
+            T1CH => self.timer.write_txch(1, value),
+            T2CL => self.timer.write_txcl(2, value),
+            T2CH => self.timer.write_txch(2, value),
+            T3CL => self.timer.write_txcl(3, value),
+            T3CH => self.timer.write_txch(3, value),
+            TIEN => self.timer.write_tien(value),
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
             PCL => gpio::write_pcl(&mut self.gpio, value),

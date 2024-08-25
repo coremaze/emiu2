@@ -7,6 +7,7 @@ mod gpio;
 mod interrupt;
 mod mcu;
 mod reg;
+mod timer;
 mod vector;
 mod wdc_65c02;
 
