@@ -14,6 +14,13 @@ pub struct TimerBlocksState {
     elapsed_ticks: u64,
 }
 
+pub enum TimerIndex {
+    T0,
+    T1,
+    T2,
+    T3,
+}
+
 impl TimerBlocksState {
     pub fn new() -> Self {
         Self {
@@ -47,8 +54,8 @@ impl TimerBlocksState {
                 3 => self.elapsed_ticks % 32 == 0,   // SYSCK/32
                 4 => self.elapsed_ticks % 1024 == 0, // SYSCK/1024
                 5 => self.elapsed_ticks % 4096 == 0, // SYSCK/4096
-                6 => false,                          // BGRCK (not implemented in this example)
-                7 => false, // External clock (not implemented in this example)
+                6 => false,                          // BGRCK (not implemented)
+                7 => false,                          // External clock (not implemented)
                 _ => false,
             };
 
@@ -72,48 +79,44 @@ impl TimerBlocksState {
         interrupts
     }
 
-    pub fn read_txcl(&self, timer: usize) -> u8 {
+    pub fn read_txcl(&self, timer: TimerIndex) -> u8 {
         let timer = match timer {
-            0 => &self.t0,
-            1 => &self.t1,
-            2 => &self.t2,
-            3 => &self.t3,
-            _ => panic!("Invalid timer"),
+            TimerIndex::T0 => &self.t0,
+            TimerIndex::T1 => &self.t1,
+            TimerIndex::T2 => &self.t2,
+            TimerIndex::T3 => &self.t3,
         };
         (timer.counter & 0xFF) as u8
     }
 
-    pub fn write_txcl(&mut self, timer: usize, value: u8) {
+    pub fn write_txcl(&mut self, timer: TimerIndex, value: u8) {
         let timer = match timer {
-            0 => &mut self.t0,
-            1 => &mut self.t1,
-            2 => &mut self.t2,
-            3 => &mut self.t3,
-            _ => panic!("Invalid timer"),
+            TimerIndex::T0 => &mut self.t0,
+            TimerIndex::T1 => &mut self.t1,
+            TimerIndex::T2 => &mut self.t2,
+            TimerIndex::T3 => &mut self.t3,
         };
         timer.counter = (timer.counter & 0xFF00) | value as u16;
         timer.reload_value = (timer.reload_value & 0xFF00) | value as u16;
     }
 
-    pub fn read_txch(&self, timer: usize) -> u8 {
+    pub fn read_txch(&self, timer: TimerIndex) -> u8 {
         let timer = match timer {
-            0 => &self.t0,
-            1 => &self.t1,
-            2 => &self.t2,
-            3 => &self.t3,
-            _ => panic!("Invalid timer"),
+            TimerIndex::T0 => &self.t0,
+            TimerIndex::T1 => &self.t1,
+            TimerIndex::T2 => &self.t2,
+            TimerIndex::T3 => &self.t3,
         };
         let auto_reload = if timer.auto_reload { 0x80 } else { 0 };
         auto_reload | (timer.clock_select << 4) | ((timer.counter >> 8) & 0x0F) as u8
     }
 
-    pub fn write_txch(&mut self, timer: usize, value: u8) {
+    pub fn write_txch(&mut self, timer: TimerIndex, value: u8) {
         let timer = match timer {
-            0 => &mut self.t0,
-            1 => &mut self.t1,
-            2 => &mut self.t2,
-            3 => &mut self.t3,
-            _ => panic!("Invalid timer"),
+            TimerIndex::T0 => &mut self.t0,
+            TimerIndex::T1 => &mut self.t1,
+            TimerIndex::T2 => &mut self.t2,
+            TimerIndex::T3 => &mut self.t3,
         };
         timer.auto_reload = (value & 0x80) != 0;
         timer.clock_select = (value >> 4) & 0x07;

@@ -4,6 +4,7 @@ use super::dma;
 use super::gpio;
 use super::interrupt;
 use super::timer;
+use super::timer::TimerIndex;
 use super::wdc_65c02::HandlesInterrupt;
 use crate::gpio::Gpio;
 use crate::memory::AddressSpace;
@@ -174,14 +175,14 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PCF => gpio::read_pcf(&self.gpio),
             PFC => gpio::read_pfc(&self.gpio),
             PFD => gpio::read_pfd(&self.gpio),
-            T0CL => self.timer.read_txcl(0),
-            T0CH => self.timer.read_txch(0),
-            T1CL => self.timer.read_txcl(1),
-            T1CH => self.timer.read_txch(1),
-            T2CL => self.timer.read_txcl(2),
-            T2CH => self.timer.read_txch(2),
-            T3CL => self.timer.read_txcl(3),
-            T3CH => self.timer.read_txch(3),
+            T0CL => self.timer.read_txcl(TimerIndex::T0),
+            T0CH => self.timer.read_txch(TimerIndex::T0),
+            T1CL => self.timer.read_txcl(TimerIndex::T1),
+            T1CH => self.timer.read_txch(TimerIndex::T1),
+            T2CL => self.timer.read_txcl(TimerIndex::T2),
+            T2CH => self.timer.read_txch(TimerIndex::T2),
+            T3CL => self.timer.read_txcl(TimerIndex::T3),
+            T3CH => self.timer.read_txch(TimerIndex::T3),
             TIEN => self.timer.read_tien(),
             PMCR => gpio::read_pmcr(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
@@ -235,14 +236,14 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PCF => gpio::write_pcf(&mut self.gpio, value),
             PFC => gpio::write_pfc(&mut self.gpio, value),
             PFD => gpio::write_pfd(&mut self.gpio, value),
-            T0CL => self.timer.write_txcl(0, value),
-            T0CH => self.timer.write_txch(0, value),
-            T1CL => self.timer.write_txcl(1, value),
-            T1CH => self.timer.write_txch(1, value),
-            T2CL => self.timer.write_txcl(2, value),
-            T2CH => self.timer.write_txch(2, value),
-            T3CL => self.timer.write_txcl(3, value),
-            T3CH => self.timer.write_txch(3, value),
+            T0CL => self.timer.write_txcl(TimerIndex::T0, value),
+            T0CH => self.timer.write_txch(TimerIndex::T0, value),
+            T1CL => self.timer.write_txcl(TimerIndex::T1, value),
+            T1CH => self.timer.write_txch(TimerIndex::T1, value),
+            T2CL => self.timer.write_txcl(TimerIndex::T2, value),
+            T2CH => self.timer.write_txch(TimerIndex::T2, value),
+            T3CL => self.timer.write_txcl(TimerIndex::T3, value),
+            T3CH => self.timer.write_txch(TimerIndex::T3, value),
             TIEN => self.timer.write_tien(value),
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
