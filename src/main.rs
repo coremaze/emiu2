@@ -1,8 +1,11 @@
+mod audio;
 mod display;
 mod gpio;
 pub mod memory;
 mod miuchiz;
+
 use clap::Parser;
+use cpal::traits::StreamTrait;
 
 #[derive(Parser)]
 struct Args {
@@ -40,13 +43,17 @@ fn main() {
 
     let screen = display::MiniFbScreen::open("emiu2", scale);
 
-    let mut handheld = match miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen) {
-        Ok(handheld) => handheld,
-        Err(why) => {
-            eprintln!("Could not initialize the Miuchiz handheld device: {why}");
-            return;
-        }
-    };
+    let (stream, sender) = audio::stream_setup_for().unwrap();
+    stream.play().unwrap();
+
+    let mut handheld =
+        match miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen, sender) {
+            Ok(handheld) => handheld,
+            Err(why) => {
+                eprintln!("Could not initialize the Miuchiz handheld device: {why}");
+                return;
+            }
+        };
     // std::thread::sleep(std::time::Duration::from_secs(3));
 
     let beginning = std::time::Instant::now();
@@ -65,7 +72,7 @@ fn main() {
             handheld.mcu.step();
         }
 
-        std::thread::sleep(std::time::Duration::from_nanos(1));
+        // std::thread::sleep(std::time::Duration::from_nanos(1));
     }
     println!("{} cycles", handheld.mcu.core.cycles);
 }

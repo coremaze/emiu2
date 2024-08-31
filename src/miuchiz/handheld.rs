@@ -1,5 +1,5 @@
 use super::{sst39vf1681, st2205u, st7626};
-use crate::{display::Screen, gpio::Gpio, memory::AddressSpace};
+use crate::{audio::AudioSender, display::Screen, gpio::Gpio, memory::AddressSpace};
 use std::fmt::Display;
 
 pub const SYSTEM_FREQ: u64 = 16_000_000;
@@ -106,11 +106,12 @@ impl<'a, 'b> Handheld<'a, 'b> {
         flash: &[u8],
         screen: &'a impl Screen,
         io: &'b impl Gpio,
+        audio_sender: AudioSender,
     ) -> Result<Self, ConfigurationError> {
         let machine_address_space = HandheldAddressSpace::new(otp, flash, screen)?;
 
         let mcu = Self {
-            mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io),
+            mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io, audio_sender),
         };
 
         Ok(mcu)

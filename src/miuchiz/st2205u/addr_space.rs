@@ -3,6 +3,8 @@ use super::base_timer;
 use super::dma;
 use super::gpio;
 use super::interrupt;
+use super::psg;
+use super::psg::PsgChannel;
 use super::timer;
 use super::timer::TimerIndex;
 use super::wdc_65c02::HandlesInterrupt;
@@ -67,7 +69,21 @@ const PCE: u16 = 0x000C;
 const PCF: u16 = 0x000D;
 const PFC: u16 = 0x000E;
 const PFD: u16 = 0x000F;
+const PSG0A: u16 = 0x0010;
+const PSG0B: u16 = 0x0011;
+const PSG1A: u16 = 0x0012;
+const PSG1B: u16 = 0x0013;
+const PSG2A: u16 = 0x0014;
+const PSG2B: u16 = 0x0015;
+const PSG3A: u16 = 0x0016;
+const PSG3B: u16 = 0x0017;
+const VOL0: u16 = 0x0018;
+const VOL1: u16 = 0x0019;
+const VOL2: u16 = 0x001A;
+const VOL3: u16 = 0x001B;
 
+const PSGC: u16 = 0x001E;
+const PSGM: u16 = 0x001F;
 const T0CL: u16 = 0x0020;
 const T0CH: u16 = 0x0021;
 const T1CL: u16 = 0x0022;
@@ -110,6 +126,9 @@ const DCNTH: u16 = 0x005D;
 const DSEL: u16 = 0x005E;
 const DMOD: u16 = 0x005F;
 
+const MULL: u16 = 0x006E;
+const MULH: u16 = 0x006F;
+
 pub struct St2205uAddressSpace<'a, A: AddressSpace> {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
     /// larger address space through the use of its memory bank registers.
@@ -122,6 +141,7 @@ pub struct St2205uAddressSpace<'a, A: AddressSpace> {
     pub gpio: gpio::State<'a>,
     pub base_timer: base_timer::State,
     pub timer: timer::TimerBlocksState,
+    pub psg: psg::State,
     pub interrupt: interrupt::State,
 }
 
@@ -136,6 +156,7 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             gpio: gpio::State::new(io),
             base_timer: base_timer::State::new(frequency),
             timer: timer::TimerBlocksState::new(),
+            psg: psg::State::new(),
             interrupt: interrupt::State::new(),
         }
     }
@@ -175,6 +196,16 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PCF => gpio::read_pcf(&self.gpio),
             PFC => gpio::read_pfc(&self.gpio),
             PFD => gpio::read_pfd(&self.gpio),
+            PSG0B => self.psg.read_psgxb(PsgChannel::Channel0),
+            PSG1B => self.psg.read_psgxb(PsgChannel::Channel1),
+            PSG2B => self.psg.read_psgxb(PsgChannel::Channel2),
+            PSG3B => self.psg.read_psgxb(PsgChannel::Channel3),
+            VOL0 => self.psg.read_volx(PsgChannel::Channel0),
+            VOL1 => self.psg.read_volx(PsgChannel::Channel1),
+            VOL2 => self.psg.read_volx(PsgChannel::Channel2),
+            VOL3 => self.psg.read_volx(PsgChannel::Channel3),
+            PSGC => self.psg.read_psgc(),
+            PSGM => self.psg.read_psgm(),
             T0CL => self.timer.read_txcl(TimerIndex::T0),
             T0CH => self.timer.read_txch(TimerIndex::T0),
             T1CL => self.timer.read_txcl(TimerIndex::T1),
@@ -194,6 +225,8 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             IREQH => interrupt::read_ireqh(&self.interrupt),
             IENAL => interrupt::read_ienal(&self.interrupt),
             IENAH => interrupt::read_ienah(&self.interrupt),
+            MULL => self.psg.read_mull(),
+            MULH => self.psg.read_mulh(),
             _ => {
                 // println!("Unimplemented read of register {address:02X}");
                 0
@@ -236,6 +269,20 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             PCF => gpio::write_pcf(&mut self.gpio, value),
             PFC => gpio::write_pfc(&mut self.gpio, value),
             PFD => gpio::write_pfd(&mut self.gpio, value),
+            PSG0A => self.psg.write_psgxa(PsgChannel::Channel0, value),
+            PSG0B => self.psg.write_psgxb(PsgChannel::Channel0, value),
+            PSG1A => self.psg.write_psgxa(PsgChannel::Channel1, value),
+            PSG1B => self.psg.write_psgxb(PsgChannel::Channel1, value),
+            PSG2A => self.psg.write_psgxa(PsgChannel::Channel2, value),
+            PSG2B => self.psg.write_psgxb(PsgChannel::Channel2, value),
+            PSG3A => self.psg.write_psgxa(PsgChannel::Channel3, value),
+            PSG3B => self.psg.write_psgxb(PsgChannel::Channel3, value),
+            VOL0 => self.psg.write_volx(PsgChannel::Channel0, value),
+            VOL1 => self.psg.write_volx(PsgChannel::Channel1, value),
+            VOL2 => self.psg.write_volx(PsgChannel::Channel2, value),
+            VOL3 => self.psg.write_volx(PsgChannel::Channel3, value),
+            PSGC => self.psg.write_psgc(value),
+            PSGM => self.psg.write_psgm(value),
             T0CL => self.timer.write_txcl(TimerIndex::T0, value),
             T0CH => self.timer.write_txch(TimerIndex::T0, value),
             T1CL => self.timer.write_txcl(TimerIndex::T1, value),
@@ -255,6 +302,8 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
             IREQH => interrupt::write_ireqh(&mut self.interrupt, value),
             IENAL => interrupt::write_ienal(&mut self.interrupt, value),
             IENAH => interrupt::write_ienah(&mut self.interrupt, value),
+            MULL => self.psg.write_mull(value),
+            MULH => self.psg.write_mulh(value),
             _ => {
                 println!("Unimplemented write of register {address:02X}");
             }

@@ -12,6 +12,7 @@ pub struct TimerBlocksState {
     t2: TimerState,
     t3: TimerState,
     elapsed_ticks: u64,
+    previous_elapsed_ticks: u64,
 }
 
 pub enum TimerIndex {
@@ -29,14 +30,30 @@ impl TimerBlocksState {
             t2: TimerState::new(),
             t3: TimerState::new(),
             elapsed_ticks: 0,
+            previous_elapsed_ticks: 0,
         }
     }
 
-    pub fn set_elapsed_ticks(&mut self, ticks: u64) {
-        self.elapsed_ticks = ticks;
+    pub fn set_elapsed_ticks(&mut self, sysck: u64) {
+        self.elapsed_ticks = sysck;
     }
 
     pub fn update(&mut self) -> u8 {
+        let num_ticks = self.elapsed_ticks - self.previous_elapsed_ticks;
+        let mut interrupts = 0;
+        self.elapsed_ticks = self.previous_elapsed_ticks;
+
+        // TODO: do this without a loop?
+        for _ in 0..num_ticks {
+            self.elapsed_ticks += 1;
+            interrupts |= self.update2();
+        }
+
+        self.previous_elapsed_ticks = self.elapsed_ticks;
+        interrupts
+    }
+
+    pub fn update2(&mut self) -> u8 {
         let mut interrupts = 0;
 
         for (i, timer) in [&mut self.t0, &mut self.t1, &mut self.t2, &mut self.t3]

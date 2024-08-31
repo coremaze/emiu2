@@ -6,6 +6,7 @@ mod dma;
 mod gpio;
 mod interrupt;
 mod mcu;
+mod psg;
 mod reg;
 mod timer;
 mod vector;
