@@ -4,6 +4,8 @@ mod gpio;
 pub mod memory;
 mod miuchiz;
 
+use std::path::PathBuf;
+
 use clap::Parser;
 use cpal::traits::StreamTrait;
 
@@ -12,8 +14,12 @@ struct Args {
     /// Miuchiz OTP image
     otp_file: String,
 
-    /// Miuchiz flash image
+    /// Miuchiz flash image to load
     flash_file: String,
+
+    /// Flash image to save
+    #[arg(short, long)]
+    save_file: Option<PathBuf>,
 
     /// Pixel scale
     #[arg(short, long, default_value_t = 3)]
@@ -72,7 +78,19 @@ fn main() {
             handheld.mcu.step();
         }
 
-        // std::thread::sleep(std::time::Duration::from_nanos(1));
+        std::thread::sleep(std::time::Duration::from_nanos(1));
     }
+
+    if let Some(save_file) = args.save_file {
+        match std::fs::write(&save_file, handheld.flash()) {
+            Ok(_) => {
+                println!("Saved flash to {save_file:?}");
+            }
+            Err(why) => {
+                eprintln!("Failed to save flash: {why}");
+            }
+        }
+    }
+
     println!("{} cycles", handheld.mcu.core.cycles);
 }

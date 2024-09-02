@@ -132,7 +132,7 @@ const MULH: u16 = 0x006F;
 pub struct St2205uAddressSpace<'a, A: AddressSpace> {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
     /// larger address space through the use of its memory bank registers.
-    machine_addr_space: A,
+    pub machine_addr_space: A,
 
     ram: Ram,
 

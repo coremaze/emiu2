@@ -116,4 +116,8 @@ impl<'a, 'b> Handheld<'a, 'b> {
 
         Ok(mcu)
     }
+
+    pub fn flash(&self) -> &[u8] {
+        self.mcu.core.address_space.machine_addr_space.flash.data()
+    }
 }

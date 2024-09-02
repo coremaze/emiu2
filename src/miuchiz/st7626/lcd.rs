@@ -384,7 +384,8 @@ impl<'a> Lcd<'a> {
 
 impl<'a> AddressSpace for Lcd<'a> {
     fn read_u8(&mut self, address: usize) -> u8 {
-        todo!("Read u8 LCD");
+        println!("Unimplemented read u8 LCD address {address}");
+        0xff
     }
 
     fn write_u8(&mut self, address: usize, value: u8) {

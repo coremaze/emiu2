@@ -103,6 +103,10 @@ impl Flash {
     fn status_register(&self) -> u8 {
         0b1100_0000
     }
+
+    pub fn data(&self) -> &[u8] {
+        self.data.as_ref()
+    }
 }
 
 impl AddressSpace for Flash {
@@ -193,7 +197,9 @@ impl<const N: usize, T: Copy + PartialEq> RingBuf<N, T> {
         }
 
         for (i, e) in other.iter().rev().enumerate() {
-            let Some(buf_element) = self.get_from_back(i) else { return false };
+            let Some(buf_element) = self.get_from_back(i) else {
+                return false;
+            };
             if *e != buf_element {
                 return false;
             }
