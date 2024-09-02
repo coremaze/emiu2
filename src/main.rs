@@ -49,8 +49,18 @@ fn main() {
 
     let screen = display::MiniFbScreen::open("emiu2", scale);
 
-    let (stream, sender) = audio::stream_setup_for().unwrap();
-    stream.play().unwrap();
+    let (stream, sender) = match audio::stream_setup_for() {
+        Ok((stream, sender)) => (stream, sender),
+        Err(why) => {
+            eprintln!("Could not setup audio stream: {why}");
+            return;
+        }
+    };
+
+    if let Err(why) = stream.play() {
+        eprintln!("Could not play audio stream: {why}");
+        return;
+    }
 
     let mut handheld =
         match miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen, sender) {
