@@ -180,24 +180,25 @@ impl State {
     }
 
     pub fn read_psgxb(&self, channel: PsgChannel) -> u8 {
-        match self.get_psg_state(channel) {
-            PsgModeState::AdpcmDac { fifo, .. } => {
-                if fifo.len() < 8 {
-                    return 0b00100000 | (fifo.len() as u8);
-                } else {
-                    return fifo.len() as u8;
-                }
+        // Bit 6 is always 1
+        let mut result = 0b01000000;
+
+        let fifo_len = match self.get_psg_state(channel) {
+            PsgModeState::AdpcmDac { fifo, .. } => fifo.len(),
+            PsgModeState::PcmDac { fifo, .. } => fifo.len(),
+            _ => {
+                todo!()
             }
-            PsgModeState::PcmDac { fifo, .. } => {
-                if fifo.len() < 8 {
-                    return 0b00100000 | (fifo.len() as u8);
-                } else {
-                    return fifo.len() as u8;
-                }
-            }
-            _ => {}
+        };
+
+        if fifo_len < 8 {
+            result |= 0b00100000; // FIFO write available
         }
-        return 0b00000000;
+
+        // Encode length in 5 bits
+        result |= (fifo_len & 0b11111) as u8;
+
+        result
     }
 
     pub fn write_volx(&mut self, channel: PsgChannel, value: u8) {
