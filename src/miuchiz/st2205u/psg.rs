@@ -366,7 +366,7 @@ struct PsgVolume {
 
 impl PsgVolume {
     pub fn new() -> Self {
-        Self { volume: 0 }
+        Self { volume: 0x3F }
     }
 
     pub fn set_u8(&mut self, value: u8) {
