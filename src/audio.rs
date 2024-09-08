@@ -101,15 +101,57 @@ fn host_device_setup() -> Result<(cpal::Host, cpal::Device, cpal::StreamConfig),
         .default_output_device()
         .ok_or("Default output device is not available")?;
 
-    println!("Output device: {}", device.name()?);
+    // println!("Output device: {}", device.name()?);
 
-    let output_config = StreamConfig {
-        channels: 1,
-        sample_rate: cpal::SampleRate(44100),
-        buffer_size: cpal::BufferSize::Fixed(512),
+    // let supported_configs_range = device.supported_output_configs()?;
+
+    // println!("Supported configs:");
+    // for config in supported_configs_range {
+    //     println!("  {:?}", config);
+    // }
+
+    let supported_config = device
+        .supported_output_configs()?
+        .find(|config| config.sample_format() == cpal::SampleFormat::F32)
+        .ok_or("No supported audio configuration found")?;
+
+    // Choose sample rate closest to 44100
+    let min_sample_rate = supported_config.min_sample_rate();
+    let max_sample_rate = supported_config.max_sample_rate();
+
+    let target_sample_rate = 44100;
+    let sample_rate = if min_sample_rate.0 >= target_sample_rate {
+        min_sample_rate.0
+    } else if max_sample_rate.0 <= target_sample_rate {
+        max_sample_rate.0
+    } else {
+        target_sample_rate
     };
 
-    println!("Default output config: {:?}", output_config);
+    let config = supported_config.with_sample_rate(cpal::SampleRate(sample_rate));
+
+    // Choose buffer size closest to 512 without going under
+    let buffer_size = match config.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => {
+            let target = 512;
+            if *max < target {
+                cpal::BufferSize::Fixed(*max)
+            } else if *min > target {
+                cpal::BufferSize::Fixed(*min)
+            } else {
+                cpal::BufferSize::Fixed(target)
+            }
+        }
+        cpal::SupportedBufferSize::Unknown => cpal::BufferSize::Default,
+    };
+
+    let output_config = StreamConfig {
+        channels: config.channels(),
+        sample_rate: config.sample_rate(),
+        buffer_size,
+    };
+
+    // println!("Selected output config: {:?}", output_config);
     Ok((host, device, output_config))
 }
 
