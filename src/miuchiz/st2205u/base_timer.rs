@@ -1,6 +1,4 @@
-use crate::memory::AddressSpace;
-
-use super::{reg::U8Register, St2205uAddressSpace};
+use super::reg::U8Register;
 
 const TIMER_FREQUENCY: u64 = 8192;
 

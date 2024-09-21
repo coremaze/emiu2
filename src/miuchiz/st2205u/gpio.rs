@@ -1,5 +1,5 @@
 use super::reg::U8Register;
-use crate::gpio::Gpio;
+use crate::gpio::{GpioButton, GpioButtonState, GpioInterface};
 
 pub enum Port {
     A,
@@ -16,7 +16,9 @@ enum PortMode {
     Output,
 }
 
-pub struct State<'a> {
+pub struct State {
+    last_state: GpioButtonState,
+
     // Port data registers
     pa: U8Register,
     pb: U8Register,
@@ -46,11 +48,11 @@ pub struct State<'a> {
     // Port miscellaneous control register
     pmcr: U8Register,
 
-    io: &'a dyn Gpio,
+    io: Box<dyn GpioInterface>,
 }
 
-impl<'a> State<'a> {
-    pub fn new(io: &'a impl Gpio) -> Self {
+impl State {
+    pub fn new(io: Box<dyn GpioInterface>) -> Self {
         Self {
             pa: U8Register::new(0b1111_1111, 0b1111_1111),
             pb: U8Register::new(0b1111_1111, 0b1111_1111),
@@ -76,14 +78,55 @@ impl<'a> State<'a> {
             pmcr: U8Register::new(0b1000_0000, 0b1111_1111),
 
             io,
+            last_state: GpioButtonState::default(),
         }
     }
+
+    /// Updates the GPIO inputs and returns true if a port a transition occurred
+    pub fn update_gpio_inputs(&mut self) -> bool {
+        let Some(new_state) = self.io.get_updates() else {
+            return false;
+        };
+
+        let mut updated = false;
+        // Only check the port A buttons
+        for bit in 0..u8::BITS {
+            if get_input_bit(bit, &new_state) != get_input_bit(bit, &self.last_state) {
+                updated = true;
+                break;
+            }
+        }
+
+        self.last_state = new_state;
+        updated
+    }
+}
+
+fn get_input_bit(bit: u32, state: &GpioButtonState) -> bool {
+    let button = match bit {
+        0 => GpioButton::Up,
+        1 => GpioButton::Down,
+        2 => GpioButton::Left,
+        3 => GpioButton::Right,
+        4 => GpioButton::Power,
+        5 => GpioButton::Menu,
+        6 => GpioButton::UpsideUp,
+        7 => GpioButton::UpsideDown,
+        8 => GpioButton::ScreenTopLeft,
+        9 => GpioButton::ScreenTopRight,
+        10 => GpioButton::ScreenBottomLeft,
+        11 => GpioButton::ScreenBottomRight,
+        12 => GpioButton::Action,
+        13 => GpioButton::Mute,
+        _ => return false,
+    };
+    state.get(button)
 }
 
 pub fn read_pa(gpio: &State) -> u8 {
     let mut result = 0u8;
     for i in 0..u8::BITS {
-        result |= (gpio.io.get_input(0 * u8::BITS + i) as u8) << i;
+        result |= (get_input_bit(i, &gpio.last_state) as u8) << i;
     }
     !result
 }
@@ -91,7 +134,7 @@ pub fn read_pa(gpio: &State) -> u8 {
 pub fn read_pb(gpio: &State) -> u8 {
     let mut result = 0u8;
     for i in 0..u8::BITS {
-        result |= (gpio.io.get_input(1 * u8::BITS + i) as u8) << i;
+        result |= (get_input_bit(8 + i, &gpio.last_state) as u8) << i;
     }
     !result
 }

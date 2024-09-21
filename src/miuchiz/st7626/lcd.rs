@@ -1,6 +1,6 @@
 use crate::{
-    display::{Pixel, Screen},
     memory::AddressSpace,
+    screen::{Pixel, Screen},
 };
 
 const COMMAND_REG: usize = 0;
@@ -15,7 +15,7 @@ const DDRAM_COLUMN: usize = 98;
 const DDRAM_WIDTH: usize = 2;
 const DDRAM_COUNT: usize = DDRAM_COLUMN * DDRAM_PAGE;
 
-pub struct Lcd<'a> {
+pub struct Lcd {
     ext: bool,
     active_command: Option<Command>,
     byte_since_command: usize,
@@ -32,7 +32,7 @@ pub struct Lcd<'a> {
 
     display_on: bool,
 
-    screen: &'a dyn Screen,
+    screen: Box<dyn Screen>,
 
     voltage: Voltage,
 }
@@ -211,8 +211,8 @@ impl Register {
     }
 }
 
-impl<'a> Lcd<'a> {
-    pub fn new(screen: &'a impl Screen) -> Self {
+impl Lcd {
+    pub fn new(screen: Box<dyn Screen>) -> Self {
         Self {
             ext: false,
             active_command: None,
@@ -230,7 +230,7 @@ impl<'a> Lcd<'a> {
     }
 }
 
-impl<'a> Lcd<'a> {
+impl Lcd {
     fn handle_command(&mut self, command: Command) {
         // println!("Video write command {command:?}");
         match command {
@@ -382,7 +382,7 @@ impl<'a> Lcd<'a> {
     }
 }
 
-impl<'a> AddressSpace for Lcd<'a> {
+impl AddressSpace for Lcd {
     fn read_u8(&mut self, address: usize) -> u8 {
         println!("Unimplemented read u8 LCD address {address}");
         0xff

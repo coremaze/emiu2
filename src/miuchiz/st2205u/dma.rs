@@ -87,7 +87,7 @@ impl State {
     }
 }
 
-pub fn write_dptrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dptrl(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dptrl {val:02X}");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -96,7 +96,7 @@ pub fn write_dptrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u
     }
 }
 
-pub fn write_dptrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dptrh(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dptrh {val:02X}");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -105,7 +105,7 @@ pub fn write_dptrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u
     }
 }
 
-pub fn write_dbkrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dbkrl(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dbkrl {val:02X}");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -114,7 +114,7 @@ pub fn write_dbkrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u
     }
 }
 
-pub fn write_dbkrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dbkrh(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dbkrh {val:02X}");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -123,28 +123,28 @@ pub fn write_dbkrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u
     }
 }
 
-pub fn write_dcntl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dcntl(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dcntl {val:02X}");
     st2205u.dma.dcnt.set_l(val);
 }
 
-pub fn write_dcnth<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dcnth(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dcnth {val:02X}");
     st2205u.dma.dcnt.set_h(val);
     execute_dma(st2205u);
 }
 
-pub fn write_dsel<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dsel(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dsel {val:02X}");
     st2205u.dma.dsel.set(val);
 }
 
-pub fn write_dmod<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>, val: u8) {
+pub fn write_dmod(st2205u: &mut St2205uAddressSpace, val: u8) {
     // println!("Write dmod {val:02X}");
     st2205u.dma.dmod.set(val);
 }
 
-pub fn read_dptrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dptrl(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dptrl");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -153,7 +153,7 @@ pub fn read_dptrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
     }
 }
 
-pub fn read_dptrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dptrh(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dptrh");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -162,7 +162,7 @@ pub fn read_dptrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
     }
 }
 
-pub fn read_dbkrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dbkrl(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dbkrl");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -171,7 +171,7 @@ pub fn read_dbkrl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
     }
 }
 
-pub fn read_dbkrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dbkrh(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dbkrh");
     let dma = &mut st2205u.dma;
     match dma.get_ptr_selection() {
@@ -180,27 +180,27 @@ pub fn read_dbkrh<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
     }
 }
 
-pub fn read_dcntl<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dcntl(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dcntl");
     st2205u.dma.dcnt.l()
 }
 
-pub fn read_dcnth<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dcnth(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dcnth");
     st2205u.dma.dcnt.h()
 }
 
-pub fn read_dsel<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dsel(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dsel");
     st2205u.dma.dsel.get()
 }
 
-pub fn read_dmod<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) -> u8 {
+pub fn read_dmod(st2205u: &mut St2205uAddressSpace) -> u8 {
     // println!("Read dmod");
     st2205u.dma.dmod.get()
 }
 
-fn execute_dma<A: AddressSpace>(st2205u: &mut St2205uAddressSpace<A>) {
+fn execute_dma(st2205u: &mut St2205uAddressSpace) {
     // Must be restored at end
     let original_drr = bank::drr(st2205u);
 

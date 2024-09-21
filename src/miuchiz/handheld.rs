@@ -1,5 +1,5 @@
 use super::{sst39vf1681, st2205u, st7626};
-use crate::{audio::AudioSender, display::Screen, gpio::Gpio, memory::AddressSpace};
+use crate::{audio::AudioInterface, gpio::GpioInterface, memory::AddressSpace, screen::Screen};
 use std::fmt::Display;
 
 pub const SYSTEM_FREQ: u64 = 16_000_000;
@@ -26,17 +26,17 @@ impl AddressType {
     }
 }
 
-pub struct HandheldAddressSpace<'a> {
+pub struct HandheldAddressSpace {
     otp: Box<st2205u::Otp>,
     flash: sst39vf1681::Flash,
-    lcd: st7626::Lcd<'a>,
+    lcd: st7626::Lcd,
 }
 
-impl<'a, 'b> HandheldAddressSpace<'a> {
+impl HandheldAddressSpace {
     pub fn new(
         otp: &[u8],
         flash: &[u8],
-        screen: &'a impl Screen,
+        screen: Box<dyn Screen>,
     ) -> Result<Self, ConfigurationError> {
         let otp_box = Box::new(
             st2205u::Otp::try_from(otp)
@@ -56,7 +56,7 @@ impl<'a, 'b> HandheldAddressSpace<'a> {
     }
 }
 
-impl<'a, 'b> AddressSpace for HandheldAddressSpace<'a> {
+impl AddressSpace for HandheldAddressSpace {
     fn read_u8(&mut self, address: usize) -> u8 {
         // println!("Read {address:X}");
         match AddressType::parse_machine_addr(address) {
@@ -96,19 +96,19 @@ impl Display for ConfigurationError {
     }
 }
 
-pub struct Handheld<'a, 'b> {
-    pub mcu: st2205u::Mcu<'b, HandheldAddressSpace<'a>>,
+pub struct Handheld {
+    pub mcu: st2205u::Mcu,
 }
 
-impl<'a, 'b> Handheld<'a, 'b> {
+impl Handheld {
     pub fn new(
         otp: &[u8],
         flash: &[u8],
-        screen: &'a impl Screen,
-        io: &'b impl Gpio,
-        audio_sender: AudioSender,
+        screen: Box<dyn Screen>,
+        io: Box<dyn GpioInterface>,
+        audio_sender: Box<dyn AudioInterface>,
     ) -> Result<Self, ConfigurationError> {
-        let machine_address_space = HandheldAddressSpace::new(otp, flash, screen)?;
+        let machine_address_space = Box::new(HandheldAddressSpace::new(otp, flash, screen)?);
 
         let mcu = Self {
             mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io, audio_sender),
@@ -117,7 +117,9 @@ impl<'a, 'b> Handheld<'a, 'b> {
         Ok(mcu)
     }
 
-    pub fn flash(&self) -> &[u8] {
-        self.mcu.core.address_space.machine_addr_space.flash.data()
+    pub fn make_flash_dump(&mut self) -> Vec<u8> {
+        let start = 1 << 25;
+        let size = sst39vf1681::Flash::len();
+        self.mcu.read_machine_area(start, size)
     }
 }

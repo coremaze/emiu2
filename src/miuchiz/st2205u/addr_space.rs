@@ -8,7 +8,7 @@ use super::psg::PsgChannel;
 use super::timer;
 use super::timer::TimerIndex;
 use super::wdc_65c02::HandlesInterrupt;
-use crate::gpio::Gpio;
+use crate::gpio::GpioInterface;
 use crate::memory::AddressSpace;
 
 pub const OTP_SIZE: usize = 0x4000;
@@ -129,24 +129,28 @@ const DMOD: u16 = 0x005F;
 const MULL: u16 = 0x006E;
 const MULH: u16 = 0x006F;
 
-pub struct St2205uAddressSpace<'a, A: AddressSpace> {
+pub struct St2205uAddressSpace {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
     /// larger address space through the use of its memory bank registers.
-    pub machine_addr_space: A,
+    pub machine_addr_space: Box<dyn AddressSpace>,
 
     ram: Ram,
 
     pub banks: bank::State,
     pub dma: dma::State,
-    pub gpio: gpio::State<'a>,
+    pub gpio: gpio::State,
     pub base_timer: base_timer::State,
     pub timer: timer::TimerBlocksState,
     pub psg: psg::State,
     pub interrupt: interrupt::State,
 }
 
-impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
-    pub fn new(machine_addr_space: A, io: &'a impl Gpio, frequency: u64) -> Self {
+impl St2205uAddressSpace {
+    pub fn new(
+        machine_addr_space: Box<dyn AddressSpace>,
+        io: Box<dyn GpioInterface>,
+        frequency: u64,
+    ) -> Self {
         Self {
             machine_addr_space,
             ram: [0u8; 0x8000],
@@ -320,7 +324,7 @@ impl<'a, A: AddressSpace> St2205uAddressSpace<'a, A> {
     }
 }
 
-impl<'a, A: AddressSpace> HandlesInterrupt for St2205uAddressSpace<'a, A> {
+impl HandlesInterrupt for St2205uAddressSpace {
     fn set_interrupted(&mut self, interrupted: bool) {
         self.interrupt.set_interrupted(interrupted);
     }
@@ -330,7 +334,7 @@ impl<'a, A: AddressSpace> HandlesInterrupt for St2205uAddressSpace<'a, A> {
     }
 }
 
-impl<'a, A: AddressSpace> AddressSpace for St2205uAddressSpace<'a, A> {
+impl AddressSpace for St2205uAddressSpace {
     fn read_u8(&mut self, address: usize) -> u8 {
         // The ST2205U address space is only 16 bits wide
         match address as u16 {

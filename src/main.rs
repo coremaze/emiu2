@@ -1,8 +1,9 @@
 mod audio;
-mod display;
 mod gpio;
 pub mod memory;
 mod miuchiz;
+mod platform;
+mod screen;
 
 use std::path::PathBuf;
 
@@ -47,9 +48,13 @@ fn main() {
 
     let scale = args.scale;
 
-    let screen = display::MiniFbScreen::open("emiu2", scale);
+    let (mut screen, screen_rx, screen_tx) =
+        platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale);
 
-    let (stream, sender) = match audio::stream_setup_for() {
+    let minifb_gpio = platform::minifb_screen_gpio::MiniFbGpioInterface::new(screen_rx);
+    let minifb_screen = platform::minifb_screen_gpio::MiniFbScreenInterface::new(screen_tx);
+
+    let (stream, sender) = match platform::cpal_audio::stream_setup_for() {
         Ok((stream, sender)) => (stream, sender),
         Err(why) => {
             eprintln!("Could not setup audio stream: {why}");
@@ -62,14 +67,19 @@ fn main() {
         return;
     }
 
-    let mut handheld =
-        match miuchiz::Handheld::new(&otp_data, &flash_data, &screen, &screen, sender) {
-            Ok(handheld) => handheld,
-            Err(why) => {
-                eprintln!("Could not initialize the Miuchiz handheld device: {why}");
-                return;
-            }
-        };
+    let mut handheld = match miuchiz::Handheld::new(
+        &otp_data,
+        &flash_data,
+        Box::new(minifb_screen),
+        Box::new(minifb_gpio),
+        Box::new(sender),
+    ) {
+        Ok(handheld) => handheld,
+        Err(why) => {
+            eprintln!("Could not initialize the Miuchiz handheld device: {why}");
+            return;
+        }
+    };
     // std::thread::sleep(std::time::Duration::from_secs(3));
 
     let beginning = std::time::Instant::now();
@@ -88,11 +98,12 @@ fn main() {
             handheld.mcu.step();
         }
 
+        screen.update_state();
         std::thread::sleep(std::time::Duration::from_nanos(1));
     }
 
     if let Some(save_file) = args.save_file {
-        match std::fs::write(&save_file, handheld.flash()) {
+        match std::fs::write(&save_file, handheld.make_flash_dump()) {
             Ok(_) => {
                 println!("Saved flash to {save_file:?}");
             }
@@ -102,5 +113,5 @@ fn main() {
         }
     }
 
-    println!("{} cycles", handheld.mcu.core.cycles);
+    // println!("{} cycles", handheld.mcu.core.cycles);
 }

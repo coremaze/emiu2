@@ -1,5 +1,4 @@
 use std::cmp::PartialEq;
-use std::fmt::Display;
 
 use crate::memory::AddressSpace;
 

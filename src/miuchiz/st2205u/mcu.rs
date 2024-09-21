@@ -5,29 +5,28 @@ use super::vector;
 use super::wdc_65c02;
 use super::wdc_65c02::HandlesInterrupt;
 use super::St2205uAddressSpace;
-use crate::audio::{AudioInterface, AudioSender};
-use crate::gpio::Gpio;
+use crate::audio::AudioInterface;
+use crate::gpio::GpioInterface;
 use crate::memory::AddressSpace;
 
 /// Representation of a ST2205U microcontroller.
 ///
 /// This microcontroller is capable of, through the use of bank registers,
-/// accessing a larger address space than the 65C02 core itself can, represented
-/// by `A`.
+/// accessing a larger address space than the 65C02 core itself can.
 ///
 /// This device also implements its own address space, which is addressible using
 /// 16 bits, which is directly exposed to the underlying 65C02.
-pub struct Mcu<'a, A: AddressSpace> {
-    pub core: wdc_65c02::Core<St2205uAddressSpace<'a, A>>,
-    pub audio_sender: AudioSender,
+pub struct Mcu {
+    pub core: wdc_65c02::Core<St2205uAddressSpace>,
+    pub audio_sender: Box<dyn AudioInterface>,
 }
 
-impl<'a, A: AddressSpace> Mcu<'a, A> {
+impl Mcu {
     pub fn new(
         frequency: u64,
-        address_space: A,
-        io: &'a impl Gpio,
-        mut audio_sender: AudioSender,
+        address_space: Box<dyn AddressSpace>,
+        io: Box<dyn GpioInterface>,
+        mut audio_sender: Box<dyn AudioInterface>,
     ) -> Self {
         audio_sender.set_clock_rate(frequency);
         let mut mcu = Self {
@@ -96,6 +95,14 @@ impl<'a, A: AddressSpace> Mcu<'a, A> {
             self.audio_sender.add_sample(mix);
         }
 
+        let port_a_transition = self.core.address_space.gpio.update_gpio_inputs();
+        if port_a_transition {
+            self.core
+                .address_space
+                .interrupt
+                .assert_interrupt(Interrupt::PortATransition);
+        }
+
         let interrupt = self
             .core
             .address_space
@@ -140,5 +147,16 @@ impl<'a, A: AddressSpace> Mcu<'a, A> {
         let reset_vector = self.core.address_space.read_u16_le(vector::RESET.into());
         self.core.registers.pc = reset_vector;
         self.core.set_interrupted(false);
+    }
+
+    pub fn read_machine_area(&mut self, start: usize, size: usize) -> Vec<u8> {
+        let end = start + size;
+        let mut data = Vec::<u8>::with_capacity(size);
+
+        for addr in start..end {
+            data.push(self.core.address_space.machine_addr_space.read_u8(addr));
+        }
+
+        data
     }
 }
