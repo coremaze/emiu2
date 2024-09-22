@@ -361,7 +361,7 @@ impl AddressSpace for St2205uAddressSpace {
 
                 if reg & (1 << 15) != 0 {
                     // RAM access if uppermost bit is set
-                    self.ram[address % self.ram.len()]
+                    self.read_ram(address)
                 } else {
                     // Otherwise, access a larger address which is governed by the machine
                     // (i.e. hardware configuration, not ST2205U's responsibility)
@@ -399,7 +399,7 @@ impl AddressSpace for St2205uAddressSpace {
 
                 if reg & (1 << 15) != 0 {
                     // RAM access if uppermost bit is set
-                    self.ram[address % self.ram.len()] = value;
+                    self.write_ram(address, value);
                 } else {
                     // Otherwise, access a larger address which is governed by the machine
                     // (i.e. hardware configuration, not ST2205U's responsibility)
