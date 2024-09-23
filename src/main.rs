@@ -19,11 +19,11 @@ struct Args {
     flash_file: String,
 
     /// Flash image to save
-    #[arg(short, long)]
+    #[arg(long)]
     save_file: Option<PathBuf>,
 
     /// Pixel scale
-    #[arg(short, long, default_value_t = 3)]
+    #[arg(long, default_value_t = 3)]
     scale: usize,
 }
 
