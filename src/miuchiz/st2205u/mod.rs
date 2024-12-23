@@ -8,6 +8,7 @@ mod interrupt;
 mod mcu;
 mod psg;
 mod reg;
+mod rtc;
 mod timer;
 mod vector;
 mod wdc_65c02;

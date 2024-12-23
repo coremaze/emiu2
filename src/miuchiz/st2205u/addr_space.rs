@@ -5,6 +5,7 @@ use super::gpio;
 use super::interrupt;
 use super::psg;
 use super::psg::PsgChannel;
+use super::rtc;
 use super::timer;
 use super::timer::TimerIndex;
 use super::wdc_65c02::HandlesInterrupt;
@@ -97,6 +98,8 @@ const TIEN: u16 = 0x0028;
 const BTEN: u16 = 0x002A;
 const BTREQ: u16 = 0x002B;
 const BTC: u16 = 0x002C;
+const RCTR: u16 = 0x002E;
+const RTC: u16 = 0x002F;
 
 const IRRL: u16 = 0x0030;
 const IRRH: u16 = 0x0031;
@@ -143,6 +146,7 @@ pub struct St2205uAddressSpace {
     pub timer: timer::TimerBlocksState,
     pub psg: psg::State,
     pub interrupt: interrupt::State,
+    pub rtc: rtc::State,
 }
 
 impl St2205uAddressSpace {
@@ -162,6 +166,7 @@ impl St2205uAddressSpace {
             timer: timer::TimerBlocksState::new(),
             psg: psg::State::new(),
             interrupt: interrupt::State::new(),
+            rtc: rtc::State::new(frequency),
         }
     }
 
@@ -231,6 +236,8 @@ impl St2205uAddressSpace {
             IENAH => interrupt::read_ienah(&self.interrupt),
             MULL => self.psg.read_mull(),
             MULH => self.psg.read_mulh(),
+            RTC => self.rtc.read_rtc(),
+            RCTR => self.rtc.read_rctr(),
             _ => {
                 // println!("Unimplemented read of register {address:02X}");
                 0
@@ -308,6 +315,8 @@ impl St2205uAddressSpace {
             IENAH => interrupt::write_ienah(&mut self.interrupt, value),
             MULL => self.psg.write_mull(value),
             MULH => self.psg.write_mulh(value),
+            RCTR => self.rtc.write_rctr(value),
+            RTC => self.rtc.write_rtc(value),
             _ => {
                 println!("Unimplemented write of register {address:02X}");
             }
