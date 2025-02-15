@@ -3,7 +3,31 @@ name = "emiu2"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-clap = { version = "4.0.32", features = ["derive"] }
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15.3"
 minifb = "0.27.0"
+clap = { version = "4.0.32", features = ["derive"] }
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1.6"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Document",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "KeyboardEvent",
+    "Performance",
+    "ImageData",
+    "AudioContext",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioDestinationNode"
+] }
+wasm-bindgen-futures = "0.4"
+
