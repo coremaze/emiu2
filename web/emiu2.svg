@@ -25,9 +25,9 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      showgrid="false"
-     inkscape:zoom="1.829812"
-     inkscape:cx="330.08855"
-     inkscape:cy="746.25152"
+     inkscape:zoom="0.914906"
+     inkscape:cx="421.90126"
+     inkscape:cy="537.21366"
      inkscape:window-width="3440"
      inkscape:window-height="1371"
      inkscape:window-x="0"
@@ -36,6 +36,23 @@
      inkscape:current-layer="layer1" />
   <defs
      id="defs2">
+    <inkscape:path-effect
+       effect="copy_rotate"
+       starting_point="143.82271,132.29167"
+       origin="132.29153,132.29167"
+       id="path-effect21295"
+       is_visible="true"
+       lpeversion="1.2"
+       lpesatellites=""
+       method="normal"
+       num_copies="3"
+       starting_angle="0"
+       rotation_angle="60"
+       gap="-0.01"
+       copies_to_360="true"
+       mirror_copies="false"
+       split_items="false"
+       link_styles="false" />
     <inkscape:path-effect
        effect="copy_rotate"
        starting_point="319.38031,132.29166"
@@ -154,19 +171,15 @@
        id="rect6018"
        width="46.261406"
        height="46.261406"
-       x="-40.730129"
-       y="143.37311"
-       transform="rotate(-23.040526)"
-       inkscape:transform-center-x="83.320409"
-       inkscape:transform-center-y="27.817939" />
+       x="-50.915447"
+       y="135.93295"
+       transform="rotate(-27.4192)" />
     <circle
        style="fill:#289fff;fill-opacity:1;stroke:none;stroke-width:52.9167;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1"
        id="path6072"
-       cx="164.98016"
-       cy="217.28493"
+       cx="164.86377"
+       cy="218.29982"
        r="30.310919"
-       inkscape:transform-center-x="-61.791151"
-       inkscape:transform-center-y="67.771315"
        transform="rotate(-7.7912925)" />
     <circle
        style="fill:#289fff;fill-opacity:1;stroke:none;stroke-width:52.9167;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1"
@@ -174,5 +187,12 @@
        cx="132.29153"
        cy="132.29167"
        r="30.310919" />
+    <path
+       style="display:none;fill:#000000;fill-opacity:1;stroke:#000000;stroke-width:5.29167;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1"
+       d="m 132.29165,132.29165 23.06236,-83.34089 m -23.06256,83.34082 -83.706505,21.69785 m 83.706545,-21.69765 60.64415,61.64304"
+       id="path21181"
+       class="UnoptimicedTransforms"
+       inkscape:path-effect="#path-effect21295"
+       inkscape:original-d="M 132.29165,132.29165 155.35401,48.95076" />
   </g>
 </svg>
