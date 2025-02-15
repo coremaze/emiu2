@@ -2,15 +2,35 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Emiu2</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; }
+        html { 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100%; 
+            touch-action: manipulation;
+        }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh; 
+            background: linear-gradient(135deg, #202020, #101010); 
+            font-family: 'Segoe UI', Tahoma, sans-serif; 
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            touch-action: manipulation;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
         #emulator-canvas { 
             /* Fixed aspect ratio of 98:67 */
             aspect-ratio: 98/67;
             /* Scale to fit width while maintaining aspect ratio */
-            width: min(50em, 100vw, calc(50em * 98/67));
+            width: min(50em, 95vw, calc(50em * 98/67));
+            max-width: 95vw;
             height: auto;
             /* Center the canvas */
             display: block;
@@ -19,9 +39,12 @@
             image-rendering: pixelated;
             image-rendering: crisp-edges; /* Firefox fallback */
             background: radial-gradient(circle at center, #283e69 0%, #0a1525 100%);
+            border: 1px solid #444;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
         }
-        #upload-container { padding: 10px; background: #f0f0f0; }
-        #pc-display { padding: 10px; background: #ddd; font-size: 20px; }
+        #upload-container { padding: 10px; background: #2a2a2a; border-radius: 8px; width: max-content; margin: 20px auto; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); }
+        #pc-display { padding: 10px; background: #444; font-size: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
         #controls {
             display: grid;
             grid-template-areas: 
@@ -32,12 +55,25 @@
             grid-gap: 10px;
             width: 350px;
             margin: 20px auto;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
         #controls button {
             padding: 10px;
             font-size: 16px;
             user-select: none;
             -webkit-user-select: none;
+            border: none;
+            border-radius: 8px;
+            background-color: #555;
+            color: #fff;
+            transition: background-color 0.2s ease, transform 0.2s ease;
+        }
+        #controls button:hover {
+            transform: scale(1.05);
+            background-color: #666;
         }
         #menu-action {
             display: flex;
@@ -61,6 +97,7 @@
             width: 50%;
             height: 50%;
             animation: rotation 60s infinite linear;
+            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.5));
         }
         @keyframes rotation {
             from { transform: translate(-50%, -50%) rotate(360deg); }
@@ -73,6 +110,25 @@
             from { transform: translate(-50%, -50%) rotate(720deg); }
             to { transform: translate(-50%, -200%) rotate(0deg); }
         }
+        #start-button {
+            background-color: #007bff;
+            border: none;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            display: block;
+            width: 100%;
+        }
+        #start-button:hover {
+            background-color: #0056b3;
+        }
+        #start-button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }        
     </style>
 </head>
 <body>
@@ -81,8 +137,14 @@
          <img src="emiu2.svg" alt="Emiu2 Logo" id="emiu2-svg">
     </div>
     <div id="upload-container">
-        <input type="file" id="otp-input" />
-        <input type="file" id="flash-input" />
+        <div style="margin-bottom:8px;">
+            <label for="otp-input" style="margin-right:8px;">OTP File:</label>
+            <input type="file" id="otp-input" />
+        </div>
+        <div style="margin-bottom:8px;">
+            <label for="flash-input" style="margin-right:8px;">Flash File:</label>
+            <input type="file" id="flash-input" />
+        </div>
         <button id="start-button">Start Emulator</button>
     </div>
     <div id="controls">
@@ -107,11 +169,18 @@
         function update_button_colors(buttons) {
             for (const [elementId, buttonState] of Object.entries(buttons)) {
                 const element = document.getElementById(elementId);
-                element.style.backgroundColor = get_button_state(buttonState) ? 'lightgreen' : 'lightgray';
+                if (get_button_state(buttonState)) {
+                    element.style.backgroundColor = '#4CAF50';
+                    element.style.color = '#fff';
+                } else {
+                    element.style.backgroundColor = '#555';
+                    element.style.color = '#fff';
+                }
             }
         }
 
         async function run() {
+            let emulatorStarted = false;
             const buttons = {
                 'up': 'up',
                 'down': 'down', 
@@ -153,6 +222,10 @@
             canvas.height = 67;
 
             document.getElementById('start-button').addEventListener('click', () => {
+                if (emulatorStarted) return;
+                emulatorStarted = true;
+                document.getElementById('start-button').disabled = true;
+
                 const otpFileInput = document.getElementById('otp-input');
                 const flashFileInput = document.getElementById('flash-input');
 
