@@ -60,27 +60,40 @@ pub fn start_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<(),
         .ok_or_else(|| JsValue::from_str("Performance API not available"))?
         .now();
 
-    // Set up the recursive animation frame loop
+    // Set up simulation interval (1ms)
+    let sim_state = emulator_state.clone();
+    let sim_closure = Closure::wrap(Box::new(move || {
+        let mut state = sim_state.borrow_mut();
+        let now = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(beginning);
+
+        let elapsed_ms = now - beginning;
+        let nanoseconds = (elapsed_ms * 1_000_000.0) as u128;
+        let cycles_per_second = state.0.mcu.core.cycles_per_second() as u128;
+        let cycles_required_so_far = (nanoseconds * cycles_per_second) / 1_000_000_000;
+        while (state.0.mcu.core.cycles as u128) < cycles_required_so_far {
+            state.0.mcu.step();
+        }
+    }) as Box<dyn FnMut()>);
+
+    // Set up the interval for simulation
+    web_sys::window()
+        .ok_or_else(|| JsValue::from_str("No window available"))?
+        .set_interval_with_callback_and_timeout_and_arguments_0(
+            sim_closure.as_ref().unchecked_ref(),
+            1, // 1ms interval
+        )
+        .map_err(|e| JsValue::from_str(&format!("Failed to set simulation interval: {:?}", e)))?;
+    sim_closure.forget(); // Prevent closure from being dropped
+
+    // Set up the recursive animation frame loop (for rendering only)
     let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
     {
         let f_clone = f.clone();
         *f.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-            // Run emulation steps based on elapsed time and required cycles
-            {
-                let mut state = emulator_state.borrow_mut();
-                let now = web_sys::window()
-                    .and_then(|w| w.performance())
-                    .map(|p| p.now())
-                    .unwrap_or(beginning);
-                let elapsed_ms = now - beginning;
-                let nanoseconds = (elapsed_ms * 1_000_000.0) as u128;
-                let cycles_per_second = state.0.mcu.core.cycles_per_second() as u128;
-                let cycles_required_so_far = (nanoseconds * cycles_per_second) / 1_000_000_000;
-                while (state.0.mcu.core.cycles as u128) < cycles_required_so_far {
-                    state.0.mcu.step();
-                }
-            }
-            // Update the screen
+            // Update the screen only
             emulator_state.borrow_mut().1.render_pixels();
 
             // Schedule the next frame
