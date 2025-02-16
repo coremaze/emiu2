@@ -109,6 +109,11 @@ impl Mcu {
             .interrupt
             .highest_priority_interrupt();
 
+        // Cancel WAI mode if an interrupt is pending
+        if interrupt.is_some() && self.core.waiting_for_interrupt {
+            self.core.waiting_for_interrupt = false;
+        }
+
         if !self.core.flags.interrupt_disable && !self.core.interrupted() {
             if let Some(interrupt) = interrupt {
                 self.core

@@ -239,8 +239,14 @@ impl Lcd {
             Command::WritingToMemory => {}
             Command::PageAddressSet => {}
             Command::ColumnAddressSet => {}
-            Command::DisplayOff => self.display_on = false,
-            Command::DisplayOn => self.display_on = true,
+            Command::DisplayOff => {
+                self.display_on = false;
+                self.update_display();
+            }
+            Command::DisplayOn => {
+                self.display_on = true;
+                self.update_display();
+            }
             Command::EcControl => {}
             _ => {
                 println!("Unimplemented LCD command {command:?}")
@@ -384,8 +390,12 @@ impl Lcd {
 
 impl AddressSpace for Lcd {
     fn read_u8(&mut self, address: usize) -> u8 {
-        println!("Unimplemented read u8 LCD address {address}");
-        0xff
+        // There are other bits in the status register, but "Display On/Off" is
+        // required for sleep functions to work correctly.
+        match Register::from_address(address) {
+            Register::Command => (self.display_on as u8) << 3,
+            Register::Data => 0xFF,
+        }
     }
 
     fn write_u8(&mut self, address: usize, value: u8) {

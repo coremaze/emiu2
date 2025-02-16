@@ -18,6 +18,8 @@ where
     pub registers: Registers,
 
     pub flags: Flags,
+
+    pub waiting_for_interrupt: bool,
 }
 
 #[derive(Default)]
@@ -124,6 +126,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
                 x: 0,
                 y: 0,
             },
+            waiting_for_interrupt: false,
         }
     }
 
@@ -144,6 +147,12 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
     }
 
     pub fn step(&mut self) {
+        // handle WAI mode
+        if self.waiting_for_interrupt {
+            self.cycles += 1;
+            return;
+        }
+
         let dins = self.decode_next_instruction();
         let ins = &dins.instruction;
 

@@ -198,10 +198,8 @@ pub fn rmb7<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, inst: &Instr
     rmbx(core, inst, 7)
 }
 
-pub fn wai<A: AddressSpace + HandlesInterrupt>(_core: &mut Core<A>, _inst: &Instruction) -> bool {
-    // TODO: IMPLEMENT WHEN THERE ARE INTERRUPTS
-    // core.registers.pc = core.registers.pc.wrapping_sub(inst.encoded_length() as u16);
-
+pub fn wai<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, _inst: &Instruction) -> bool {
+    core.waiting_for_interrupt = true;
     false
 }
 
