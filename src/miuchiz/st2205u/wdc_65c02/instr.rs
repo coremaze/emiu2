@@ -379,7 +379,7 @@ pub fn jsr<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, inst: &Instru
 
     // PC increment should be done prior to execution, so pushing this pushes
     // the correct return address
-    core.push_u16(core.registers.pc);
+    core.push_u16(core.registers.pc.wrapping_sub(1));
 
     core.registers.pc = operand;
 
@@ -412,7 +412,7 @@ pub fn rti<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, _inst: &Instr
 }
 
 pub fn rts<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, _inst: &Instruction) -> bool {
-    core.registers.pc = core.pop_u16();
+    core.registers.pc = core.pop_u16().wrapping_add(1);
 
     false
 }

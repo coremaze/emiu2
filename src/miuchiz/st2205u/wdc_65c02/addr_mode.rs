@@ -133,7 +133,6 @@ impl AddressingMode {
             }
             AddressingMode::AbsoluteXIndexedIndirectAddress(addr) => {
                 let address_address = addr.wrapping_add(core.registers.x.into());
-                println!("{address_address:X}");
                 let jmp_addr = core.address_space.read_u16_le(address_address as usize);
                 (jmp_addr, crosses_page(*addr, address_address))
             }
