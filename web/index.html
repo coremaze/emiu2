@@ -129,7 +129,20 @@
             background-color: #666;
             cursor: not-allowed;
             opacity: 0.7;
-        }        
+        }
+        #download-flash {
+            background-color: #28a745;
+            border: none;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            margin-left: 10px;
+        }
+        #download-flash:hover {
+            background-color: #218838;
+        }
     </style>
 </head>
 <body>
@@ -138,11 +151,26 @@
          <img src="emiu2.svg" alt="Emiu2 Logo" id="emiu2-svg">
     </div>
     <div id="upload-container">
-        <div style="margin-bottom:8px;">
+        <div id="otp-options" style="display:none; margin-bottom:8px;">
+            <label style="margin-right:8px;">OTP Source:</label>
+            <input type="radio" name="otpSource" value="db" id="otp-from-db" checked>
+            <label for="otp-from-db" style="margin-right:8px;">Use saved OTP</label>
+            <input type="radio" name="otpSource" value="file" id="otp-from-file">
+            <label for="otp-from-file">Upload OTP file</label>
+        </div>
+        <div id="otp-upload" style="display:none; margin-bottom:8px;">
             <label for="otp-input" style="margin-right:8px;">OTP File:</label>
             <input type="file" id="otp-input" />
         </div>
-        <div style="margin-bottom:8px;">
+        <div id="flash-options" style="display:none; margin-bottom:8px;">
+            <label style="margin-right:8px;">Flash Source:</label>
+            <input type="radio" name="flashSource" value="db" id="flash-from-db" checked>
+            <label for="flash-from-db" style="margin-right:8px;">Use saved flash</label>
+            <input type="radio" name="flashSource" value="file" id="flash-from-file">
+            <label for="flash-from-file">Upload flash file</label>
+            <button id="download-flash" style="display:none;">Download Saved Flash</button>
+        </div>
+        <div id="flash-upload" style="display:none; margin-bottom:8px;">
             <label for="flash-input" style="margin-right:8px;">Flash File:</label>
             <input type="file" id="flash-input" />
         </div>
@@ -163,7 +191,7 @@
         <button id="mute" style="grid-area: mute;">Mute</button>
     </div>
     <script type="module">
-        import init, { start_emulator_with_files, set_button_state, get_button_state } from '/pkg/emiu2.js';
+        import init, { start_emulator_with_files, set_button_state, get_button_state, get_flash_dump } from '/pkg/emiu2.js';
         await init();
 
 
@@ -180,8 +208,109 @@
             }
         }
 
+        function saveToIndexedDB(key, arrayBuffer) {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('emiu2DB', 1);
+                request.onupgradeneeded = event => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('data')) {
+                        db.createObjectStore('data');
+                    }
+                };
+                request.onsuccess = event => {
+                    const db = event.target.result;
+                    const transaction = db.transaction('data', 'readwrite');
+                    const store = transaction.objectStore('data');
+                    const putRequest = store.put(arrayBuffer, key);
+                    putRequest.onsuccess = () => {
+                        console.log(`Successfully saved ${key} to IndexedDB`);
+                        resolve();
+                    };
+                    putRequest.onerror = () => {
+                        console.error(`Failed to save ${key} to IndexedDB:`, putRequest.error);
+                        reject(putRequest.error);
+                    };
+                };
+                request.onerror = () => {
+                    console.error('Failed to open IndexedDB:', request.error);
+                    reject(request.error);
+                };
+            });
+        }
+
+        function loadFromIndexedDB(key) {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('emiu2DB', 1);
+                request.onupgradeneeded = event => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('data')) {
+                        db.createObjectStore('data');
+                    }
+                };
+                request.onsuccess = event => {
+                    const db = event.target.result;
+                    const transaction = db.transaction('data', 'readonly');
+                    const store = transaction.objectStore('data');
+                    const getRequest = store.get(key);
+                    getRequest.onsuccess = () => resolve(getRequest.result);
+                    getRequest.onerror = () => reject(getRequest.error);
+                };
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function checkForSavedData() {
+            try {
+                const [dbOtp, dbFlash] = await Promise.all([
+                    loadFromIndexedDB('otp'),
+                    loadFromIndexedDB('flash')
+                ]);
+
+                if (dbOtp && dbOtp.byteLength > 0) {
+                    document.getElementById('otp-options').style.display = 'block';
+                    document.getElementById('otp-upload').style.display = 'none';
+                } else {
+                    document.getElementById('otp-options').style.display = 'none';
+                    document.getElementById('otp-upload').style.display = 'block';
+                }
+
+                if (dbFlash && dbFlash.byteLength > 0) {
+                    document.getElementById('flash-options').style.display = 'block';
+                    document.getElementById('flash-upload').style.display = 'none';
+                    document.getElementById('download-flash').style.display = 'inline-block';
+                } else {
+                    document.getElementById('flash-options').style.display = 'none';
+                    document.getElementById('flash-upload').style.display = 'block';
+                    document.getElementById('download-flash').style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Error checking for saved data:', e);
+                document.getElementById('otp-options').style.display = 'none';
+                document.getElementById('otp-upload').style.display = 'block';
+                document.getElementById('flash-options').style.display = 'none';
+                document.getElementById('flash-upload').style.display = 'block';
+                document.getElementById('download-flash').style.display = 'none';
+            }
+        }
+
+        checkForSavedData();
+
+        document.querySelectorAll('input[name="otpSource"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.getElementById('otp-upload').style.display = 
+                    radio.value === 'file' ? 'block' : 'none';
+            });
+        });
+
+        document.querySelectorAll('input[name="flashSource"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                document.getElementById('flash-upload').style.display = 
+                    radio.value === 'file' ? 'block' : 'none';
+            });
+        });
+
         async function run() {
-            let emulatorStarted = false;
+            window.emulatorStarted = false;
             const buttons = {
                 'up': 'up',
                 'down': 'down', 
@@ -222,21 +351,87 @@
             canvas.width = 98;
             canvas.height = 67;
 
-            document.getElementById('start-button').addEventListener('click', () => {
-                if (emulatorStarted) return;
-                emulatorStarted = true;
+            document.getElementById('start-button').addEventListener('click', async () => {
+                if (window.emulatorStarted) return;
+                window.emulatorStarted = true;
                 document.getElementById('start-button').disabled = true;
 
-                const otpFileInput = document.getElementById('otp-input');
-                const flashFileInput = document.getElementById('flash-input');
+                let otpArrayBuffer = null;
+                let flashArrayBuffer = null;
 
-                if (otpFileInput.files.length === 0 || flashFileInput.files.length === 0) {
-                    alert('Please select both OTP and flash files.');
-                    return;
+                // Get OTP data
+                const otpOptionsDiv = document.getElementById('otp-options');
+                let otpSource = 'file';
+                if (otpOptionsDiv.style.display !== 'none') {
+                    const otpSourceElem = document.querySelector('input[name="otpSource"]:checked');
+                    otpSource = otpSourceElem ? otpSourceElem.value : 'file';
                 }
 
-                const otpFile = otpFileInput.files[0];
-                const flashFile = flashFileInput.files[0];
+                if (otpSource === 'db') {
+                    try {
+                        const dbOtp = await loadFromIndexedDB('otp');
+                        if (dbOtp && dbOtp.byteLength > 0) {
+                            console.log('Loaded OTP from IndexedDB.');
+                            otpArrayBuffer = dbOtp;
+                        } else {
+                            alert('No saved OTP found in database. Please upload OTP file.');
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Error loading OTP from IndexedDB:', e);
+                        alert('Error loading saved OTP.');
+                        return;
+                    }
+                } else {
+                    const otpFileInput = document.getElementById('otp-input');
+                    if (otpFileInput.files.length === 0) {
+                        alert('Please select OTP file.');
+                        return;
+                    }
+                    otpArrayBuffer = await otpFileInput.files[0].arrayBuffer();
+                    
+                    // Save OTP to IndexedDB when a new file is uploaded
+                    try {
+                        await saveToIndexedDB('otp', otpArrayBuffer);
+                        console.log('Saved new OTP to IndexedDB');
+                    } catch (e) {
+                        console.error('Failed to save OTP to IndexedDB:', e);
+                        // Continue anyway since we have the OTP in memory
+                    }
+                }
+
+                // Get Flash data
+                const flashOptionsDiv = document.getElementById('flash-options');
+                let flashSource = 'file';
+                if (flashOptionsDiv.style.display !== 'none') {
+                    const flashSourceElem = document.querySelector('input[name="flashSource"]:checked');
+                    flashSource = flashSourceElem ? flashSourceElem.value : 'file';
+                }
+
+                if (flashSource === 'db') {
+                    try {
+                        const dbFlash = await loadFromIndexedDB('flash');
+                        if (dbFlash && dbFlash.byteLength > 0) {
+                            console.log('Loaded flash from IndexedDB.');
+                            flashArrayBuffer = dbFlash;
+                        } else {
+                            alert('No saved flash found in database. Please upload flash file.');
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Error loading flash from IndexedDB:', e);
+                        alert('Error loading saved flash.');
+                        return;
+                    }
+                } else {
+                    const flashFileInput = document.getElementById('flash-input');
+                    if (flashFileInput.files.length === 0) {
+                        alert('Please select flash file.');
+                        return;
+                    }
+                    flashArrayBuffer = await flashFileInput.files[0].arrayBuffer();
+                }
+
                 const svg = document.getElementById('emiu2-svg');
 
                 // Use the Web Animations API to get the current time of the CSS rotation
@@ -245,7 +440,6 @@
                 const duration = 60000; // 60 seconds duration of the rotation animation
                 let currentAngle = 360;
                 if (cssAnim && cssAnim.currentTime != null) {
-                    // Compute the current angle based on the elapsed time in the CSS animation.
                     let t = cssAnim.currentTime;
                     currentAngle = 360 - ((t % duration) / duration * 360);
                 }
@@ -265,15 +459,8 @@
                     fill: 'forwards'
                 });
 
-                // const brightnessAnimation = canvas.animate([
-                //     { background: "radial-gradient(circle at center, #283e69 0%, #0a1525 100%)" },
-                //     { background: 'rgb(0, 0, 0)' }
-                // ], { duration: 1000, easing: 'ease-in-out', fill: 'none' });
-
                 exitAnimation.onfinish = async () => {
                     try {
-                        const otpArrayBuffer = await otpFile.arrayBuffer();
-                        const flashArrayBuffer = await flashFile.arrayBuffer();
                         const otpUint8 = new Uint8Array(otpArrayBuffer);
                         const flashUint8 = new Uint8Array(flashArrayBuffer);
                         start_emulator_with_files(otpUint8, flashUint8);
@@ -282,10 +469,6 @@
                         console.error(e);
                     }
                 };
-
-
-
-                
             });
 
  
@@ -329,6 +512,44 @@
         }
 
         run();
+
+        // Auto-save flash dump every 1 second
+        setInterval(async () => {
+            if (window.emulatorStarted) {
+                try {
+                    const flashDump = get_flash_dump();
+                    if (flashDump && flashDump.buffer && flashDump.buffer.byteLength > 0) {
+                        await saveToIndexedDB('flash', flashDump.buffer);
+                    }
+                } catch (e) {
+                    console.error('Auto-save failed:', e);
+                }
+            }
+        }, 1000);
+
+        async function downloadSavedFlash() {
+            try {
+                const flashData = await loadFromIndexedDB('flash');
+                if (flashData && flashData.byteLength > 0) {
+                    const blob = new Blob([flashData], { type: 'application/octet-stream' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'emiu2_flash.bin';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } else {
+                    alert('No flash data available to download');
+                }
+            } catch (e) {
+                console.error('Error downloading flash:', e);
+                alert('Failed to download flash data');
+            }
+        }
+
+        document.getElementById('download-flash').addEventListener('click', downloadSavedFlash);
     </script>
 </body>
 </html> 

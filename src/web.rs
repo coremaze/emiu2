@@ -15,6 +15,7 @@ use wasm_bindgen::JsCast;
 
 thread_local! {
     static GLOBAL_GPIO_STATE: RefCell<Rc<RefCell<GpioButtonState>>> = RefCell::new(Rc::new(RefCell::new(GpioButtonState::default())));
+    static GLOBAL_EMULATOR_STATE: RefCell<Option<Rc<RefCell<(Handheld, WasmScreen)>>>> = RefCell::new(None);
 }
 
 #[wasm_bindgen]
@@ -54,6 +55,9 @@ pub fn start_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<(),
 
     // Wrap emulator state (handheld and screen) in an Rc<RefCell> for shared access in the animation loop
     let emulator_state = Rc::new(RefCell::new((handheld, screen)));
+    GLOBAL_EMULATOR_STATE.with(|global| {
+        *global.borrow_mut() = Some(emulator_state.clone());
+    });
     let beginning = web_sys::window()
         .ok_or_else(|| JsValue::from_str("No window available"))?
         .performance()
@@ -172,6 +176,19 @@ pub fn get_button_state(button: &str) -> bool {
             "screen-bottom-left" => gpio.screen_bottom_left,
             "screen-bottom-right" => gpio.screen_bottom_right,
             _ => false,
+        }
+    })
+}
+
+#[wasm_bindgen]
+pub fn get_flash_dump() -> web_sys::js_sys::Uint8Array {
+    GLOBAL_EMULATOR_STATE.with(|state| {
+        if let Some(emulator_state) = &*state.borrow() {
+            let mut guard = emulator_state.borrow_mut();
+            let dump = guard.0.make_flash_dump();
+            web_sys::js_sys::Uint8Array::from(&dump[..]).into()
+        } else {
+            web_sys::js_sys::Uint8Array::new(&JsValue::from(0)).into()
         }
     })
 }
