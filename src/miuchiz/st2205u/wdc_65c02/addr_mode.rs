@@ -178,7 +178,13 @@ impl AddressingMode {
             AddressingMode::AbsoluteXIndexedIndirect(_) => todo!(),
             AddressingMode::Immediate(_) => todo!(),
             AddressingMode::Indirect(_) => todo!(),
-            AddressingMode::XIndexedIndirect(_) => todo!(),
+            AddressingMode::XIndexedIndirect(zp_addr) => {
+                let effective_zp_addr = (*zp_addr).wrapping_add(core.registers.x);
+                let effective_address = core.address_space.read_u16_le(effective_zp_addr as usize);
+                core.address_space
+                    .write_u8(effective_address as usize, value);
+                false
+            }
             AddressingMode::IndirectYIndexed(addr) => {
                 let address1 = core.address_space.read_u16_le(*addr as usize);
                 let address2 = address1.wrapping_add(core.registers.y.into());
