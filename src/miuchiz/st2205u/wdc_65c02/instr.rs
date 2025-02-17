@@ -112,7 +112,6 @@ pub fn smbx<A: AddressSpace + HandlesInterrupt>(
     let (mut operand, _) = inst.addressing_mode.read_operand_u8(core);
 
     operand |= 1 << n;
-    core.flags.zero = operand == 0;
 
     let _ = inst.addressing_mode.write_operand_u8(core, operand);
 
@@ -159,7 +158,6 @@ pub fn rmbx<A: AddressSpace + HandlesInterrupt>(
     let (mut operand, _) = inst.addressing_mode.read_operand_u8(core);
 
     operand &= !(1 << n);
-    core.flags.zero = operand == 0;
 
     let _ = inst.addressing_mode.write_operand_u8(core, operand);
 
