@@ -191,7 +191,7 @@
         <button id="mute" style="grid-area: mute;">Mute</button>
     </div>
     <script type="module">
-        import init, { start_emulator_with_files, set_button_state, get_button_state, get_flash_dump } from '/pkg/emiu2.js';
+        import init, { create_emulator_with_files, set_button_state, get_button_state, get_flash_dump, start_driving_emulator } from '/pkg/emiu2.js';
         await init();
 
 
@@ -353,8 +353,6 @@
 
             document.getElementById('start-button').addEventListener('click', async () => {
                 if (window.emulatorStarted) return;
-                window.emulatorStarted = true;
-                document.getElementById('start-button').disabled = true;
 
                 let otpArrayBuffer = null;
                 let flashArrayBuffer = null;
@@ -432,6 +430,18 @@
                     flashArrayBuffer = await flashFileInput.files[0].arrayBuffer();
                 }
 
+                try {
+                        const otpUint8 = new Uint8Array(otpArrayBuffer);
+                        const flashUint8 = new Uint8Array(flashArrayBuffer);
+                        create_emulator_with_files(otpUint8, flashUint8);
+                        window.emulatorStarted = true;
+                        document.getElementById('start-button').disabled = true;
+                } catch (e) {
+                        alert('Failed to start emulator: ' + e);
+                        console.error(e);
+                        return;
+                }
+
                 const svg = document.getElementById('emiu2-svg');
 
                 // Use the Web Animations API to get the current time of the CSS rotation
@@ -461,9 +471,7 @@
 
                 exitAnimation.onfinish = async () => {
                     try {
-                        const otpUint8 = new Uint8Array(otpArrayBuffer);
-                        const flashUint8 = new Uint8Array(flashArrayBuffer);
-                        start_emulator_with_files(otpUint8, flashUint8);
+                        start_driving_emulator();
                     } catch (e) {
                         alert('Failed to start emulator: ' + e);
                         console.error(e);

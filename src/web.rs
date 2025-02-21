@@ -19,7 +19,7 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-pub fn start_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<(), JsValue> {
+pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<(), JsValue> {
     // Set up panic hook for better error messages in the browser console
     console_error_panic_hook::set_once();
 
@@ -58,6 +58,23 @@ pub fn start_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<(),
     GLOBAL_EMULATOR_STATE.with(|global| {
         *global.borrow_mut() = Some(emulator_state.clone());
     });
+
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub fn start_driving_emulator() -> Result<(), JsValue> {
+    let emulator_state = GLOBAL_EMULATOR_STATE.with(|state| {
+        if let Some(emulator_state) = &*state.borrow() {
+            Ok(emulator_state.clone())
+        } else {
+            Err(JsValue::from_str("Emulator state not found"))
+        }
+    });
+
+    let emulator_state = emulator_state
+        .map_err(|e| JsValue::from_str(&format!("Failed to get emulator state: {:?}", e)))?;
+
     let beginning = web_sys::window()
         .ok_or_else(|| JsValue::from_str("No window available"))?
         .performance()
@@ -93,12 +110,13 @@ pub fn start_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<(),
     sim_closure.forget(); // Prevent closure from being dropped
 
     // Set up the recursive animation frame loop (for rendering only)
+    let sim_state = emulator_state.clone();
     let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
     {
         let f_clone = f.clone();
         *f.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             // Update the screen only
-            emulator_state.borrow_mut().1.render_pixels();
+            sim_state.borrow_mut().1.render_pixels();
 
             // Schedule the next frame
             if let Some(window) = web_sys::window() {
