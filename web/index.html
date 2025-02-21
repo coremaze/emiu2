@@ -1,23 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="icon" type="image/svg+xml" href="./emiu2.svg">
     <title>Emiu2</title>
     <style>
-        html { 
-            margin: 0; 
-            padding: 0; 
-            min-height: 100%; 
+        html {
+            margin: 0;
+            padding: 0;
+            min-height: 100%;
             touch-action: manipulation;
         }
-        body { 
-            margin: 0; 
-            padding: 0; 
-            min-height: 100vh; 
-            background: linear-gradient(135deg, #202020, #101010); 
-            font-family: 'Segoe UI', Tahoma, sans-serif; 
+
+        body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #202020, #101010);
+            font-family: 'Segoe UI', Tahoma, sans-serif;
             color: #fff;
             display: flex;
             flex-direction: column;
@@ -26,7 +28,8 @@
             -webkit-user-select: none;
             user-select: none;
         }
-        #emulator-canvas { 
+
+        #emulator-canvas {
             /* Fixed aspect ratio of 98:67 */
             aspect-ratio: 98/67;
             /* Scale to fit width while maintaining aspect ratio */
@@ -38,17 +41,34 @@
             margin: 0 auto;
             /* Ensure nearest neighbor scaling */
             image-rendering: pixelated;
-            image-rendering: crisp-edges; /* Firefox fallback */
+            /* Firefox fallback */
+            image-rendering: crisp-edges;
             background: radial-gradient(circle at center, #283e69 0%, #0a1525 100%);
             border: 1px solid #444;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
             border-radius: 4px;
         }
-        #upload-container { padding: 10px; background: #2a2a2a; border-radius: 8px; width: max-content; margin: 20px auto; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); }
-        #pc-display { padding: 10px; background: #444; font-size: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
+
+        #upload-container {
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            width: max-content;
+            margin: 20px auto;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        #pc-display {
+            padding: 10px;
+            background: #444;
+            font-size: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
         #controls {
             display: grid;
-            grid-template-areas: 
+            grid-template-areas:
                 "screen-ul  up    screen-ur  menu"
                 "left       .     right      action"
                 "screen-ll  down  screen-lr  ."
@@ -59,8 +79,9 @@
             background: rgba(255, 255, 255, 0.1);
             padding: 15px;
             border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
         }
+
         #controls button {
             padding: 10px;
             font-size: 16px;
@@ -72,16 +93,19 @@
             color: #fff;
             transition: background-color 0.2s ease, transform 0.2s ease;
         }
+
         #controls button:hover {
             transform: scale(1.05);
             background-color: #666;
         }
+
         #menu-action {
             display: flex;
             justify-content: center;
             gap: 10px;
             margin: 20px auto;
         }
+
         #menu-action button {
             user-select: none;
             -webkit-user-select: none;
@@ -90,6 +114,7 @@
         #canvas-container {
             position: relative;
         }
+
         #canvas-container #emiu2-svg {
             position: absolute;
             top: 50%;
@@ -98,19 +123,33 @@
             width: 50%;
             height: 50%;
             animation: rotation 60s infinite linear;
-            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.5));
+            filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.5));
         }
+
         @keyframes rotation {
-            from { transform: translate(-50%, -50%) rotate(360deg); }
-            to { transform: translate(-50%, -50%) rotate(0deg); }
+            from {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+
+            to {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
         }
+
         #canvas-container #emiu2-svg.exit {
             animation: accelerateExit 1s forwards ease-in-out;
         }
+
         @keyframes accelerateExit {
-            from { transform: translate(-50%, -50%) rotate(720deg); }
-            to { transform: translate(-50%, -200%) rotate(0deg); }
+            from {
+                transform: translate(-50%, -50%) rotate(720deg);
+            }
+
+            to {
+                transform: translate(-50%, -200%) rotate(0deg);
+            }
         }
+
         #start-button {
             background-color: #007bff;
             border: none;
@@ -122,14 +161,17 @@
             display: block;
             width: 100%;
         }
+
         #start-button:hover {
             background-color: #0056b3;
         }
+
         #start-button:disabled {
             background-color: #666;
             cursor: not-allowed;
             opacity: 0.7;
         }
+
         #download-flash {
             background-color: #28a745;
             border: none;
@@ -140,15 +182,17 @@
             transition: background-color 0.3s ease;
             margin-left: 10px;
         }
+
         #download-flash:hover {
             background-color: #218838;
         }
     </style>
 </head>
+
 <body>
     <div id="canvas-container">
-         <canvas id="emulator-canvas"></canvas>
-         <img src="emiu2.svg" alt="Emiu2 Logo" id="emiu2-svg">
+        <canvas id="emulator-canvas"></canvas>
+        <img src="emiu2.svg" alt="Emiu2 Logo" id="emiu2-svg">
     </div>
     <div id="upload-container">
         <div id="otp-options" style="display:none; margin-bottom:8px;">
@@ -297,14 +341,14 @@
 
         document.querySelectorAll('input[name="otpSource"]').forEach(radio => {
             radio.addEventListener('change', () => {
-                document.getElementById('otp-upload').style.display = 
+                document.getElementById('otp-upload').style.display =
                     radio.value === 'file' ? 'block' : 'none';
             });
         });
 
         document.querySelectorAll('input[name="flashSource"]').forEach(radio => {
             radio.addEventListener('change', () => {
-                document.getElementById('flash-upload').style.display = 
+                document.getElementById('flash-upload').style.display =
                     radio.value === 'file' ? 'block' : 'none';
             });
         });
@@ -313,7 +357,7 @@
             window.emulatorStarted = false;
             const buttons = {
                 'up': 'up',
-                'down': 'down', 
+                'down': 'down',
                 'left': 'left',
                 'right': 'right',
                 'menu': 'menu',
@@ -330,7 +374,7 @@
             const keyMap = {
                 'ArrowUp': 'up',
                 'ArrowDown': 'down',
-                'ArrowLeft': 'left', 
+                'ArrowLeft': 'left',
                 'ArrowRight': 'right',
                 'm': 'menu',
                 'M': 'menu',
@@ -343,7 +387,7 @@
             };
             update_button_colors(buttons);
 
-            
+
             console.log('WASM module loaded');
 
             // Set initial canvas size
@@ -387,7 +431,7 @@
                         return;
                     }
                     otpArrayBuffer = await otpFileInput.files[0].arrayBuffer();
-                    
+
                     // Save OTP to IndexedDB when a new file is uploaded
                     try {
                         await saveToIndexedDB('otp', otpArrayBuffer);
@@ -431,15 +475,15 @@
                 }
 
                 try {
-                        const otpUint8 = new Uint8Array(otpArrayBuffer);
-                        const flashUint8 = new Uint8Array(flashArrayBuffer);
-                        create_emulator_with_files(otpUint8, flashUint8);
-                        window.emulatorStarted = true;
-                        document.getElementById('start-button').disabled = true;
+                    const otpUint8 = new Uint8Array(otpArrayBuffer);
+                    const flashUint8 = new Uint8Array(flashArrayBuffer);
+                    create_emulator_with_files(otpUint8, flashUint8);
+                    window.emulatorStarted = true;
+                    document.getElementById('start-button').disabled = true;
                 } catch (e) {
-                        alert('Failed to start emulator: ' + e);
-                        console.error(e);
-                        return;
+                    alert('Failed to start emulator: ' + e);
+                    console.error(e);
+                    return;
                 }
 
                 const svg = document.getElementById('emiu2-svg');
@@ -479,7 +523,7 @@
                 };
             });
 
- 
+
 
             // Add keyboard event listeners
             document.addEventListener('keydown', (event) => {
@@ -503,7 +547,7 @@
                 const element = document.getElementById(elementId);
                 const on_events = ['mousedown', 'touchstart'];
                 const off_events = ['mouseup', 'touchend'];
-                
+
                 on_events.forEach(eventType => {
                     element.addEventListener(eventType, () => {
                         set_button_state(buttonState, true);
@@ -560,4 +604,5 @@
         document.getElementById('download-flash').addEventListener('click', downloadSavedFlash);
     </script>
 </body>
-</html> 
+
+</html>
