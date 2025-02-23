@@ -666,13 +666,19 @@ pub fn adc<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, inst: &Instru
     if core.flags.decimal {
         let mut low_result =
             (core.registers.a as u16 & 0x0F) + (operand as u16 & 0x0F) + (core.flags.carry as u16);
+        let mut low_carry = 0;
         if low_result > 9 {
-            low_result = ((low_result + 6) & 0x0F) + 16;
+            low_result = (low_result + 6) & 0x0F;
+            low_carry = 1;
         }
-        sum = (core.registers.a as u16 & 0xF0) + (operand as u16 & 0xF0) + low_result;
-        if sum > 0x90 {
-            sum = sum + 0x60;
+
+        let mut high_result =
+            (core.registers.a as u16 & 0xF0) + (operand as u16 & 0xF0) + (low_carry * 0x10);
+        if high_result > 0x90 {
+            high_result = high_result + 0x60;
         }
+
+        sum = high_result | low_result;
         core.cycles += 1;
     }
 
@@ -776,4 +782,114 @@ pub fn eor<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, inst: &Instru
     core.flags.negative = is_negative(core.registers.a);
 
     bound_crossed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockAddressSpace {}
+
+    impl AddressSpace for MockAddressSpace {
+        fn read_u8(&mut self, address: usize) -> u8 {
+            0
+        }
+
+        fn write_u8(&mut self, address: usize, value: u8) {}
+    }
+
+    impl HandlesInterrupt for MockAddressSpace {
+        fn set_interrupted(&mut self, interrupted: bool) {}
+
+        fn interrupted(&self) -> bool {
+            false
+        }
+    }
+
+    fn dec_to_bcd(mut dec: u8) -> u8 {
+        let mut result = 0;
+        let low = dec % 10;
+        let high = dec / 10;
+        result = high << 4 | low;
+        result
+    }
+
+    fn bcd_to_dec(mut bcd: u8) -> u8 {
+        let low = bcd & 0x0F;
+        let high = bcd >> 4;
+        let result = high * 10 + low;
+        result
+    }
+
+    #[test]
+    fn test_decimal_mode_add() {
+        let mut core = Core::new(1000000, MockAddressSpace {});
+        core.flags.decimal = true;
+
+        for op1 in 0..=99 {
+            for op2 in 0..=99 {
+                // For addition you need to clear the carry flag
+                core.flags.carry = false;
+                core.flags.overflow = false;
+                core.flags.negative = false;
+                core.flags.zero = false;
+
+                let expected_result = dec_to_bcd((op1 + op2) % 100);
+
+                let bcd_op1 = dec_to_bcd(op1);
+                let bcd_op2 = dec_to_bcd(op2);
+
+                core.registers.a = bcd_op1;
+                let inst = Instruction {
+                    opcode: Opcode::Adc,
+                    addressing_mode: AddressingMode::Immediate(bcd_op2),
+                };
+                adc(&mut core, &inst);
+                assert_eq!(
+                    core.registers.a, expected_result,
+                    "0x{:02X} + 0x{:02X} = 0x{:02X}, got 0x{:02X}",
+                    op1, op2, expected_result, core.registers.a
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_decimal_mode_sub() {
+        let mut core = Core::new(1000000, MockAddressSpace {});
+        core.flags.decimal = true;
+
+        for op1 in 0u8..=99 {
+            for op2 in 0u8..=99 {
+                // For subtraction you need to set the carry flag
+                core.flags.carry = true;
+                core.flags.overflow = false;
+                core.flags.negative = false;
+                core.flags.zero = false;
+
+                let expected_sub_val = if op1 >= op2 {
+                    op1 - op2
+                } else {
+                    op1 + 100 - op2
+                };
+
+                let expected_result = dec_to_bcd(expected_sub_val % 100);
+
+                let bcd_op1 = dec_to_bcd(op1);
+                let bcd_op2 = dec_to_bcd(op2);
+
+                core.registers.a = bcd_op1;
+                let inst = Instruction {
+                    opcode: Opcode::Sbc,
+                    addressing_mode: AddressingMode::Immediate(bcd_op2),
+                };
+                sbc(&mut core, &inst);
+                assert_eq!(
+                    core.registers.a, expected_result,
+                    "0x{:02X} - 0x{:02X} = 0x{:02X}, got 0x{:02X}",
+                    bcd_op1, bcd_op2, expected_result, core.registers.a
+                );
+            }
+        }
+    }
 }
