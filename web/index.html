@@ -29,90 +29,31 @@
             user-select: none;
         }
 
+        #canvas-container {
+            position: relative;
+            width: min(50em, 90vw, calc(50em * 98/67));
+            max-width: 90vw;
+            margin: 5px auto;
+            overflow: hidden;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 10px;
+            background: radial-gradient(circle at center, #283e69 0%, #0a1525 100%);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
         #emulator-canvas {
             /* Fixed aspect ratio of 98:67 */
             aspect-ratio: 98/67;
             /* Scale to fit width while maintaining aspect ratio */
-            width: min(50em, 95vw, calc(50em * 98/67));
-            max-width: 95vw;
+            width: 100%;
             height: auto;
             /* Center the canvas */
             display: block;
-            margin: 0 auto;
             /* Ensure nearest neighbor scaling */
             image-rendering: pixelated;
             /* Firefox fallback */
             image-rendering: crisp-edges;
-            background: radial-gradient(circle at center, #283e69 0%, #0a1525 100%);
-            border: 1px solid #444;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            border-radius: 4px;
-        }
-
-        #upload-container {
-            padding: 10px;
-            background: #2a2a2a;
-            border-radius: 8px;
-            width: max-content;
-            margin: 20px auto;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
-        }
-
-        #pc-display {
-            padding: 10px;
-            background: #444;
-            font-size: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-        }
-
-        #controls {
-            display: grid;
-            grid-template-areas:
-                "screen-ul  up    screen-ur  menu"
-                "left       .     right      action"
-                "screen-ll  down  screen-lr  ."
-                "power      .     mute       .";
-            grid-gap: 10px;
-            width: 350px;
-            margin: 20px auto;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-        }
-
-        #controls button {
-            padding: 10px;
-            font-size: 16px;
-            user-select: none;
-            -webkit-user-select: none;
-            border: none;
-            border-radius: 8px;
-            background-color: #555;
-            color: #fff;
-            transition: background-color 0.2s ease, transform 0.2s ease;
-        }
-
-        #controls button:hover {
-            transform: scale(1.05);
-            background-color: #666;
-        }
-
-        #menu-action {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin: 20px auto;
-        }
-
-        #menu-action button {
-            user-select: none;
-            -webkit-user-select: none;
-        }
-
-        #canvas-container {
-            position: relative;
         }
 
         #canvas-container #emiu2-svg {
@@ -146,7 +87,7 @@
             }
 
             to {
-                transform: translate(-50%, -200%) rotate(0deg);
+                transform: translate(-50%, -150%) rotate(0deg);
             }
         }
 
@@ -172,6 +113,15 @@
             opacity: 0.7;
         }
 
+        input[type="radio"]:disabled + label {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        input[type="radio"]:disabled {
+            cursor: not-allowed;
+        }
+
         #download-flash {
             background-color: #28a745;
             border: none;
@@ -185,6 +135,69 @@
 
         #download-flash:hover {
             background-color: #218838;
+        }
+
+        #upload-container {
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            width: min(50em, 90vw, calc(50em * 98/67));
+            max-width: 90vw;
+            margin: 5px auto;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        #pc-display {
+            padding: 10px;
+            background: #444;
+            font-size: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #controls {
+            display: grid;
+            grid-template-areas:
+                "screen-ul  up    screen-ur  menu"
+                "left       .     right      action"
+                "screen-ll  down  screen-lr  ."
+                "power      .     mute       .";
+            grid-gap: 10px;
+            width: 350px;
+            margin: 10px auto;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #controls button {
+            padding: 10px;
+            font-size: 16px;
+            user-select: none;
+            -webkit-user-select: none;
+            border: none;
+            border-radius: 8px;
+            background-color: #555;
+            color: #fff;
+            transition: background-color 0.2s ease, transform 0.2s ease;
+        }
+
+        #controls button:hover {
+            transform: scale(1.05);
+            background-color: #666;
+        }
+
+        #menu-action {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px auto;
+        }
+
+        #menu-action button {
+            user-select: none;
+            -webkit-user-select: none;
         }
     </style>
 </head>
@@ -480,6 +493,13 @@
                     create_emulator_with_files(otpUint8, flashUint8);
                     window.emulatorStarted = true;
                     document.getElementById('start-button').disabled = true;
+                    // Disable all radio buttons
+                    document.querySelectorAll('input[type="radio"]').forEach(radio => {
+                        radio.disabled = true;
+                    });
+                    // Hide upload divs if they were visible
+                    document.getElementById('otp-upload').style.display = 'none';
+                    document.getElementById('flash-upload').style.display = 'none';
                 } catch (e) {
                     alert('Failed to start emulator: ' + e);
                     console.error(e);
