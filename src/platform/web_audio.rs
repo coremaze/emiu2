@@ -1,6 +1,13 @@
 use crate::audio::AudioInterface;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::rc::Rc;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::js_sys::Float32Array;
 use web_sys::AudioContext;
 
 pub struct WebAudio {
@@ -11,6 +18,8 @@ pub struct WebAudio {
     clocks_between_samples: f64,
     frame_size: usize,
     buffer: Vec<f32>,
+    audio_queue: Rc<RefCell<VecDeque<f32>>>,
+    script_processor: Option<web_sys::ScriptProcessorNode>,
 }
 
 impl AudioInterface for WebAudio {
@@ -53,53 +62,73 @@ impl WebAudio {
     }
 
     pub fn add_frame(&mut self, values: Vec<f32>) {
-        // Create an AudioBuffer from the buffer samples (assume mono audio)
-        let length = self.buffer.len() as u32;
-        let sample_rate = self.host_sample_rate as f32;
-        // Create a new AudioBuffer with 1 channel, the length, and sample_rate
-        let audio_buffer = self
-            .context
-            .create_buffer(1, length, sample_rate)
-            .expect("Failed to create AudioBuffer");
-
-        // Get the channel data (Float32Array) for channel 0
-        let channel_data = audio_buffer
-            .get_channel_data(0)
-            .expect("Failed to get channel data");
-
-        // Copy samples into the AudioBuffer using copy_to_channel
-        audio_buffer
-            .copy_to_channel(self.buffer.as_slice(), 0)
-            .expect("Failed to copy samples to AudioBuffer");
-
-        // Create a BufferSource node
-        let source = self
-            .context
-            .create_buffer_source()
-            .expect("Failed to create BufferSource");
-        source.set_buffer(Some(&audio_buffer));
-
-        // Connect the source node to the destination (speakers)
-        source
-            .connect_with_audio_node(&self.context.destination())
-            .expect("Failed to connect BufferSource");
-
-        // Start playback immediately
-        source.start().expect("Failed to start BufferSource");
+        self.audio_queue.borrow_mut().extend(values);
     }
 
     pub fn create() -> Result<Self, String> {
         let context =
             AudioContext::new().map_err(|e| format!("Failed to create AudioContext: {:?}", e))?;
         let host_sample_rate = context.sample_rate() as u32;
+        let buffer_size = 512;
+        let audio_queue = Rc::new(RefCell::new(VecDeque::new()));
+        let script_processor = context.create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(buffer_size, 0, 1)
+            .map_err(|e| format!("Failed to create ScriptProcessorNode: {:?}", e))?;
+
+        {
+            let audio_queue_clone = Rc::clone(&audio_queue);
+            let closure = Closure::wrap(Box::new(move |event: web_sys::AudioProcessingEvent| {
+                let output_buffer = event.output_buffer().unwrap();
+                let mut output = output_buffer.get_channel_data(0).unwrap();
+
+                let mut samples = audio_queue_clone.borrow_mut();
+
+                let mut output_array = web_sys::js_sys::Float32Array::new_with_length(buffer_size);
+                for i in 0..buffer_size {
+                    let sample = samples.pop_front().unwrap_or(0.0);
+                    output_array.set_index(i as u32, sample);
+                }
+
+                // If the web browser falls more than 0.5 seconds behind, catch back up
+                let max_samples_behind = (0.5 * host_sample_rate as f64) as usize;
+                if samples.len() >= max_samples_behind {
+                    samples.clear();
+                }
+
+                output_buffer
+                    .copy_to_channel_with_f32_array_and_start_in_channel(&output_array, 0, 0)
+                    .expect("Failed to copy audio data to output buffer");
+            }) as Box<dyn FnMut(_)>);
+            script_processor.set_onaudioprocess(Some(closure.as_ref().unchecked_ref()));
+            closure.forget();
+        }
+
+        // Create a GainNode to control volume and ensure proper routing
+        let gain_node = context
+            .create_gain()
+            .map_err(|e| format!("Failed to create GainNode: {:?}", e))?;
+        // Set gain to 1.0 (adjust if necessary)
+        gain_node.gain().set_value(1.0);
+
+        // Connect the script processor to the gain node
+        script_processor
+            .connect_with_audio_node(&gain_node)
+            .map_err(|e| format!("Failed to connect ScriptProcessorNode to GainNode: {:?}", e))?;
+
+        // Connect the gain node to the audio destination
+        gain_node
+            .connect_with_audio_node(&context.destination())
+            .map_err(|e| format!("Failed to connect GainNode to destination: {:?}", e))?;
+
         Ok(WebAudio {
             context,
             emulated_clock_rate: 1,
             host_sample_rate,
             clock_of_last_sample: 0.0,
             clocks_between_samples: 0.0,
-            frame_size: 4096,
+            frame_size: buffer_size as usize,
             buffer: Vec::new(),
+            audio_queue,
+            script_processor: Some(script_processor),
         })
     }
 }
