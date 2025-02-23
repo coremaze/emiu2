@@ -69,7 +69,7 @@ impl WebAudio {
         let context =
             AudioContext::new().map_err(|e| format!("Failed to create AudioContext: {:?}", e))?;
         let host_sample_rate = context.sample_rate() as u32;
-        let buffer_size = 512;
+        let buffer_size = 1024;
         let audio_queue = Rc::new(RefCell::new(VecDeque::new()));
         let script_processor = context.create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(buffer_size, 0, 1)
             .map_err(|e| format!("Failed to create ScriptProcessorNode: {:?}", e))?;
