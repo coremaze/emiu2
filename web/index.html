@@ -113,7 +113,7 @@
             opacity: 0.7;
         }
 
-        input[type="radio"]:disabled + label {
+        input[type="radio"]:disabled+label {
             opacity: 0.7;
             cursor: not-allowed;
         }
@@ -157,13 +157,9 @@
 
         #controls {
             display: grid;
-            grid-template-areas:
-                "screen-ul  up    screen-ur  menu"
-                "left       .     right      action"
-                "screen-ll  down  screen-lr  ."
-                "power      .     mute       .";
             grid-gap: 10px;
-            width: 350px;
+            /* match canvas width */
+            max-width: 90vw;
             margin: 10px auto;
             background: rgba(255, 255, 255, 0.1);
             padding: 10px;
@@ -183,6 +179,13 @@
             transition: background-color 0.2s ease, transform 0.2s ease;
         }
 
+        /* adjust controls for small screens */
+        @media screen and (max-width: 400px){
+            #controls .dir-btn-container button {
+                padding: 0.5px;
+            }
+        }
+     
         #controls button:hover {
             transform: scale(1.05);
             background-color: #666;
@@ -233,20 +236,56 @@
         </div>
         <button id="start-button">Start Emulator</button>
     </div>
-    <div id="controls">
-        <button id="up" style="grid-area: up;">Up</button>
-        <button id="left" style="grid-area: left;">Left</button>
-        <button id="right" style="grid-area: right;">Right</button>
-        <button id="down" style="grid-area: down;">Down</button>
-        <button id="screen-ul" style="grid-area: screen-ul;">Screen UL</button>
-        <button id="screen-ur" style="grid-area: screen-ur;">Screen UR</button>
-        <button id="screen-ll" style="grid-area: screen-ll;">Screen LL</button>
-        <button id="screen-lr" style="grid-area: screen-lr;">Screen LR</button>
-        <button id="menu" style="grid-area: menu;">Menu</button>
-        <button id="action" style="grid-area: action;">Action</button>
-        <button id="power" style="grid-area: power;">Power</button>
-        <button id="mute" style="grid-area: mute;">Mute</button>
+    <div id="controls" style="display: flex; justify-content: space-around; flex-direction: column;">
+        <!-- control buttons -->
+
+        <style>
+            .width-50 {
+                width: 50%;
+            }
+
+            .dir-btn-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                /* Optional: adds space between items */
+            }
+
+            .child {
+                flex: 1 1 calc(100% / 3 - 10px);
+                /* Allows a max of 3 items per row */
+            }
+        </style>
+
+        <div style="width: 100%; display: flex; flex-direction: row;">
+            <div class="width-50 dir-btn-container">
+                <button class="child" id="screen-ul">Screen UL</button>
+                <button class="child" id="up">&#9650;</button>
+                <button class="child" id="screen-ur">Screen UR</button>
+                <button class="child" id="left">&#9664;</button>
+
+                <!--  placeholder -->
+                <button class="child"></button>
+
+                <button class="child" id="right">&#9654;</button>
+                <button class="child" id="screen-ll">Screen LL</button>
+                <button class="child" id="down">&#9660;</button>
+                <button class="child" id="screen-lr">Screen LR</button>
+            </div>
+
+            <div class="width-50" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                <button id="menu" style="margin-bottom: 1rem;">Menu</button>
+                <button id="action">Action</button>
+            </div>
+        </div>
+
+        <div style="width: 100%; display: flex; flex-direction: row; justify-content: center; margin-top: 2rem;">
+            <button id="power" style="margin-right: 1rem;">Power</button>
+            <button id="mute" style="margin-left: 1rem;">Mute</button>
+        </div>
+
     </div>
+
     <script type="module">
         import init, { create_emulator_with_files, set_button_state, get_button_state, get_flash_dump, start_driving_emulator } from '/pkg/emiu2.js';
         await init();
