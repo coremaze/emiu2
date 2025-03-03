@@ -1,7 +1,5 @@
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-use crate::gpio::GpioButtonState;
-use crate::gpio::GpioInterface;
 use crate::screen::Pixel;
 use crate::screen::Screen;
 use wasm_bindgen::JsValue;

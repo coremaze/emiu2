@@ -1,10 +1,80 @@
-use std::sync::mpsc::Sender;
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Sender, TryRecvError};
 
 use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
-use crate::gpio::{GpioButton, GpioButtonState, GpioInterface};
+use crate::miuchiz::{
+    GpioConnections, GpioInterfaceInternal, GpioState, MiuchizButtonStates, MiuchizGpio,
+};
 use crate::screen::{Pixel, Screen};
+use crate::ssc;
+
+pub struct MiniFbGpioInterface;
+impl MiniFbGpioInterface {
+    pub fn create_interface() -> (MiniFbGpioExternalInterface, MiniFbGpioInternalInterface) {
+        let (button_tx, button_rx) = ssc::SingleStateChannel::new::<MiuchizButtonStates>();
+        let (gpio_leds_tx, gpio_leds_rx) = ssc::SingleStateChannel::new::<GpioState>();
+
+        (
+            MiniFbGpioExternalInterface {
+                button_tx,
+                gpio_leds_rx,
+                gpio_leds: None,
+            },
+            MiniFbGpioInternalInterface {
+                button_rx,
+                connections: GpioConnections::default(),
+                gpio_leds_tx,
+                last_gpio_state: None,
+            },
+        )
+    }
+}
+
+pub struct MiniFbGpioExternalInterface {
+    button_tx: ssc::Sender<MiuchizButtonStates>,
+    gpio_leds_rx: ssc::Receiver<GpioState>,
+    gpio_leds: Option<GpioState>,
+}
+
+impl MiniFbGpioExternalInterface {
+    fn set_buttons(&self, buttons: MiuchizButtonStates) {
+        self.button_tx.send(buttons);
+    }
+
+    fn get_gpio_leds(&mut self) -> Option<GpioState> {
+        if let Some(gpio_leds) = self.gpio_leds_rx.recv() {
+            self.gpio_leds = Some(gpio_leds);
+        }
+
+        self.gpio_leds.clone()
+    }
+}
+
+pub struct MiniFbGpioInternalInterface {
+    button_rx: ssc::Receiver<MiuchizButtonStates>,
+    connections: GpioConnections,
+    gpio_leds_tx: ssc::Sender<GpioState>,
+    last_gpio_state: Option<GpioState>,
+}
+
+impl GpioInterfaceInternal for MiniFbGpioInternalInterface {
+    fn get_inputs(&mut self) -> GpioConnections {
+        if let Some(buttons) = self.button_rx.recv() {
+            self.connections = buttons.to_gpio_connections();
+        }
+
+        self.connections.clone()
+    }
+
+    fn set_outputs(&mut self, state: GpioState) {
+        // Only send the state if it has changed or None.
+        if Some(state.clone()) != self.last_gpio_state {
+            self.gpio_leds_tx.send(state.clone());
+            self.last_gpio_state = Some(state);
+        }
+    }
+}
 
 pub struct MiniFbScreen {
     tx: Sender<MiniFBMessage>,
@@ -16,15 +86,25 @@ impl MiniFbScreen {
     pub fn open(
         title: &str,
         scale: usize,
-    ) -> (Self, Receiver<GpioButtonState>, Sender<Vec<Pixel>>) {
+        show_gpio: bool,
+    ) -> (Self, MiniFbGpioInternalInterface, Sender<Vec<Pixel>>) {
         let (host_tx, worker_rx) = channel::<MiniFBMessage>();
         let (worker_tx, host_rx) = channel::<MiniFBMessage>();
-        let (gpio_tx, gpio_rx) = channel::<GpioButtonState>();
         let (screen_tx, screen_rx) = channel::<Vec<Pixel>>();
+
+        let (gpio_external, gpio_internal) = MiniFbGpioInterface::create_interface();
 
         let owned_title = title.to_owned();
         std::thread::spawn(move || {
-            run_minifb_worker(owned_title, scale, gpio_tx, screen_rx, worker_tx, worker_rx)
+            run_minifb_worker(
+                owned_title,
+                scale,
+                show_gpio,
+                gpio_external,
+                screen_rx,
+                worker_tx,
+                worker_rx,
+            )
         });
 
         (
@@ -33,7 +113,7 @@ impl MiniFbScreen {
                 rx: host_rx,
                 closed: false,
             },
-            gpio_rx,
+            gpio_internal,
             screen_tx,
         )
     }
@@ -70,14 +150,15 @@ enum MiniFBMessage {
 
 struct MiniFbWindowButton {
     pub position: (usize, usize),
-    pub button: GpioButton,
+    pub button: MiuchizGpio,
     pub key: Option<Key>,
 }
 
 fn run_minifb_worker(
     title: String,
     scale: usize,
-    gpio_tx: Sender<GpioButtonState>,
+    show_gpio: bool,
+    mut gpio_external: MiniFbGpioExternalInterface,
     screen_rx: Receiver<Vec<Pixel>>,
     worker_tx: Sender<MiniFBMessage>,
     worker_rx: Receiver<MiniFBMessage>,
@@ -99,37 +180,37 @@ fn run_minifb_worker(
     let buttons = [
         MiniFbWindowButton {
             position: (left_center.0, left_center.1 - 11 * scale),
-            button: GpioButton::Up,
+            button: MiuchizGpio::Up,
             key: Some(Key::Up),
         },
         MiniFbWindowButton {
             position: (left_center.0, left_center.1 + 11 * scale),
-            button: GpioButton::Down,
+            button: MiuchizGpio::Down,
             key: Some(Key::Down),
         },
         MiniFbWindowButton {
             position: (left_center.0 + 11 * scale, left_center.1),
-            button: GpioButton::Right,
+            button: MiuchizGpio::Right,
             key: Some(Key::Right),
         },
         MiniFbWindowButton {
             position: (left_center.0 - 11 * scale, left_center.1),
-            button: GpioButton::Left,
+            button: MiuchizGpio::Left,
             key: Some(Key::Left),
         },
         MiniFbWindowButton {
             position: (right_center.0 - 5 * scale, right_center.1),
-            button: GpioButton::Action,
+            button: MiuchizGpio::Action,
             key: Some(Key::A),
         },
         MiniFbWindowButton {
             position: (right_center.0 + 10 * scale, right_center.1 - 17 * scale),
-            button: GpioButton::Menu,
+            button: MiuchizGpio::Menu,
             key: Some(Key::Menu),
         },
         MiniFbWindowButton {
             position: (extra_player_width / 2 - button_radius - 1, button_radius),
-            button: GpioButton::ScreenTopLeft,
+            button: MiuchizGpio::ScreenTopLeft,
             key: None,
         },
         MiniFbWindowButton {
@@ -137,7 +218,7 @@ fn run_minifb_worker(
                 extra_player_width / 2 - button_radius - 1,
                 height * scale - button_radius - 1,
             ),
-            button: GpioButton::ScreenBottomLeft,
+            button: MiuchizGpio::ScreenBottomLeft,
             key: None,
         },
         MiniFbWindowButton {
@@ -145,7 +226,7 @@ fn run_minifb_worker(
                 player_width - extra_player_width / 2 + button_radius,
                 button_radius,
             ),
-            button: GpioButton::ScreenTopRight,
+            button: MiuchizGpio::ScreenTopRight,
             key: None,
         },
         MiniFbWindowButton {
@@ -153,37 +234,22 @@ fn run_minifb_worker(
                 player_width - extra_player_width / 2 + button_radius,
                 height * scale - button_radius - 1,
             ),
-            button: GpioButton::ScreenBottomRight,
+            button: MiuchizGpio::ScreenBottomRight,
             key: None,
         },
         MiniFbWindowButton {
             position: (bottom_center.0 - 3 * button_radius, bottom_center.1),
-            button: GpioButton::Power,
+            button: MiuchizGpio::Power,
             key: Some(Key::P),
         },
         MiniFbWindowButton {
             position: (bottom_center.0 + 3 * button_radius, bottom_center.1),
-            button: GpioButton::Mute,
+            button: MiuchizGpio::Mute,
             key: Some(Key::M),
         },
     ];
 
-    let mut last_button_state = GpioButtonState {
-        up: false,
-        down: false,
-        left: false,
-        right: false,
-        power: false,
-        menu: false,
-        upside_up: false,
-        upside_down: false,
-        screen_top_left: false,
-        screen_top_right: false,
-        screen_bottom_left: false,
-        screen_bottom_right: false,
-        action: false,
-        mute: false,
-    };
+    let mut last_button_state: Option<MiuchizButtonStates> = None;
 
     let mut window = match Window::new(
         &title,
@@ -227,6 +293,14 @@ fn run_minifb_worker(
                 break;
             }
 
+            match worker_rx.try_recv() {
+                Ok(MiniFBMessage::Close) => close = true,
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    println!("Worker thread disconnected");
+                }
+            }
+
             match screen_rx.try_recv() {
                 Ok(pixels) => {
                     pixel_update = Some(pixels);
@@ -261,21 +335,21 @@ fn run_minifb_worker(
             }
         }
 
-        let mut button_state = GpioButtonState {
+        let mut button_state = MiuchizButtonStates {
             up: false,
             down: false,
             left: false,
             right: false,
             power: false,
             menu: false,
-            upside_up: false,
-            upside_down: false,
             screen_top_left: false,
             screen_top_right: false,
             screen_bottom_left: false,
             screen_bottom_right: false,
             action: false,
             mute: false,
+            upside_up: false,
+            upside_down: false,
         };
         let pressed_keys = window.get_keys();
 
@@ -297,6 +371,65 @@ fn run_minifb_worker(
             green: 0,
             blue: 0,
         };
+
+        let off_gpio_pixel = Pixel {
+            red: 0,
+            green: 0,
+            blue: 0,
+        };
+
+        let on_gpio_pixel = Pixel {
+            red: 255,
+            green: 255,
+            blue: 255,
+        };
+
+        // Draw GPIO LEDs
+        {
+            if show_gpio {
+                let gpio_led_size: usize = 2 * scale;
+                let gpio_led_spacing: usize = 1 * scale;
+                let x1 = 0 + gpio_led_spacing;
+                let x2 = x1 + gpio_led_size;
+                let y1 = player_height - gpio_led_size;
+                let y2 = y1 + gpio_led_size;
+                let gpio_leds = gpio_external.get_gpio_leds();
+
+                if let Some(gpio_leds) = &gpio_leds {
+                    for (gpio_index, &&gpio_set) in [
+                        &gpio_leds.pl,
+                        &gpio_leds.pf,
+                        &gpio_leds.pe,
+                        &gpio_leds.pd,
+                        &gpio_leds.pc,
+                        &gpio_leds.pb,
+                        &gpio_leds.pa,
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        for i in 0..8 {
+                            let x1 = i * (gpio_led_size + gpio_led_spacing) + gpio_led_spacing;
+                            let x2 = x1 + gpio_led_size;
+                            let y1 = player_height
+                                - (gpio_index + 1) * (gpio_led_size + gpio_led_spacing);
+                            let y2 = y1 + gpio_led_size;
+                            let pixel = if gpio_set & (1 << i) != 0 {
+                                on_gpio_pixel
+                            } else {
+                                off_gpio_pixel
+                            };
+                            for x in x1..x2 {
+                                for y in y1..y2 {
+                                    let player_index = y * player_width + x;
+                                    player_buffer[player_index] = pixel.to_rgb_u32();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         for button in &buttons {
             let x1 = button.position.0 - button_radius;
@@ -351,11 +484,9 @@ fn run_minifb_worker(
         }
 
         // Send the button state if it has changed.
-        if button_state != last_button_state {
-            if let Err(err) = gpio_tx.send(button_state.clone()) {
-                eprintln!("Failed to send button state: {err:?}");
-            }
-            last_button_state = button_state;
+        if Some(button_state.clone()) != last_button_state {
+            gpio_external.set_buttons(button_state.clone());
+            last_button_state = Some(button_state);
         }
 
         // Paint the player buffer to the window
@@ -368,22 +499,6 @@ fn run_minifb_worker(
     // Send the close message
     if let Err(err) = worker_tx.send(MiniFBMessage::Close) {
         eprintln!("Failed to send close message: {err:?}");
-    }
-}
-
-pub struct MiniFbGpioInterface {
-    receiver: Receiver<GpioButtonState>,
-}
-
-impl MiniFbGpioInterface {
-    pub fn new(receiver: Receiver<GpioButtonState>) -> Self {
-        Self { receiver }
-    }
-}
-
-impl GpioInterface for MiniFbGpioInterface {
-    fn get_updates(&self) -> Option<GpioButtonState> {
-        self.receiver.try_recv().ok()
     }
 }
 

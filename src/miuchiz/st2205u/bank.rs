@@ -1,5 +1,3 @@
-use crate::{gpio::GpioInterface, memory::AddressSpace};
-
 use super::{reg::U16Register, St2205uAddressSpace};
 
 pub struct State {

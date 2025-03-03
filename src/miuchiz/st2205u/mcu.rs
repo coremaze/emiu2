@@ -1,4 +1,5 @@
 use super::clock::Clock;
+use super::gpio::GpioInterfaceInternal;
 use super::interrupt::Interrupt;
 use super::psg::PsgChannel;
 use super::vector;
@@ -6,7 +7,6 @@ use super::wdc_65c02;
 use super::wdc_65c02::HandlesInterrupt;
 use super::St2205uAddressSpace;
 use crate::audio::AudioInterface;
-use crate::gpio::GpioInterface;
 use crate::memory::AddressSpace;
 
 /// Representation of a ST2205U microcontroller.
@@ -25,7 +25,7 @@ impl Mcu {
     pub fn new(
         frequency: u64,
         address_space: Box<dyn AddressSpace>,
-        io: Box<dyn GpioInterface>,
+        io: Box<dyn GpioInterfaceInternal>,
         mut audio_sender: Box<dyn AudioInterface>,
     ) -> Self {
         audio_sender.set_clock_rate(frequency);
@@ -95,7 +95,11 @@ impl Mcu {
             self.audio_sender.add_sample(mix);
         }
 
-        let port_a_transition = self.core.address_space.gpio.update_gpio_inputs();
+        let port_a_transition = self
+            .core
+            .address_space
+            .gpio
+            .update_gpio_and_detect_pa_transition();
         if port_a_transition {
             self.core
                 .address_space

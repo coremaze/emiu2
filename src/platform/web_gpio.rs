@@ -1,20 +1,24 @@
-use crate::gpio::GpioButtonState;
-use crate::gpio::GpioInterface;
+use crate::miuchiz::{GpioConnections, GpioInterfaceInternal, GpioState, MiuchizButtonStates};
 
 pub struct WasmGpioInterface {
-    pub state: std::rc::Rc<std::cell::RefCell<crate::gpio::GpioButtonState>>,
+    pub button_states: std::rc::Rc<std::cell::RefCell<MiuchizButtonStates>>,
 }
 
 impl WasmGpioInterface {
     pub fn new() -> Self {
         WasmGpioInterface {
-            state: std::rc::Rc::new(std::cell::RefCell::new(GpioButtonState::default())),
+            button_states: std::rc::Rc::new(
+                std::cell::RefCell::new(MiuchizButtonStates::default()),
+            ),
         }
     }
 }
 
-impl GpioInterface for WasmGpioInterface {
-    fn get_updates(&self) -> Option<GpioButtonState> {
-        Some(self.state.borrow().clone())
+impl GpioInterfaceInternal for WasmGpioInterface {
+    fn get_inputs(&mut self) -> GpioConnections {
+        let state = self.button_states.borrow();
+        state.to_gpio_connections()
     }
+
+    fn set_outputs(&mut self, _state: GpioState) {}
 }

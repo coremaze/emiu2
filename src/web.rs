@@ -2,10 +2,9 @@ use console_error_panic_hook;
 use wasm_bindgen::prelude::*;
 use web_sys;
 
-use crate::gpio::GpioButtonState;
-use crate::miuchiz::Handheld;
+use crate::miuchiz::{Handheld, MiuchizButtonStates, MiuchizGpio};
 use crate::platform::web_audio::WebAudio;
-use crate::platform::web_gpio;
+use crate::platform::web_gpio::WasmGpioInterface;
 use crate::platform::web_screen::{WasmScreen, WasmScreenInterface};
 
 use std::cell::RefCell;
@@ -14,7 +13,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
 thread_local! {
-    static GLOBAL_GPIO_STATE: RefCell<Rc<RefCell<GpioButtonState>>> = RefCell::new(Rc::new(RefCell::new(GpioButtonState::default())));
+    static GLOBAL_GPIO_STATE: RefCell<Rc<RefCell<MiuchizButtonStates>>> = RefCell::new(Rc::new(RefCell::new(MiuchizButtonStates::default())));
     static GLOBAL_EMULATOR_STATE: RefCell<Option<Rc<RefCell<(Handheld, WasmScreen)>>>> = RefCell::new(None);
 }
 
@@ -28,14 +27,15 @@ pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<()
     let flash_data: Vec<u8> = flash.into();
 
     let (screen, screen_tx) = WasmScreen::open();
-    let wasm_screen_interface = WasmScreenInterface::new(screen_tx);
+    let screen_interface = WasmScreenInterface::new(screen_tx);
 
-    let wasm_gpio = web_gpio::WasmGpioInterface::new();
-    let gpio_state: Rc<RefCell<GpioButtonState>> = wasm_gpio.state.clone();
+    let web_audio = WebAudio::create().map_err(|e| JsValue::from_str(&e))?;
+
+    let wasm_gpio = WasmGpioInterface::new();
+    let gpio_state = wasm_gpio.button_states.clone();
+
     GLOBAL_GPIO_STATE.with(|global_state| {
-        let old_gpio_state = global_state.borrow().borrow().clone();
-        *global_state.borrow_mut() = gpio_state.clone();
-        *global_state.borrow().borrow_mut() = old_gpio_state;
+        *global_state.borrow_mut() = gpio_state;
     });
 
     let wasm_audio_interface = WebAudio::create().map_err(|e| JsValue::from_str(&e))?;
@@ -47,7 +47,7 @@ pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<()
     let handheld = Handheld::new(
         &otp_data,
         &flash_data,
-        Box::new(wasm_screen_interface),
+        Box::new(screen_interface),
         Box::new(wasm_gpio),
         Box::new(wasm_audio_interface),
     )
@@ -154,45 +154,56 @@ pub fn start_driving_emulator() -> Result<(), JsValue> {
 
 #[wasm_bindgen]
 pub fn set_button_state(button: &str, state: bool) {
-    GLOBAL_GPIO_STATE.with(|global_state| {
-        let global = global_state.borrow();
-        let mut gpio = global.borrow_mut();
-        match button {
-            "up" => gpio.up = state,
-            "down" => gpio.down = state,
-            "left" => gpio.left = state,
-            "right" => gpio.right = state,
-            "menu" => gpio.menu = state,
-            "action" => gpio.action = state,
-            "power" => gpio.power = state,
-            "mute" => gpio.mute = state,
-            "screen-top-left" => gpio.screen_top_left = state,
-            "screen-top-right" => gpio.screen_top_right = state,
-            "screen-bottom-left" => gpio.screen_bottom_left = state,
-            "screen-bottom-right" => gpio.screen_bottom_right = state,
-            _ => {}
+    GLOBAL_GPIO_STATE.with(|global_state_ref| {
+        let global_state = global_state_ref.borrow();
+        let mut button_state = global_state.borrow_mut();
+
+        // Map the button name to MiuchizGpio and update the state
+        let button_gpio = match button {
+            "up" => Some(MiuchizGpio::Up),
+            "down" => Some(MiuchizGpio::Down),
+            "left" => Some(MiuchizGpio::Left),
+            "right" => Some(MiuchizGpio::Right),
+            "power" => Some(MiuchizGpio::Power),
+            "menu" => Some(MiuchizGpio::Menu),
+            "upside_up" => Some(MiuchizGpio::UpsideUp),
+            "upside_down" => Some(MiuchizGpio::UpsideDown),
+            "screen_top_left" => Some(MiuchizGpio::ScreenTopLeft),
+            "screen_top_right" => Some(MiuchizGpio::ScreenTopRight),
+            "screen_bottom_left" => Some(MiuchizGpio::ScreenBottomLeft),
+            "screen_bottom_right" => Some(MiuchizGpio::ScreenBottomRight),
+            "action" => Some(MiuchizGpio::Action),
+            "mute" => Some(MiuchizGpio::Mute),
+            _ => None,
+        };
+
+        if let Some(gpio_button) = button_gpio {
+            button_state.set(gpio_button, state);
         }
     });
 }
 
 #[wasm_bindgen]
 pub fn get_button_state(button: &str) -> bool {
-    GLOBAL_GPIO_STATE.with(|global_state| {
-        let global = global_state.borrow();
-        let gpio = global.borrow();
+    GLOBAL_GPIO_STATE.with(|global_state_ref| {
+        let global_state = global_state_ref.borrow();
+        let button_state = global_state.borrow();
+
         match button {
-            "up" => gpio.up,
-            "down" => gpio.down,
-            "left" => gpio.left,
-            "right" => gpio.right,
-            "menu" => gpio.menu,
-            "action" => gpio.action,
-            "power" => gpio.power,
-            "mute" => gpio.mute,
-            "screen-top-left" => gpio.screen_top_left,
-            "screen-top-right" => gpio.screen_top_right,
-            "screen-bottom-left" => gpio.screen_bottom_left,
-            "screen-bottom-right" => gpio.screen_bottom_right,
+            "up" => button_state.up,
+            "down" => button_state.down,
+            "left" => button_state.left,
+            "right" => button_state.right,
+            "power" => button_state.power,
+            "menu" => button_state.menu,
+            "upside_up" => button_state.upside_up,
+            "upside_down" => button_state.upside_down,
+            "screen_top_left" => button_state.screen_top_left,
+            "screen_top_right" => button_state.screen_top_right,
+            "screen_bottom_left" => button_state.screen_bottom_left,
+            "screen_bottom_right" => button_state.screen_bottom_right,
+            "action" => button_state.action,
+            "mute" => button_state.mute,
             _ => false,
         }
     })

@@ -1,9 +1,9 @@
 mod audio;
-mod gpio;
 pub mod memory;
 mod miuchiz;
 mod platform;
 mod screen;
+pub mod ssc;
 
 use std::path::PathBuf;
 
@@ -25,6 +25,10 @@ struct Args {
     /// Pixel scale
     #[arg(long, default_value_t = 3)]
     scale: usize,
+
+    /// Show GPIO LED display
+    #[arg(long, default_value_t = false)]
+    show_gpio: bool,
 }
 
 fn main() {
@@ -47,11 +51,11 @@ fn main() {
     };
 
     let scale = args.scale;
+    let show_gpio = args.show_gpio;
 
-    let (mut screen, screen_rx, screen_tx) =
-        platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale);
+    let (mut screen, minifb_gpio, screen_tx) =
+        platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
 
-    let minifb_gpio = platform::minifb_screen_gpio::MiniFbGpioInterface::new(screen_rx);
     let minifb_screen = platform::minifb_screen_gpio::MiniFbScreenInterface::new(screen_tx);
 
     let (stream, sender) = match platform::cpal_audio::stream_setup_for() {

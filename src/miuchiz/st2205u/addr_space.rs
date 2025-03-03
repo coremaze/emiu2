@@ -2,6 +2,7 @@ use super::bank;
 use super::base_timer;
 use super::dma;
 use super::gpio;
+use super::gpio::GpioInterfaceInternal;
 use super::interrupt;
 use super::psg;
 use super::psg::PsgChannel;
@@ -9,7 +10,6 @@ use super::rtc;
 use super::timer;
 use super::timer::TimerIndex;
 use super::wdc_65c02::HandlesInterrupt;
-use crate::gpio::GpioInterface;
 use crate::memory::AddressSpace;
 
 pub const OTP_SIZE: usize = 0x4000;
@@ -152,7 +152,7 @@ pub struct St2205uAddressSpace {
 impl St2205uAddressSpace {
     pub fn new(
         machine_addr_space: Box<dyn AddressSpace>,
-        io: Box<dyn GpioInterface>,
+        io: Box<dyn GpioInterfaceInternal>,
         frequency: u64,
     ) -> Self {
         Self {
