@@ -25,7 +25,6 @@ impl<T> Sender<T> {
     /// Sends a message, overwriting any previous unread message.
     pub fn send(&self, msg: T) {
         loop {
-            // println!("Sending message");
             match self.inner.write() {
                 Ok(mut guard) => {
                     *guard = Some(msg);
@@ -59,11 +58,9 @@ impl<T> Receiver<T> {
     /// Receives a message from the channel, yielding if no message is available.
     pub fn recv(&self) -> Option<T> {
         loop {
-            // println!("Receiving message");
             match self.inner.write() {
                 Ok(mut guard) => return guard.take(),
                 Err(_) => {
-                    println!("Failed to receive message");
                     #[cfg(target_arch = "wasm32")]
                     std::hint::spin_loop();
                     #[cfg(not(target_arch = "wasm32"))]
