@@ -566,7 +566,7 @@
             for (const [elementId, buttonState] of Object.entries(buttons)) {
                 const element = document.getElementById(elementId);
                 const on_events = ['mousedown', 'touchstart'];
-                const off_events = ['mouseup', 'touchend'];
+                const off_events = ['mouseup', 'touchend', 'mouseleave', 'touchcancel'];
 
                 on_events.forEach(eventType => {
                     element.addEventListener(eventType, () => {
