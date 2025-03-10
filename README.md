@@ -57,6 +57,6 @@ Build a release version of emiu2 with `cargo build -r`, or run it directly from 
 
 ![](DEMO.gif)
 
-A demonstration on a a mobile device complete with audio is available on YouTube:
+A demonstration on a mobile device complete with audio is available on YouTube:
 
 [![YouTube](http://i.ytimg.com/vi/EOrG064Emxc/hqdefault.jpg)](https://www.youtube.com/watch?v=EOrG064Emxc)
