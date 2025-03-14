@@ -204,54 +204,17 @@ impl State {
     pub fn update_gpio_and_detect_pa_transition(&mut self) -> bool {
         let inputs = self.io.get_inputs();
 
-        let old_pa = self.pa.clone();
+        // Remember the old PA input
+        let old_pa_input = self.pa.input;
 
-        for port in [
-            GpioPort::PA,
-            GpioPort::PB,
-            GpioPort::PC,
-            GpioPort::PD,
-            GpioPort::PE,
-            GpioPort::PF,
-            GpioPort::PL,
-        ] {
-            for bit in 0..8 {
-                let direction = self.get_direction(port, bit);
-                let (internal_port, input_port) = match port {
-                    GpioPort::PA => (&mut self.pa, &inputs.pa),
-                    GpioPort::PB => (&mut self.pb, &inputs.pb),
-                    GpioPort::PC => (&mut self.pc, &inputs.pc),
-                    GpioPort::PD => (&mut self.pd, &inputs.pd),
-                    GpioPort::PE => (&mut self.pe, &inputs.pe),
-                    GpioPort::PF => (&mut self.pf, &inputs.pf),
-                    GpioPort::PL => (&mut self.pl, &inputs.pl),
-                };
-                match direction {
-                    PortMode::Input => {
-                        let input_bit = (input_port & (1 << bit)) != 0;
-                        let connected = (inputs.pa_connections & (1 << bit)) != 0;
+        self.update_port_gpio(GpioPort::PA, &inputs);
 
-                        // Clear the bit
-                        internal_port.input = internal_port.input & !(1 << bit);
-                        if connected {
-                            // Set the bit to the input value
-                            internal_port.input |= (input_bit as u8) << bit;
-                        } else {
-                            // If not connected, use the pull state
-                            // Pull up = 1, pull down = 0
-                            if internal_port.pull_mask & (1 << bit) == 0 {
-                                internal_port.input &= !(1 << bit);
-                            } else {
-                                internal_port.input |= 1 << bit;
-                            }
-                        }
-                    }
-                    PortMode::Output => {}
-                }
-            }
-        }
-
-        let pa_updated = old_pa.input != self.pa.input;
+        self.update_port_gpio(GpioPort::PB, &inputs);
+        self.update_port_gpio(GpioPort::PC, &inputs);
+        self.update_port_gpio(GpioPort::PD, &inputs);
+        self.update_port_gpio(GpioPort::PE, &inputs);
+        self.update_port_gpio(GpioPort::PF, &inputs);
+        self.update_port_gpio(GpioPort::PL, &inputs);
 
         self.io.set_outputs(GpioState {
             pa: (self.pa.output & self.pca) | (self.pa.input & !self.pca),
@@ -263,7 +226,45 @@ impl State {
             pl: (self.pl.output & self.pcl) | (self.pl.input & !self.pcl),
         });
 
-        pa_updated
+        // Return true if the PA input has changed (i.e. a transition was detected)
+        old_pa_input != self.pa.input
+    }
+
+    fn update_port_gpio(&mut self, port: GpioPort, inputs: &GpioConnections) {
+        let (port_reg, pc_reg) = match port {
+            GpioPort::PA => (&mut self.pa, self.pca),
+            GpioPort::PB => (&mut self.pb, self.pcb),
+            GpioPort::PC => (&mut self.pc, self.pcc),
+            GpioPort::PD => (&mut self.pd, self.pcd),
+            GpioPort::PE => (&mut self.pe, self.pce),
+            GpioPort::PF => (&mut self.pf, self.pcf),
+            GpioPort::PL => (&mut self.pl, self.pcl),
+        };
+
+        // Get input data and connection masks
+        let (input_data, connections) = match port {
+            GpioPort::PA => (inputs.pa, inputs.pa_connections),
+            GpioPort::PB => (inputs.pb, inputs.pb_connections),
+            GpioPort::PC => (inputs.pc, inputs.pc_connections),
+            GpioPort::PD => (inputs.pd, inputs.pd_connections),
+            GpioPort::PE => (inputs.pe, inputs.pe_connections),
+            GpioPort::PF => (inputs.pf, inputs.pf_connections),
+            GpioPort::PL => (inputs.pl, inputs.pl_connections),
+        };
+
+        // Process all input bits
+        let input_mask = !pc_reg; // Bits that are inputs
+        let connected_bits = connections & input_mask;
+
+        // Clear all input bits
+        port_reg.input &= pc_reg; // Keep only output bits
+
+        // Apply connected inputs
+        port_reg.input |= input_data & connected_bits;
+
+        // Apply pull resistors to non-connected inputs
+        let non_connected_inputs = input_mask & !connections;
+        port_reg.input |= port_reg.pull_mask & non_connected_inputs;
     }
 }
 
