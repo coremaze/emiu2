@@ -7,6 +7,81 @@
     <link rel="icon" type="image/svg+xml" href="./emiu2.svg">
     <title>Emiu2</title>
     <style>
+        :root {
+            /* Primary Brand Colors */
+            --color-primary: #3a86ff;        /* Bright blue - primary actions */
+            --color-primary-hover: #1d6ae5;  /* Darker blue for hover states */
+            --color-primary-active: #0a58ca; /* Even darker for active states */
+            
+            /* Secondary Action Colors */
+            --color-secondary: #4e5d78;      /* Slate blue - secondary actions */
+            --color-secondary-hover: #3d4a61;/* Darker for hover */
+            
+            /* Semantic UI Colors */
+            --color-success: #34d399;        /* Green - success states */
+            --color-success-hover: #10b981;  /* Darker green */
+            --color-warning: #fbbf24;        /* Amber - warnings */
+            --color-danger: #ef4444;         /* Red - errors and danger */
+            --color-danger-hover: #dc2626;   /* Darker red */
+            --color-info: #60a5fa;           /* Light blue - information */
+            
+            /* Special Function Colors */
+            --color-power: var(--color-primary);        /* Blue instead of orange */
+            --color-power-hover: var(--color-primary-hover); /* Darker blue for hover */
+            --color-mute: #6b7280;           /* Gray - mute button */
+            --color-mute-hover: #4b5563;     /* Darker gray */
+            
+            /* Neutral Colors */
+            --color-background: #111827;     /* Dark blue-gray background */
+            --color-background-gradient: linear-gradient(135deg, #1f2937, #111827);
+            --color-surface: #1f2937;        /* Slightly lighter for cards/surfaces */
+            --color-surface-hover: #374151;  /* Hover state for surfaces */
+            --color-border: #374151;         /* Border color */
+            --color-button: #4b5563;         /* Default button color */
+            --color-button-hover: #6b7280;   /* Default button hover */
+            
+            /* Text Colors */
+            --color-text: #f9fafb;           /* Primary text - nearly white */
+            --color-text-secondary: #d1d5db; /* Secondary text - light gray */
+            --color-text-muted: #9ca3af;     /* Muted text - medium gray */
+            --color-text-on-primary: #ffffff;/* Text on primary color */
+            
+            /* Emulator Specific */
+            --color-emulator-bg: radial-gradient(circle at center, #334d80 0%, #1a2847 100%);
+            
+            /* Spacing */
+            --spacing-xs: 5px;
+            --spacing-sm: 8px;
+            --spacing-md: 10px;
+            --spacing-lg: 15px;
+            --spacing-xl: 20px;
+            
+            /* Borders */
+            --border-radius-sm: 4px;
+            --border-radius-md: 5px;
+            --border-radius-lg: 8px;
+            --border-radius-xl: 10px;
+            
+            /* Shadows */
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.5);
+            
+            /* Z-index layers */
+            --z-base: 1;          /* Base content */
+            --z-controls: 100;    /* Control buttons */
+            --z-notification: 500;/* Notifications */
+            --z-modal: 1000;      /* Modal dialogs */
+            --z-overlay: 1500;    /* Full screen overlays */
+            --z-top: 2000;        /* Top level elements like guides */
+            
+            /* Breakpoints */
+            --breakpoint-sm: 576px;
+            --breakpoint-md: 768px;
+            --breakpoint-lg: 992px;
+            --breakpoint-xl: 1200px;
+        }
+
         html {
             margin: 0;
             padding: 0;
@@ -18,9 +93,9 @@
             margin: 0;
             padding: 0;
             min-height: 100vh;
-            background: linear-gradient(135deg, #202020, #101010);
+            background: var(--color-background-gradient);
             font-family: 'Segoe UI', Tahoma, sans-serif;
-            color: #fff;
+            color: var(--color-text);
             display: flex;
             flex-direction: column;
             touch-action: manipulation;
@@ -35,11 +110,15 @@
             max-width: 90vw;
             margin: 5px auto;
             overflow: hidden;
-            border: 1px solid #444;
-            border-radius: 4px;
-            padding: 10px;
-            background: radial-gradient(circle at center, #283e69 0%, #0a1525 100%);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--color-border);
+            border-radius: var(--border-radius-sm);
+            padding: var(--spacing-md);
+            background: var(--color-emulator-bg);
+            box-shadow: var(--shadow-md);
+            min-height: 150px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         #emulator-canvas {
@@ -92,9 +171,9 @@
         }
 
         #start-button {
-            background-color: #007bff;
+            background-color: var(--color-primary);
             border: none;
-            color: #fff;
+            color: var(--color-text-on-primary);
             padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
@@ -104,13 +183,11 @@
         }
 
         #start-button:hover {
-            background-color: #0056b3;
+            background-color: var(--color-primary-hover);
         }
 
-        #start-button:disabled {
-            background-color: #666;
-            cursor: not-allowed;
-            opacity: 0.7;
+        #start-button:active {
+            background-color: var(--color-primary-active);
         }
 
         input[type="radio"]:disabled + label {
@@ -123,23 +200,49 @@
         }
 
         #download-flash {
-            background-color: #28a745;
+            background-color: var(--color-success);
+            color: var(--color-text-on-primary);
             border: none;
-            color: #fff;
-            padding: 5px 10px;
-            border-radius: 5px;
+            border-radius: 6px;
+            padding: 12px 15px;
             cursor: pointer;
-            transition: background-color 0.3s ease;
-            margin-left: 10px;
+            transition: all 0.2s ease;
+            font-weight: 600;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            margin: 8px 0;
+            letter-spacing: 0.3px;
         }
 
         #download-flash:hover {
-            background-color: #218838;
+            background-color: var(--color-success-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 3px 5px rgba(0, 0, 0, 0.3);
+        }
+
+        #download-flash:active {
+            transform: translateY(0);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+
+        #download-flash::before {
+            content: "💾";
+            font-size: 18px;
+        }
+
+        #download-flash-container {
+            margin: 10px 0;
+            width: 100%;
         }
 
         #upload-container {
             padding: 10px;
-            background: #2a2a2a;
+            background: var(--color-surface);
             border-radius: 8px;
             width: min(50em, 90vw, calc(50em * 98/67));
             max-width: 90vw;
@@ -170,11 +273,14 @@
                 "left       .     right      action"
                 "screen-ll  down  screen-lr  ."
                 "power      .     mute       .";
-            grid-gap: 10px;
-            width: 350px;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(3, minmax(60px, auto)) minmax(45px, auto);
+            gap: 8px;
+            max-width: 380px;
+            width: 90vw;
             margin: 10px auto;
             background: rgba(255, 255, 255, 0.1);
-            padding: 10px;
+            padding: 12px;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
             opacity: 0;
@@ -188,20 +294,30 @@
         }
 
         #controls button {
-            padding: 10px;
-            font-size: 16px;
-            user-select: none;
-            -webkit-user-select: none;
+            min-width: 70px;
             border: none;
             border-radius: 8px;
-            background-color: #555;
-            color: #fff;
+            background-color: var(--color-button);
+            color: var(--color-text-on-primary);
+            padding: 12px 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            line-height: 1.2;
+            margin: 0;
+            box-sizing: border-box;
+            word-break: break-word;
+            hyphens: auto;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
             transition: background-color 0.2s ease, transform 0.2s ease;
         }
 
         #controls button:hover {
             transform: scale(1.05);
-            background-color: #666;
+            background-color: var(--color-button-hover);
         }
 
         #menu-action {
@@ -259,51 +375,81 @@
             color: white;
         }
         
-        /* Custom file input styling */
+        /* File input styling */
         .file-input-container {
             position: relative;
-            display: inline-block;
-        }
-        
-        .file-input-container input[type="file"] {
-            position: absolute;
-            left: 0;
-            top: 0;
-            opacity: 0;
-            width: 0.1px;
-            height: 0.1px;
-            z-index: -1;
+            width: 100%;
+            max-width: 100%;
         }
         
         .file-input-label {
-            background-color: #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background-color: var(--color-secondary);
             color: white;
-            padding: 8px 12px;
-            border-radius: 4px;
+            padding: 10px 15px;
+            border-radius: 6px;
             cursor: pointer;
             transition: all 0.2s ease;
-            display: inline-block;
-            font-size: 14px;
-            border: 1px solid #555;
+            text-align: center;
+            font-weight: 500;
+            border: 2px solid transparent;
+            min-height: 45px;
+            width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+        
+        .file-input-label::before {
+            content: "📁";
+            margin-right: 8px;
+            transition: transform 0.2s ease;
+        }
+        
+        .file-input-label.has-file::before {
+            content: "✓";
+            color: white;
+            font-weight: bold;
+            margin-right: 8px;
+            background-color: var(--color-success);
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        
+        .file-input-label.has-file {
+            background-color: var(--color-secondary);
+            border: 2px solid var(--color-success);
+            color: white;
+            animation: file-selected 0.3s ease-in-out;
+        }
+        
+        @keyframes file-selected {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
         }
         
         .file-input-name {
-            margin-left: 10px;
-            font-style: italic;
-            color: #aaa;
-        }
-        
-        .file-input-label:hover {
-            background-color: #555;
+            display: none;
         }
         
         /* Source sections styling */
         .source-section {
             margin: 3px;
-            padding: 10px;
+            padding: 0px 10px;
             background: rgba(40, 40, 40, 0.4);
             border-radius: 6px;
-            border: 1px solid #444;
+            overflow: hidden; /* Prevent overflow issues */
         }
         
         .source-section > div {
@@ -316,8 +462,8 @@
         }
         
         #start-button {
-            background-color: #007bff;
-            color: white;
+            background-color: var(--color-primary);
+            color: var(--color-text-on-primary);
             border: none;
             padding: 12px 20px;
             font-size: 16px;
@@ -330,7 +476,7 @@
         }
         
         #start-button:hover:not(:disabled) {
-            background-color: #0069d9;
+            background-color: var(--color-primary-hover);
         }
         
         #start-button:disabled {
@@ -339,33 +485,688 @@
         }
         
         #download-flash {
-            background-color: #28a745;
+            background-color: var(--color-success);
             padding: 6px 12px;
             width: 100%;
         }
         
         #download-flash:hover {
-            background-color: #218838;
+            background-color: var(--color-success-hover);
         }
 
-        /* Add loading spinner styles */
-        .loading-spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-
+        /* Clean up loading spinner styles */
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
+        .loading-spinner, .loading-spinner-large {
+            display: inline-block;
+            border-radius: 50%;
+            border-style: solid;
+            border-color: rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            animation: spin 1s linear infinite;
+            box-sizing: border-box;
+        }
+
+        .loading-spinner {
+            width: 1em;
+            height: 1em;
+            border-width: 0.2em;
+            margin-right: 0.5em;
+            vertical-align: text-bottom;
+        }
+
+        .loading-spinner-large {
+            width: 50px;
+            height: 50px;
+            border-width: 5px;
+            margin-bottom: 20px;
+            animation: spin 1s linear infinite, pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.2); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+
+        /* Create a consistent button base class */
+        .btn {
+            display: inline-block;
+            font-weight: 400;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: middle;
+            user-select: none;
+            border: 1px solid transparent;
+            padding: 0.375rem 0.75rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            border-radius: 0.25rem;
+            transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            color: var(--color-text-on-primary);
+            background-color: var(--color-primary);
+            border-color: var(--color-primary);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--color-primary-hover);
+            border-color: var(--color-primary-hover);
+        }
+
+        .btn-primary:active {
+            background-color: var(--color-primary-active);
+        }
+
+        .btn-success {
+            color: var(--color-text-on-primary);
+            background-color: var(--color-success);
+            border-color: var(--color-success);
+        }
+
+        .btn-success:hover {
+            background-color: var(--color-success-hover);
+            border-color: var(--color-success-hover);
+        }
+
+        .btn-danger {
+            color: var(--color-text-on-primary);
+            background-color: var(--color-danger);
+            border-color: var(--color-danger);
+        }
+
+        .btn-danger:hover {
+            background-color: var(--color-danger-hover);
+            border-color: var(--color-danger-hover);
+        }
+
+        /* Update button elements to use the new classes */
+        #start-button, 
+        #download-flash, 
+        #reset-button,
+        #close-guide,
+        #retry-button,
+        #continue-anyway {
+            @extend .btn;
+        }
+
+        #start-button {
+            @extend .btn-primary;
+            display: block;
+            width: 100%;
+        }
+
+        #download-flash {
+            @extend .btn-success;
+        }
+
+        #reset-button {
+            @extend .btn-danger;
+        }
+
+        /* Add visible focus indicators for keyboard navigation */
+        button:focus-visible, select:focus-visible {
+            outline: 2px solid var(--color-primary);
+            outline-offset: 2px;
+        }
+        
+        /* Skip link for keyboard users */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: var(--color-primary);
+            color: var(--color-text-on-primary);
+            padding: 8px;
+            z-index: var(--z-top);
+            transition: top 0.2s;
+            text-decoration: none;
+            border-radius: 0 0 4px 0;
+        }
+        
+        .skip-link:focus {
+            top: 0;
+        }
+
+        /* Status notification */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--color-text-on-primary);
+            padding: 10px 15px;
+            border-radius: 4px;
+            max-width: 300px;
+            z-index: var(--z-notification);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: transform 0.3s, opacity 0.3s;
+        }
+        
+        .notification.visible {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        
+        /* Add tooltips */
+        [data-tooltip] {
+            position: relative;
+        }
+        
+        [data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--color-text-on-primary);
+            padding: 5px 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: var(--breakpoint-md)) {
+            #controls {
+                width: 100%;
+                max-width: 350px;
+                padding: 5px;
+            }
+            
+            #controls button {
+                padding: 15px 5px;
+                font-size: 14px;
+            }
+        }
+
+        /* Help section styling */
+        .help-section {
+            width: min(50em, 90vw);
+            margin: 20px auto;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 5px;
+            position: relative;
+            z-index: var(--z-base);
+        }
+        
+        .help-toggle {
+            background-color: var(--color-secondary);
+            color: var(--color-text-on-primary);
+            padding: 12px 15px;
+            border-radius: 6px;
+            width: 100%;
+            text-align: left;
+            font-size: 16px;
+            font-weight: 600;
+            position: relative;
+            transition: background-color 0.2s ease;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+        
+        .help-toggle:hover {
+            background-color: var(--color-secondary-hover);
+        }
+        
+        .help-toggle::after {
+            content: "▼";
+            position: absolute;
+            right: 15px;
+            transition: transform 0.3s ease;
+            font-size: 12px;
+        }
+        
+        .help-toggle[aria-expanded="true"] {
+            background-color: var(--color-primary);
+            border-radius: 6px 6px 0 0;
+        }
+        
+        .help-toggle[aria-expanded="true"]::after {
+            transform: rotate(180deg);
+        }
+        
+        .help-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s cubic-bezier(0, 1, 0, 1);
+            padding: 0 15px;
+        }
+        
+        .help-toggle[aria-expanded="true"] + .help-content {
+            max-height: 1000px; /* Large enough to fit content */
+            transition: max-height 1s ease-in-out;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: var(--z-overlay);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        
+        .loading-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        #loading-message {
+            color: var(--color-text-on-primary);
+            font-size: 18px;
+        }
+
+        /* Update power button specific styles */
+        #power {
+            background-color: var(--color-power);
+            font-weight: bold;
+            border-bottom: 3px solid var(--color-primary-active);
+        }
+        
+        #power:hover {
+            background-color: var(--color-power-hover);
+        }
+
+        /* Pulse animation for the power button to draw attention */
+        @keyframes pulseShadow {
+            0% { box-shadow: 0 0 0 0 var(--color-power); }
+            70% { box-shadow: 0 0 0 10px rgba(211, 84, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(211, 84, 0, 0); }
+        }
+
+        .overlay-guide {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: var(--z-top);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        
+        .overlay-guide.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        .guide-content {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+        }
+        
+        .guide-content h2 {
+            color: var(--color-primary);
+            margin-top: 0;
+        }
+        
+        #close-guide {
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        /* Add mobile-specific styles for better touch feedback */
+        @media (max-width: var(--breakpoint-md)) {
+            #controls button {
+                padding: 15px;  /* Larger touch targets */
+                transition: transform 0.1s ease, background-color 0.1s ease;
+            }
+            
+            #controls button:active {
+                transform: scale(0.95);
+                background-color: #777 !important;  /* Ensure visible feedback */
+            }
+        }
+
+        /* Prevent accidental text selection during button presses */
+        #controls button {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        /* Position the reset button in relation to the help section instead of fixed positioning */
+        #reset-button {
+            /* Remove fixed positioning and use relative positioning */
+            position: relative;
+            margin: 10px auto 20px;
+            width: min(50em, 90vw, calc(50em * 98/67));
+            max-width: 90vw;
+            padding: 10px 15px;
+            font-size: 14px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            display: none; /* Initially hidden, only one display property needed */
+            background-color: var(--color-danger); /* Add missing background color */
+            color: var(--color-text-on-primary);
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #reset-button:hover {
+            background-color: var(--color-danger-hover);
+        }
+
+        /* Update media query for mobile-specific positioning */
+        @media (max-width: var(--breakpoint-md)) {
+            /* Make the help section take the full width on mobile */
+            .help-section {
+                margin-bottom: 60px; /* Add space for the reset button */
+            }
+        }
+
+        /* Error message styling */
+        .error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            color: var(--color-text-on-primary);
+            z-index: var(--z-overlay);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+
+        .error-message h3 {
+            color: var(--color-danger);
+            margin-top: 0;
+        }
+
+        .error-message ul {
+            text-align: left;
+            margin: 15px 0;
+        }
+
+        .error-message button {
+            margin-top: 15px;
+        }
+
+        /* Browser warning */
+        .browser-warning {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            color: var(--color-text-on-primary);
+            z-index: var(--z-overlay);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .browser-warning h3 {
+            color: var(--color-warning);
+            margin-top: 0;
+        }
+
+        /* Add styling for the empty state when no emulator is running */
+        #emiu2-svg {
+            animation: rotation 60s infinite linear;
+            will-change: transform; /* Performance optimization for animation */
+        }
+
+        /* Ensure empty state looks good */
+        body:not(.emulator-running) #canvas-container {
+            min-height: 250px;
+        }
+
+        /* Improved text readability styles */
+        .help-content {
+            line-height: 1.5;
+            font-size: 16px;
+        }
+
+        .help-content h3 {
+            color: var(--color-primary);
+            margin-top: 16px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 5px;
+        }
+
+        .help-content p {
+            margin: 8px 0;
+        }
+
+        .help-content ul, .help-content ol {
+            padding-left: 25px;
+            margin: 8px 0 16px;
+        }
+
+        .help-content li {
+            margin-bottom: 6px;
+        }
+
+        .help-content strong {
+            color: #ffcc00;
+        }
+
+        /* Improved help toggle button */
+        .help-toggle {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* Better notification readability */
+        .notification {
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 1.4;
+            letter-spacing: 0.2px;
+        }
+
+        /* Better fonts for headings */
+        h2, h3, h4, .help-toggle, .guide-content h2, .guide-content h3 {
+            font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+        }
+
+        /* Make text selectable in help sections */
+        .help-content {
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .guide-content ol {
+            padding-left: 25px;
+            margin: 15px 0;
+            text-align: left;
+        }
+
+        .guide-content li {
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+
+        .guide-content p {
+            margin: 12px 0;
+            line-height: 1.6;
+        }
+
+        .tip {
+            background-color: rgba(255, 204, 0, 0.1);
+            border-left: 3px solid #fc0;
+            padding: 10px 15px;
+            margin: 20px 0 15px;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .tip-icon {
+            margin-right: 8px;
+            font-size: 18px;
+        }
+
+        #close-guide {
+            margin-top: 20px;
+            font-size: 16px;
+            padding: 10px 20px;
+            letter-spacing: 0.5px;
+        }
+
+        /* Remove duplicate styles for different buttons and consolidate */
+        #up, #down, #left, #right {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        #screen-ul, #screen-ur, #screen-ll, #screen-lr {
+            font-size: 20px;
+        }
+
+        #power, #mute {
+            min-height: 45px;
+        }
+
+        #mute {
+            background-color: var(--color-mute);
+            border-bottom: 3px solid var(--color-mute-hover);
+        }
+
+        #mute:hover {
+            background-color: var(--color-mute-hover);
+        }
+
+        /* Consolidate all mobile styles into a single media query */
+        @media (max-width: 400px) {
+            #controls {
+                width: 95vw;
+                gap: 6px;
+                grid-template-rows: repeat(3, minmax(50px, auto)) minmax(38px, auto);
+            }
+            
+            #controls button {
+                min-width: auto;
+                min-height: 50px;
+                padding: 8px 3px;
+                font-size: 13px;
+            }
+            
+            #up, #down, #left, #right {
+                font-size: 20px;
+            }
+            
+            #power, #mute {
+                min-height: 38px;
+            }
+            
+            #controls button:active {
+                transform: scale(0.95);
+                background-color: #777 !important;
+            }
+        }
+
+        /* Also define a clear focus indicator for accessibility */
+        :focus-visible {
+            outline: 3px solid var(--color-primary);
+            outline-offset: 2px;
+        }
+
+        /* Improve form field styling */
+        select, input[type="text"] {
+            background-color: var(--color-surface-hover);
+            color: var(--color-text);
+            border: 1px solid var(--color-border);
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 15px;
+            width: 100%;
+            margin: 5px 0 10px;
+        }
+
+        select:focus, input[type="text"]:focus {
+            outline: 2px solid var(--color-primary);
+            border-color: var(--color-primary);
+        }
+
+        /* Make legends and labels more readable */
+        legend {
+            font-weight: 600;
+            font-size: 17px;
+            padding: 0 8px;
+            color: var(--color-text-secondary);
+        }
+
+        fieldset {
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 12px 15px;
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 15px;
+            color: var(--color-text-secondary);
+        }
+
+        input[type="file"] {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
     </style>
+    <script type="module" src="js/emulator.js" defer></script>
+    <script>
+    // Prevent context menu on long press for touch devices
+    document.addEventListener('contextmenu', function(e) {
+        if (e.target.closest('#controls')) {
+            e.preventDefault();
+        }
+    }, false);
+
+    // Prevent double-tap zoom on iOS
+    document.addEventListener('touchend', function(e) {
+        if (e.target.closest('#controls')) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+    </script>
 </head>
 
 <body>
@@ -374,23 +1175,25 @@
         <img src="emiu2.svg" alt="Emiu2 Logo" id="emiu2-svg">
     </div>
 
-    <div id="controls" style="display: none;">
-        <button id="up" style="grid-area: up;">Up</button>
-        <button id="left" style="grid-area: left;">Left</button>
-        <button id="right" style="grid-area: right;">Right</button>
-        <button id="down" style="grid-area: down;">Down</button>
-        <button id="screen-ul" style="grid-area: screen-ul;">Screen UL</button>
-        <button id="screen-ur" style="grid-area: screen-ur;">Screen UR</button>
-        <button id="screen-ll" style="grid-area: screen-ll;">Screen LL</button>
-        <button id="screen-lr" style="grid-area: screen-lr;">Screen LR</button>
-        <button id="menu" style="grid-area: menu;">Menu</button>
-        <button id="action" style="grid-area: action;">Action</button>
-        <button id="power" style="grid-area: power;">Power</button>
-        <button id="mute" style="grid-area: mute;">Mute</button>
+    <div role="toolbar" id="controls" style="display: none;" aria-label="Emulator Controls">
+        <button id="up" style="grid-area: up;" aria-label="Up Button">↑</button>
+        <button id="left" style="grid-area: left;" aria-label="Left Button">←</button>
+        <button id="right" style="grid-area: right;" aria-label="Right Button">→</button>
+        <button id="down" style="grid-area: down;" aria-label="Down Button">↓</button>
+        <button id="screen-ul" style="grid-area: screen-ul;" aria-label="Screen Top Left">↖</button>
+        <button id="screen-ur" style="grid-area: screen-ur;" aria-label="Screen Top Right">↗</button>
+        <button id="screen-ll" style="grid-area: screen-ll;" aria-label="Screen Bottom Left">↙</button>
+        <button id="screen-lr" style="grid-area: screen-lr;" aria-label="Screen Bottom Right">↘</button>
+        <button id="menu" style="grid-area: menu;" aria-label="Menu Button">Menu</button>
+        <button id="action" style="grid-area: action;" aria-label="Action Button">Action</button>
+        <button id="power" style="grid-area: power;" aria-label="Power Button">Power</button>
+        <button id="mute" style="grid-area: mute;" aria-label="Mute Button">Mute</button>
     </div>
+    
     <div id="upload-container">
-        <div id="otp-options" class="source-section" style="display:none;">
-            <label for="otp-source-select">OTP Source:</label>
+        <fieldset id="otp-options" class="source-section">
+            <legend>OTP Configuration</legend>
+            <label for="otp-source-select">Source:</label>
             <select id="otp-source-select">
                 <option value="db">Use saved OTP</option>
                 <option value="file">Upload OTP file</option>
@@ -398,9 +1201,9 @@
             </select>
             <div id="otp-upload" style="display:none;">
                 <div class="file-input-container">
-                    <label for="otp-input" class="file-input-label">Choose OTP File</label>
-                    <span class="file-input-name" id="otp-file-name">No file chosen</span>
-                    <input type="file" id="otp-input" />
+                    <label for="otp-input" class="file-input-label" id="otp-input-label">Choose OTP File</label>
+                    <span class="file-input-name" id="otp-file-name" aria-live="polite">No file chosen</span>
+                    <input type="file" id="otp-input" aria-labelledby="otp-input-label" />
                 </div>
             </div>
             <div id="otp-remote" style="display:none;">
@@ -409,21 +1212,22 @@
                     <option value="fw/OTP.dat">Original OTP</option>
                 </select>
             </div>
-        </div>
+        </fieldset>
 
-        <div id="flash-options" class="source-section" style="display:none;">
-            <label for="flash-source-select">Flash Source:</label>
+        <fieldset id="flash-options" class="source-section">
+            <legend>Flash Configuration</legend>
+            <label for="flash-source-select">Source:</label>
             <select id="flash-source-select">
                 <option value="db">Use saved flash</option>
                 <option value="file">Upload flash file</option>
                 <option value="remote">Use a pre-loaded flash</option>
             </select>
-            <div style="display:flex; gap:10px; width:100%;">
-                <button id="download-flash" style="display:none;">Download Saved Flash</button>
+            <div id="download-flash-container" style="display:none;">
+                <button id="download-flash">Save Backup Copy</button>
             </div>
             <div id="flash-upload" style="display:none;">
                 <div class="file-input-container">
-                    <label for="flash-input" class="file-input-label">Choose Flash File</label>
+                    <label for="flash-input" class="file-input-label" id="flash-input-label">Choose Flash File</label>
                     <span class="file-input-name" id="flash-file-name">No file chosen</span>
                     <input type="file" id="flash-input" />
                 </div>
@@ -444,504 +1248,84 @@
                     <option value="fw/Inferno%202.00.04.dat">Inferno 2.00.04</option>
                 </select>
             </div>
+        </fieldset>
+
+        <button type="button" id="start-button">Start Emulator</button>
         </div>
 
-        <button id="start-button">Start Emulator</button>
+    <!-- Add skip-to-content link for keyboard users -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <div id="main-content" tabindex="-1">
+        <!-- Main content here -->
     </div>
-    <script type="module">
-        import init, { create_emulator_with_files, set_button_state, get_button_state, get_flash_dump, start_driving_emulator } from '/pkg/emiu2.js';
-        await init();
 
+    <!-- Add a status notification area -->
+    <div id="status-notification" class="notification" role="status" aria-live="polite"></div>
 
-        function update_button_colors(buttons) {
-            for (const [elementId, buttonState] of Object.entries(buttons)) {
-                const element = document.getElementById(elementId);
-                if (get_button_state(buttonState)) {
-                    element.style.backgroundColor = '#4CAF50';
-                    element.style.color = '#fff';
-                } else {
-                    element.style.backgroundColor = '#555';
-                    element.style.color = '#fff';
-                }
-            }
-        }
+    <!-- Add a collapsible help section -->
+    <div id="help-section" class="help-section">
+        <button id="help-toggle" class="help-toggle" aria-expanded="false">
+            Help & Instructions
+        </button>
+        <div id="help-content" class="help-content">
+            <h3>Getting Started</h3>
+            <p>When loading fresh firmware, the device starts in demo mode:</p>
+            <ol>
+                <li>Wait for the initial animation to complete</li>
+                <li>Press the <strong>Power</strong> button to exit demo mode</li>
+                <li>Navigate using the directional buttons</li>
+            </ol>
 
-        function saveToIndexedDB(key, arrayBuffer) {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open('emiu2DB', 1);
-                request.onupgradeneeded = event => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains('data')) {
-                        db.createObjectStore('data');
-                    }
-                };
-                request.onsuccess = event => {
-                    const db = event.target.result;
-                    const transaction = db.transaction('data', 'readwrite');
-                    const store = transaction.objectStore('data');
-                    const putRequest = store.put(arrayBuffer, key);
-                    putRequest.onsuccess = () => {
-                        console.log(`Successfully saved ${key} to IndexedDB`);
-                        resolve();
-                    };
-                    putRequest.onerror = () => {
-                        console.error(`Failed to save ${key} to IndexedDB:`, putRequest.error);
-                        reject(putRequest.error);
-                    };
-                };
-                request.onerror = () => {
-                    console.error('Failed to open IndexedDB:', request.error);
-                    reject(request.error);
-                };
-            });
-        }
-
-        function loadFromIndexedDB(key) {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open('emiu2DB', 1);
-                request.onupgradeneeded = event => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains('data')) {
-                        db.createObjectStore('data');
-                    }
-                };
-                request.onsuccess = event => {
-                    const db = event.target.result;
-                    const transaction = db.transaction('data', 'readonly');
-                    const store = transaction.objectStore('data');
-                    const getRequest = store.get(key);
-                    getRequest.onsuccess = () => resolve(getRequest.result);
-                    getRequest.onerror = () => reject(getRequest.error);
-                };
-                request.onerror = () => reject(request.error);
-            });
-        }
-
-        async function checkForSavedData() {
-            try {
-                const [dbOtp, dbFlash] = await Promise.all([
-                    loadFromIndexedDB('otp'),
-                    loadFromIndexedDB('flash')
-                ]);
-
-                // Always show the options containers
-                document.getElementById('otp-options').style.display = 'block';
-                document.getElementById('flash-options').style.display = 'block';
-                
-                const otpSourceSelect = document.getElementById('otp-source-select');
-                const flashSourceSelect = document.getElementById('flash-source-select');
-                
-                // OTP handling
-                if (dbOtp && dbOtp.byteLength > 0) {
-                    // Enable saved option for OTP
-                    otpSourceSelect.querySelector('option[value="db"]').disabled = false;
-                    otpSourceSelect.value = 'db';
-                    document.getElementById('otp-upload').style.display = 'none';
-                    document.getElementById('otp-remote').style.display = 'none';
-                } else {
-                    // Disable saved option for OTP
-                    otpSourceSelect.querySelector('option[value="db"]').disabled = true;
-                    otpSourceSelect.value = 'remote';
-                    document.getElementById('otp-remote').style.display = 'block';
-                    document.getElementById('otp-upload').style.display = 'none';
-                }
-
-                // Flash handling
-                if (dbFlash && dbFlash.byteLength > 0) {
-                    // Enable saved option for Flash
-                    flashSourceSelect.querySelector('option[value="db"]').disabled = false;
-                    flashSourceSelect.value = 'db';
-                    document.getElementById('flash-upload').style.display = 'none';
-                    document.getElementById('flash-remote').style.display = 'none';
-                    document.getElementById('download-flash').style.display = 'inline-block';
-                } else {
-                    // Disable saved option for Flash
-                    flashSourceSelect.querySelector('option[value="db"]').disabled = true;
-                    flashSourceSelect.value = 'remote';
-                    document.getElementById('flash-remote').style.display = 'block';
-                    document.getElementById('flash-upload').style.display = 'none';
-                    document.getElementById('download-flash').style.display = 'none';
-                }
-            } catch (e) {
-                console.error('Error checking for saved data:', e);
-                
-                // Error handling - show options but disable saved
-                document.getElementById('otp-options').style.display = 'block';
-                document.getElementById('flash-options').style.display = 'block';
-                
-                const otpSourceSelect = document.getElementById('otp-source-select');
-                const flashSourceSelect = document.getElementById('flash-source-select');
-                
-                otpSourceSelect.querySelector('option[value="db"]').disabled = true;
-                otpSourceSelect.value = 'remote';
-                document.getElementById('otp-remote').style.display = 'block';
-                document.getElementById('otp-upload').style.display = 'none';
-                
-                flashSourceSelect.querySelector('option[value="db"]').disabled = true;
-                flashSourceSelect.value = 'remote';
-                document.getElementById('flash-remote').style.display = 'block';
-                document.getElementById('flash-upload').style.display = 'none';
-                document.getElementById('download-flash').style.display = 'none';
-            }
-        }
-
-        checkForSavedData();
-
-        // Add file input name display for better UX
-        document.getElementById('otp-input').addEventListener('change', function() {
-            const fileName = this.files[0] ? this.files[0].name : 'No file chosen';
-            document.getElementById('otp-file-name').textContent = fileName;
-        });
-        
-        document.getElementById('flash-input').addEventListener('change', function() {
-            const fileName = this.files[0] ? this.files[0].name : 'No file chosen';
-            document.getElementById('flash-file-name').textContent = fileName;
-        });
-
-        // Event listeners for source select changes
-        document.getElementById('otp-source-select').addEventListener('change', function() {
-            const source = this.value;
-            document.getElementById('otp-upload').style.display = source === 'file' ? 'block' : 'none';
-            document.getElementById('otp-remote').style.display = source === 'remote' ? 'block' : 'none';
-        });
-
-        document.getElementById('flash-source-select').addEventListener('change', function() {
-            const source = this.value;
-            document.getElementById('flash-upload').style.display = source === 'file' ? 'block' : 'none';
-            document.getElementById('flash-remote').style.display = source === 'remote' ? 'block' : 'none';
-            // Only show the download button when "Use saved flash" is selected
-            document.getElementById('download-flash').style.display = source === 'db' ? 'inline-block' : 'none';
-        });
-
-        async function run() {
-            window.emulatorStarted = false;
-            const buttons = {
-                'up': 'up',
-                'down': 'down',
-                'left': 'left',
-                'right': 'right',
-                'menu': 'menu',
-                'action': 'action',
-                'power': 'power',
-                'mute': 'mute',
-                'screen-ul': 'screen-top-left',
-                'screen-ur': 'screen-top-right',
-                'screen-ll': 'screen-bottom-left',
-                'screen-lr': 'screen-bottom-right'
-            };
-
-            // Show upload container with animation
-            const uploadContainer = document.getElementById('upload-container');
-            // Trigger reflow to ensure the transition works
-            void uploadContainer.offsetWidth;
-            uploadContainer.classList.add('visible');
+            <h3>Keyboard Controls</h3>
+            <ul>
+                <li><strong>Arrow Keys</strong>: Move in corresponding direction</li>
+                <li><strong>M</strong>: Menu button</li>
+                <li><strong>A</strong>: Action button</li>
+                <li><strong>P</strong>: Power button</li>
+                <li><strong>U</strong>: Mute button</li>
+            </ul>
             
-            // Map keyboard keys to button states
-            const keyMap = {
-                'ArrowUp': 'up',
-                'ArrowDown': 'down',
-                'ArrowLeft': 'left',
-                'ArrowRight': 'right',
-                'm': 'menu',
-                'M': 'menu',
-                'a': 'action',
-                'A': 'action',
-                'p': 'power',
-                'P': 'power',
-                'u': 'mute',
-                'U': 'mute'
-            };
-            update_button_colors(buttons);
+            <h3>Touch Controls</h3>
+            <p>When the emulator is running, use the on-screen buttons that correspond to the physical buttons on the device.</p>
+            
+            <h3>Saving Progress</h3>
+            <p>Your game progress is automatically saved every second, but for guaranteed saving:</p>
+            <ol>
+                <li>Press the <strong>Power</strong> button to put the device to sleep</li>
+                <li>This triggers the firmware's built-in save function</li>
+                <li>Use "Download Backup Copy" in the configuration screen to backup your save</li>
+            </ol>
+        </div>
+    </div>
 
+    <!-- Add a reset button -->
+    <button id="reset-button" class="btn btn-danger" style="display:none;">Reset Emulator</button>
 
-            console.log('WASM module loaded');
+    <!-- Add a global loading overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner-large"></div>
+        <div id="loading-message">Loading emulator...</div>
+    </div>
 
-            // Set initial canvas size
-            const canvas = document.getElementById('emulator-canvas');
-            canvas.width = 98;
-            canvas.height = 67;
-
-            document.getElementById('start-button').addEventListener('click', async () => {
-                if (window.emulatorStarted) return;
-
-                let otpArrayBuffer = null;
-                let flashArrayBuffer = null;
-
-                // Get OTP data
-                const otpSourceSelect = document.getElementById('otp-source-select');
-                const otpSource = otpSourceSelect.value;
-
-                if (otpSource === 'db') {
-                    try {
-                        const dbOtp = await loadFromIndexedDB('otp');
-                        if (dbOtp && dbOtp.byteLength > 0) {
-                            console.log('Loaded OTP from IndexedDB.');
-                            otpArrayBuffer = dbOtp;
-                        } else {
-                            alert('No saved OTP found in database. Please select another source.');
-                            return;
-                        }
-                    } catch (e) {
-                        console.error('Error loading OTP from IndexedDB:', e);
-                        alert('Error loading saved OTP.');
-                        return;
-                    }
-                } else if (otpSource === 'remote') {
-                    const otpSelect = document.getElementById('otp-url-select');
-                    const otpUrl = otpSelect.value;
-                    if (!otpUrl) {
-                        alert('Please select an OTP from the dropdown.');
-                        return;
-                    }
-                    
-                    try {
-                        document.getElementById('start-button').disabled = true;
-                        document.getElementById('start-button').innerHTML = '<span class="loading-spinner"></span> Downloading OTP...';
-                        const response = await fetch(otpUrl);
-                        if (!response.ok) {
-                            throw new Error(`Failed to fetch OTP: ${response.status} ${response.statusText}`);
-                        }
-                        otpArrayBuffer = await response.arrayBuffer();
-                        document.getElementById('start-button').textContent = 'Start Emulator';
-                        
-                        // Save downloaded OTP to IndexedDB
-                        try {
-                            await saveToIndexedDB('otp', otpArrayBuffer);
-                            console.log('Saved remote OTP to IndexedDB');
-                        } catch (e) {
-                            console.error('Failed to save remote OTP to IndexedDB:', e);
-                            // Continue anyway since we have the OTP in memory
-                        }
-                    } catch (e) {
-                        console.error('Error fetching remote OTP:', e);
-                        alert('Error downloading OTP: ' + e.message);
-                        document.getElementById('start-button').disabled = false;
-                        document.getElementById('start-button').textContent = 'Start Emulator';
-                        return;
-                    }
-                } else { // 'file'
-                    const otpFileInput = document.getElementById('otp-input');
-                    if (otpFileInput.files.length === 0) {
-                        alert('Please select OTP file.');
-                        return;
-                    }
-                    otpArrayBuffer = await otpFileInput.files[0].arrayBuffer();
-
-                    // Save OTP to IndexedDB when a new file is uploaded
-                    try {
-                        await saveToIndexedDB('otp', otpArrayBuffer);
-                        console.log('Saved new OTP to IndexedDB');
-                    } catch (e) {
-                        console.error('Failed to save OTP to IndexedDB:', e);
-                        // Continue anyway since we have the OTP in memory
-                    }
-                }
-
-                // Get Flash data
-                const flashSourceSelect = document.getElementById('flash-source-select');
-                const flashSource = flashSourceSelect.value;
-
-                if (flashSource === 'db') {
-                    try {
-                        const dbFlash = await loadFromIndexedDB('flash');
-                        if (dbFlash && dbFlash.byteLength > 0) {
-                            console.log('Loaded flash from IndexedDB.');
-                            flashArrayBuffer = dbFlash;
-                        } else {
-                            alert('No saved flash found in database. Please select another source.');
-                            return;
-                        }
-                    } catch (e) {
-                        console.error('Error loading flash from IndexedDB:', e);
-                        alert('Error loading saved flash.');
-                        return;
-                    }
-                } else if (flashSource === 'remote') {
-                    const flashSelect = document.getElementById('flash-url-select');
-                    const flashUrl = flashSelect.value;
-                    if (!flashUrl) {
-                        alert('Please select a Flash from the dropdown.');
-                        return;
-                    }
-                    
-                    try {
-                        document.getElementById('start-button').disabled = true;
-                        document.getElementById('start-button').innerHTML = '<span class="loading-spinner"></span> Downloading Flash...';
-                        const response = await fetch(flashUrl);
-                        if (!response.ok) {
-                            throw new Error(`Failed to fetch Flash: ${response.status} ${response.statusText}`);
-                        }
-                        flashArrayBuffer = await response.arrayBuffer();
-                        document.getElementById('start-button').textContent = 'Start Emulator';
-                    } catch (e) {
-                        console.error('Error fetching remote Flash:', e);
-                        alert('Error downloading Flash: ' + e.message);
-                        document.getElementById('start-button').disabled = false;
-                        document.getElementById('start-button').textContent = 'Start Emulator';
-                        return;
-                    }
-                } else { // 'file'
-                    const flashFileInput = document.getElementById('flash-input');
-                    if (flashFileInput.files.length === 0) {
-                        alert('Please select flash file.');
-                        return;
-                    }
-                    flashArrayBuffer = await flashFileInput.files[0].arrayBuffer();
-                }
-
-                try {
-                    const otpUint8 = new Uint8Array(otpArrayBuffer);
-                    const flashUint8 = new Uint8Array(flashArrayBuffer);
-                    create_emulator_with_files(otpUint8, flashUint8);
-                    window.emulatorStarted = true;
-                    document.getElementById('start-button').disabled = true;
-                    
-                    // Disable select controls
-                    document.getElementById('otp-source-select').disabled = true;
-                    document.getElementById('flash-source-select').disabled = true;
-                    document.getElementById('otp-url-select').disabled = true;
-                    document.getElementById('flash-url-select').style.display = 'none';
-                    
-                    // Hide upload divs if they were visible
-                    document.getElementById('otp-upload').style.display = 'none';
-                    document.getElementById('flash-upload').style.display = 'none';
-                    
-                    // Hide upload container with animation
-                    const uploadContainer = document.getElementById('upload-container');
-                    uploadContainer.style.display = 'none';
-
-                    // Show controls with animation
-                    const controlsElement = document.getElementById('controls');
-                    controlsElement.style.display = 'grid';
-                    // Trigger reflow to ensure the transition works
-                    void controlsElement.offsetWidth;
-                    controlsElement.classList.add('visible');
-                    
-                    // Scroll to top of the page to ensure emulator is visible
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                } catch (e) {
-                    alert('Failed to start emulator: ' + e);
-                    console.error(e);
-                    return;
-                }
-
-                const svg = document.getElementById('emiu2-svg');
-
-                // Use the Web Animations API to get the current time of the CSS rotation
-                const animations = svg.getAnimations();
-                const cssAnim = animations.length > 0 ? animations[0] : null;
-                const duration = 60000; // 60 seconds duration of the rotation animation
-                let currentAngle = 360;
-                if (cssAnim && cssAnim.currentTime != null) {
-                    let t = cssAnim.currentTime;
-                    currentAngle = 360 - ((t % duration) / duration * 360);
-                }
-
-                // Cancel any ongoing animations to freeze the current state
-                svg.getAnimations().forEach(animation => animation.cancel());
-                svg.style.transform = `translate(-50%, -50%) rotate(${currentAngle}deg)`;
-
-                // Animate counterclockwise exit: subtract 720° from current angle
-                const targetAngle = currentAngle - 720;
-                const exitAnimation = svg.animate([
-                    { transform: `translate(-50%, -50%) rotate(${currentAngle}deg)` },
-                    { transform: `translate(-50%, -250%) rotate(${targetAngle}deg)` }
-                ], {
-                    duration: 1000,
-                    easing: 'ease-in-out',
-                    fill: 'forwards'
-                });
-
-                exitAnimation.onfinish = async () => {
-                    try {
-                        start_driving_emulator();
-                    } catch (e) {
-                        alert('Failed to start emulator: ' + e);
-                        console.error(e);
-                    }
-                };
-            });
-
-
-
-            // Add keyboard event listeners
-            document.addEventListener('keydown', (event) => {
-                const buttonState = keyMap[event.key];
-                if (buttonState) {
-                    set_button_state(buttonState, true);
-                    update_button_colors(buttons);
-                }
-            });
-
-            document.addEventListener('keyup', (event) => {
-                const buttonState = keyMap[event.key];
-                if (buttonState) {
-                    set_button_state(buttonState, false);
-                    update_button_colors(buttons);
-                }
-            });
-
-            // Add mouse/touch event listeners for on-screen buttons
-            for (const [elementId, buttonState] of Object.entries(buttons)) {
-                const element = document.getElementById(elementId);
-                const on_events = ['mousedown', 'touchstart'];
-                const off_events = ['mouseup', 'touchend', 'mouseleave', 'touchcancel'];
-
-                on_events.forEach(eventType => {
-                    element.addEventListener(eventType, () => {
-                        set_button_state(buttonState, true);
-                        update_button_colors(buttons);
-                    });
-                });
-                off_events.forEach(eventType => {
-                    element.addEventListener(eventType, () => {
-                        set_button_state(buttonState, false);
-                        update_button_colors(buttons);
-                    });
-                });
-            }
-        }
-
-        run();
-
-        // Auto-save flash dump every 1 second
-        setInterval(async () => {
-            if (window.emulatorStarted) {
-                try {
-                    const flashDump = get_flash_dump();
-                    if (flashDump && flashDump.buffer && flashDump.buffer.byteLength > 0) {
-                        await saveToIndexedDB('flash', flashDump.buffer);
-                    }
-                } catch (e) {
-                    console.error('Auto-save failed:', e);
-                }
-            }
-        }, 1000);
-
-        async function downloadSavedFlash() {
-            try {
-                const flashData = await loadFromIndexedDB('flash');
-                if (flashData && flashData.byteLength > 0) {
-                    const blob = new Blob([flashData], { type: 'application/octet-stream' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'emiu2_flash.bin';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                } else {
-                    alert('No flash data available to download');
-                }
-            } catch (e) {
-                console.error('Error downloading flash:', e);
-                alert('Failed to download flash data');
-            }
-        }
-
-        document.getElementById('download-flash').addEventListener('click', downloadSavedFlash);
-    </script>
+    <!-- Add a first-time user guide/intro -->
+    <div id="first-use-guide" class="overlay-guide">
+        <div class="guide-content">
+            <h2>Welcome to Emiu2!</h2>
+            <p>This emulator lets you play Miuchiz handheld console games right in your browser.</p>
+            
+            <h3>Quick Start Guide:</h3>
+            <ol>
+                <li><strong>Configuration:</strong> Select your firmware from the options</li>
+                <li><strong>Starting:</strong> Fresh firmware shows a demo - press Power to exit it</li>
+                <li><strong>Controls:</strong> Use arrow keys on keyboard or on-screen buttons</li>
+                <li><strong>Saving:</strong> Press Power button to save your progress</li>
+            </ol>
+            
+            <p class="tip"><span class="tip-icon">💡</span> Need help anytime? Check the <strong>Help & Instructions</strong> section at the bottom of the page!</p>
+            
+            <button id="close-guide" class="btn btn-primary">Start Playing!</button>
+        </div>
+    </div>
 </body>
 
 </html>
