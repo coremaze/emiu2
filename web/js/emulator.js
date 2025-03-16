@@ -197,12 +197,12 @@ async function fetchData(type) {
             const select = document.getElementById(`${type}-url-select`);
             const url = select.value;
             if (!url) {
-                throw new Error(`Please select a ${type.toUpperCase()} from the dropdown`);
+                throw new Error(`Please select a ${type} from the dropdown`);
             }
             
             document.getElementById('start-button').disabled = true;
             document.getElementById('start-button').innerHTML = 
-                `<span class="loading-spinner"></span> Downloading ${type.toUpperCase()}...`;
+                `<span class="loading-spinner"></span> Downloading ${type}...`;
                 
             const response = await fetch(url);
             if (!response.ok) {
