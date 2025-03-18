@@ -627,8 +627,106 @@ function checkBrowserCompatibility() {
 
 // Update the initialize function to check compatibility first
 async function initialize() {
-    await checkBrowserCompatibility();
+    // Event listeners for touch interactions
+    // Prevent context menu on long press for touch devices
+    document.addEventListener('contextmenu', function(e) {
+        if (e.target.closest('#controls')) {
+            e.preventDefault();
+        }
+    }, false);
+
+    // Prevent double-tap zoom on iOS
+    document.addEventListener('touchend', function(e) {
+        if (e.target.closest('#controls')) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+    
+    // Disable scrolling when guide is open
+    const guideOverlay = document.getElementById('first-use-guide');
+    const closeGuideButton = document.getElementById('close-guide');
+    
+    // Store original body style
+    let originalBodyStyles = {
+        overflow: '',
+        position: '',
+        width: '',
+        height: '',
+        top: ''
+    };
+    
+    // Function to disable scrolling
+    function disableScroll() {
+        // Store current scroll position
+        const scrollY = window.scrollY;
+        
+        // Save original styles
+        originalBodyStyles.overflow = document.body.style.overflow;
+        originalBodyStyles.position = document.body.style.position;
+        originalBodyStyles.width = document.body.style.width;
+        originalBodyStyles.height = document.body.style.height;
+        originalBodyStyles.top = document.body.style.top;
+        
+        // Set fixed position at current scroll
+        document.body.style.overflow = 'hidden';
+        document.body.style.position = 'fixed';
+        document.body.style.width = '100%';
+        document.body.style.height = '100%';
+        document.body.style.top = `-${scrollY}px`;
+    }
+    
+    // Function to enable scrolling
+    function enableScroll() {
+        // Get the scroll position from the body's top property
+        const scrollY = parseInt(document.body.style.top || '0') * -1;
+        
+        // Restore original styles
+        document.body.style.overflow = originalBodyStyles.overflow;
+        document.body.style.position = originalBodyStyles.position;
+        document.body.style.width = originalBodyStyles.width;
+        document.body.style.height = originalBodyStyles.height;
+        document.body.style.top = originalBodyStyles.top;
+        
+        // Scroll back to the original position
+        window.scrollTo(0, scrollY);
+    }
+    
+    // Observe guide visibility changes
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.attributeName === 'class') {
+                if (guideOverlay.classList.contains('visible')) {
+                    disableScroll();
+                } else {
+                    enableScroll();
+                }
+            }
+        });
+    });
+    
+    // Start observing the guide element
+    observer.observe(guideOverlay, { attributes: true });
+    
+    // Handle close button click
+    if (closeGuideButton) {
+        closeGuideButton.addEventListener('click', enableScroll);
+    }
+    
+    // Initial check
+    if (guideOverlay.classList.contains('visible')) {
+        disableScroll();
+    }
+
     try {
+        // Initialize the UI
+        initializeUI();
+        
+        // Setup file inputs for better UX
+        initializeFileInputs();
+        
+        // Check browser compatibility
+        await checkBrowserCompatibility();
+        
         showLoading('Loading emulator...');
         
         // Start rotating loading messages
