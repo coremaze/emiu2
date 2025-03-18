@@ -662,16 +662,10 @@ async function initialize() {
         
         // Save original styles
         originalBodyStyles.overflow = document.body.style.overflow;
-        originalBodyStyles.position = document.body.style.position;
-        originalBodyStyles.width = document.body.style.width;
-        originalBodyStyles.height = document.body.style.height;
         originalBodyStyles.top = document.body.style.top;
         
         // Set fixed position at current scroll
         document.body.style.overflow = 'hidden';
-        document.body.style.position = 'fixed';
-        document.body.style.width = '100%';
-        document.body.style.height = '100%';
         document.body.style.top = `-${scrollY}px`;
     }
     
@@ -682,9 +676,6 @@ async function initialize() {
         
         // Restore original styles
         document.body.style.overflow = originalBodyStyles.overflow;
-        document.body.style.position = originalBodyStyles.position;
-        document.body.style.width = originalBodyStyles.width;
-        document.body.style.height = originalBodyStyles.height;
         document.body.style.top = originalBodyStyles.top;
         
         // Scroll back to the original position
