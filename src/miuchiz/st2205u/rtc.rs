@@ -7,7 +7,6 @@ pub struct State {
     minutes: u8,
     hours: u8,
 
-    // Alarms are not implemented yet
     alarm_minutes: u8,
     alarm_hours: u8,
 
@@ -29,39 +28,77 @@ impl State {
         }
     }
 
-    pub fn set_ticks(&mut self, ticks: u64) {
+    pub fn set_ticks(&mut self, ticks: u64) -> bool {
         let ticks_per_second = self.clock_frequency;
         let next_second_tick = self.last_second_tick + ticks_per_second;
 
         if ticks >= next_second_tick {
             self.last_second_tick = next_second_tick;
-            self.inc_second();
+            return self.inc_second();
         }
 
         self.elapsed_ticks = ticks;
+        false
     }
 
-    fn inc_second(&mut self) {
+    fn inc_second(&mut self) -> bool {
         self.seconds += 1;
         if self.seconds >= 60 {
             self.seconds = 0;
-            self.inc_minute();
+            return self.inc_minute();
         }
+        false
     }
 
-    fn inc_minute(&mut self) {
+    fn inc_minute(&mut self) -> bool {
         self.minutes += 1;
+
+        let mut triggered = false;
+
+        // Minute Interrupt (Bit 0)
+        self.rctr.requests |= 0x01;
+        if (self.rctr.enables & 0x01) != 0 {
+            triggered = true;
+        }
+
         if self.minutes >= 60 {
             self.minutes = 0;
-            self.inc_hour();
+            if self.inc_hour() {
+                triggered = true;
+            }
         }
+
+        // Alarm Interrupt (Bit 3)
+        if self.minutes == self.alarm_minutes && self.hours == self.alarm_hours {
+            self.rctr.requests |= 0x08;
+            if (self.rctr.enables & 0x08) != 0 {
+                triggered = true;
+            }
+        }
+
+        triggered
     }
 
-    fn inc_hour(&mut self) {
+    fn inc_hour(&mut self) -> bool {
         self.hours += 1;
+
+        // Hour Interrupt (Bit 1)
+        self.rctr.requests |= 0x02;
+        let mut triggered = (self.rctr.enables & 0x02) != 0;
+
         if self.hours >= 24 {
             self.hours = 0;
+            if self.inc_day() {
+                triggered = true;
+            }
         }
+        triggered
+    }
+
+    fn inc_day(&mut self) -> bool {
+        // Day Interrupt (Bit 2)
+        self.rctr.requests |= 0x04;
+        (self.rctr.enables & 0x04) != 0
     }
 
     pub fn get_seconds(&self) -> u8 {
@@ -119,14 +156,16 @@ impl State {
             Rsel::Seconds => self.set_seconds(value),
             Rsel::Minutes => self.set_minutes(value),
             Rsel::Hours => self.set_hours(value),
-            Rsel::AlarmMinutes => self.alarm_minutes = value,
-            Rsel::AlarmHours => self.alarm_hours = value,
+            Rsel::AlarmMinutes => self.set_alarm_minutes(value),
+            Rsel::AlarmHours => self.set_alarm_hours(value),
         }
     }
 }
 
 struct Rctr {
     selection: Rsel,
+    enables: u8,  // *IEN
+    requests: u8, // *IRQ
 }
 
 impl Rctr {
@@ -139,11 +178,23 @@ impl Rctr {
             Rsel::AlarmHours => 0b101,
         };
 
-        rsel << 5
+        (rsel << 5) | (self.requests & 0x0F)
     }
 
     pub fn write_u8(&mut self, value: u8) {
         self.selection = Rsel::from_u8(value >> 5);
+        let new_enables = value & 0x0F;
+        let rtc_clr = (value & 0x10) != 0;
+
+        self.enables = new_enables;
+
+        // If an interrupt is disabled, we clear the request (?)
+        self.requests &= new_enables;
+
+        if rtc_clr {
+            // "RTC Clear" - write 1 to clear all RTC interrupt requests
+            self.requests = 0;
+        }
     }
 }
 
@@ -151,6 +202,8 @@ impl Default for Rctr {
     fn default() -> Self {
         Self {
             selection: Rsel::default(),
+            enables: 0,
+            requests: 0,
         }
     }
 }

@@ -31,9 +31,9 @@ At a high level, the emulator supports the following:
  - Flash
  - OTP (One Time Programmable memory)
  - GPIO
+ - RTC interrupts (Used for the alarm clock ingame)
 
  It is possibly more useful to list the features which the Miuchiz firmware uses but which are not yet finished:
- - RTC interrupts (Used for the alarm clock ingame)
  - IR communication (Used to play or trade with other Miuchiz devices)
  - USB communication (Used to communicate with a PC)
 

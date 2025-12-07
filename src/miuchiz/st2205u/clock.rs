@@ -1,3 +1,4 @@
+use super::interrupt::Interrupt;
 use super::St2205uAddressSpace;
 
 pub trait Clock {
@@ -8,6 +9,8 @@ impl Clock for St2205uAddressSpace {
     fn set_clocks(&mut self, oscx: u64, sysck: u64) {
         self.base_timer.set_elapsed_ticks(oscx);
         self.timer.set_elapsed_ticks(sysck);
-        self.rtc.set_ticks(oscx);
+        if self.rtc.set_ticks(oscx) {
+            self.interrupt.assert_interrupt(Interrupt::Rtc);
+        }
     }
 }
