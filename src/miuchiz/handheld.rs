@@ -3,7 +3,10 @@ use super::{
     st2205u::{self, GpioInterfaceInternal},
     st7626,
 };
-use crate::{audio::AudioInterface, memory::AddressSpace, screen::Screen};
+use crate::{
+    audio::AudioInterface, memory::AddressSpace, screen::Screen,
+    usb_interface::UsbInterfaceInternal,
+};
 use std::fmt::Display;
 
 pub const SYSTEM_FREQ: u64 = 16_000_000;
@@ -111,11 +114,18 @@ impl Handheld {
         screen: Box<dyn Screen>,
         io: Box<dyn GpioInterfaceInternal>,
         audio_sender: Box<dyn AudioInterface>,
+        usb_interface: Box<dyn UsbInterfaceInternal>,
     ) -> Result<Self, ConfigurationError> {
         let machine_address_space = Box::new(HandheldAddressSpace::new(otp, flash, screen)?);
 
         let mcu = Self {
-            mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io, audio_sender),
+            mcu: st2205u::Mcu::new(
+                SYSTEM_FREQ,
+                machine_address_space,
+                io,
+                audio_sender,
+                usb_interface,
+            ),
         };
 
         Ok(mcu)

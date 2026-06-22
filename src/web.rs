@@ -43,13 +43,16 @@ pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<()
         .play()
         .map_err(|e| JsValue::from_str(&e))?;
 
-    // Initialize the handheld emulator using the provided interfaces
+    // Initialize the handheld emulator using the provided interfaces. No USB host
+    // is attached yet (an unplugged cable); a browser-driven USB interface could
+    // supply the internal half here.
     let handheld = Handheld::new(
         &otp_data,
         &flash_data,
         Box::new(screen_interface),
         Box::new(wasm_gpio),
         Box::new(wasm_audio_interface),
+        Box::new(crate::usb_interface::NullUsbInterface),
     )
     .map_err(|e| JsValue::from_str(&format!("Failed to initialize handheld: {}", e)))?;
 

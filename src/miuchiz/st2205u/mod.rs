@@ -10,6 +10,7 @@ mod psg;
 mod reg;
 mod rtc;
 mod timer;
+mod usb;
 mod vector;
 mod wdc_65c02;
 
@@ -18,3 +19,6 @@ pub use addr_space::St2205uAddressSpace;
 pub use addr_space::OTP_SIZE;
 pub use gpio::{GpioConnections, GpioInterfaceInternal, GpioPort, GpioState};
 pub use mcu::Mcu;
+pub use usb::UsbResponse;
+pub use usb::UsbToken;
+pub use usb::UsbTransaction;

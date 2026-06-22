@@ -4,5 +4,8 @@ pub mod miuchiz;
 pub mod platform;
 pub mod screen;
 pub mod ssc;
+pub mod usb_interface;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod usb_socket;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

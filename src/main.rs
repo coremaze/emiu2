@@ -4,7 +4,8 @@ mod miuchiz;
 mod platform;
 mod screen;
 pub mod ssc;
-
+mod usb_interface;
+mod usb_socket;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -29,6 +30,11 @@ struct Args {
     /// Show GPIO LED display
     #[arg(long, default_value_t = false)]
     show_gpio: bool,
+
+    /// Expose the emulated USB device on a TCP transaction socket (e.g.
+    /// 127.0.0.1:3240). Off by default (no host attached).
+    #[arg(long, value_name = "ADDR")]
+    usb_socket: Option<String>,
 }
 
 fn main() {
@@ -71,12 +77,32 @@ fn main() {
         return;
     }
 
+    // USB host interface: an unplugged cable by default, or a TCP transaction
+    // socket when `--usb-socket ADDR` is given. The server runs on its own
+    // thread holding the external half; the main loop stays the sole CPU driver
+    // and services the internal half.
+    let usb_interface: Box<dyn usb_interface::UsbInterfaceInternal> = match &args.usb_socket {
+        Some(addr) => {
+            let (port, internal) = usb_interface::channel_pair();
+            let addr = addr.clone();
+            println!("USB transaction socket listening on {addr}");
+            std::thread::spawn(move || {
+                if let Err(why) = usb_socket::serve(&addr, port) {
+                    eprintln!("USB socket server failed: {why}");
+                }
+            });
+            Box::new(internal)
+        }
+        None => Box::new(usb_interface::NullUsbInterface),
+    };
+
     let mut handheld = match miuchiz::Handheld::new(
         &otp_data,
         &flash_data,
         Box::new(minifb_screen),
         Box::new(minifb_gpio),
         Box::new(sender),
+        usb_interface,
     ) {
         Ok(handheld) => handheld,
         Err(why) => {

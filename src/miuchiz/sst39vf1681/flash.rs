@@ -114,9 +114,17 @@ impl AddressSpace for Flash {
             address: status_address,
         } = self.read_mode
         {
+            // While an embedded program/erase is "in progress" the firmware polls
+            // the operated address and reads the data-polling/toggle status there.
+            // A read of any *other* address means the firmware has moved on (the
+            // operation, which we model as instantaneous, has completed), so the
+            // chip returns to read-array mode - otherwise a later array read of the
+            // last-operated byte (e.g. the host reading back a written page) would
+            // wrongly see the status register instead of the stored data.
             if address == status_address {
                 return self.status_register();
             }
+            self.read_mode = ReadMode::Data;
         }
 
         self.data[address % self.data.len()]
