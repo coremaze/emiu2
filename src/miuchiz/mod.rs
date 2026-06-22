@@ -5,4 +5,7 @@ mod st2205u;
 mod st7626;
 pub use gpio::{MiuchizButtonStates, MiuchizGpio};
 pub use handheld::Handheld;
-pub use st2205u::{GpioConnections, GpioInterfaceInternal, GpioPort, GpioState};
+pub use st2205u::{
+    GpioConnections, GpioInterfaceInternal, GpioPort, GpioState, UsbResponse, UsbToken,
+    UsbTransaction,
+};
