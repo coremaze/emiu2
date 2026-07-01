@@ -439,59 +439,82 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
 }
 
 impl<M: AddressSpace> FetchesDecoded for St2205uAddressSpace<M> {
+    #[inline(always)]
     fn fetch_decoded(&mut self, pc: u16) -> FetchedInstruction {
-        let window = self.fetch_window;
-        let vpc = pc as u32;
-        if vpc >= window.start && vpc + 2 < window.end {
-            match window.kind {
-                FetchKind::Ram => {
-                    let ram_index = pc as usize % self.ram.len();
-                    // Entries must not span a 256-byte RAM page (the byte
-                    // check reads up to ram_index + 2, and any 8K-aligned
-                    // bank window boundary is also a page boundary)
-                    if (ram_index ^ (ram_index + 2)) & !0xFF == 0 {
-                        if let Some(fetched) = self.ram_decode_cache.get(ram_index, &self.ram) {
-                            self.fetch_stats[0] += 1;
-                            return fetched;
-                        }
-                        return self.fetch_ram_miss(pc, ram_index);
-                    }
-                }
-                FetchKind::Machine { key_base } => {
-                    let key = key_base + (vpc - window.start) as usize;
-                    // Entries must not span a cache page (invalidation is
-                    // page-granular)
-                    if (key ^ (key + 2)) & !0xFFF == 0 {
-                        if let Some(fetched) = self.decode_cache.get(key) {
-                            self.fetch_stats[0] += 1;
-                            return fetched;
-                        }
-                        return self.fetch_machine_miss(pc, key);
-                    }
-                }
-                FetchKind::Uncached => {}
-            }
-            return self.fetch_uncached(pc);
+        match self.fetch_in_window(pc) {
+            Some(fetched) => fetched,
+            None => self.fetch_window_miss(pc),
         }
-
-        self.refill_fetch_window(pc);
-        let window = self.fetch_window;
-        if vpc >= window.start && vpc + 2 < window.end {
-            return self.fetch_decoded(pc);
-        }
-
-        // The instruction's bytes may extend past the window into a
-        // different mapping: never cached
-        self.fetch_uncached(pc)
     }
 }
 
 impl<M: AddressSpace> St2205uAddressSpace<M> {
+    /// Fetch through the current fetch window; None if `pc` misses it.
+    /// This is the per-instruction hot path: cache hits return without
+    /// leaving it, everything else is outlined.
+    #[inline(always)]
+    fn fetch_in_window(&mut self, pc: u16) -> Option<FetchedInstruction> {
+        let window = self.fetch_window;
+        let vpc = pc as u32;
+        if vpc < window.start || vpc + 2 >= window.end {
+            return None;
+        }
+
+        Some(match window.kind {
+            FetchKind::Ram => {
+                let ram_index = pc as usize % self.ram.len();
+                // Entries must not span a 256-byte RAM page (the byte
+                // check reads up to ram_index + 2, and any 8K-aligned
+                // bank window boundary is also a page boundary)
+                if (ram_index ^ (ram_index + 2)) & !0xFF != 0 {
+                    return Some(self.fetch_uncached(pc));
+                }
+                match self.ram_decode_cache.get(ram_index, &self.ram) {
+                    Some(fetched) => {
+                        self.fetch_stats[0] += 1;
+                        fetched
+                    }
+                    None => self.fetch_ram_miss(pc, ram_index),
+                }
+            }
+            FetchKind::Machine { key_base } => {
+                let key = key_base + (vpc - window.start) as usize;
+                // Entries must not span a cache page (invalidation is
+                // page-granular)
+                if (key ^ (key + 2)) & !0xFFF != 0 {
+                    return Some(self.fetch_uncached(pc));
+                }
+                match self.decode_cache.get(key) {
+                    Some(fetched) => {
+                        self.fetch_stats[0] += 1;
+                        fetched
+                    }
+                    None => self.fetch_machine_miss(pc, key),
+                }
+            }
+            FetchKind::Uncached => self.fetch_uncached(pc),
+        })
+    }
+
+    /// The program counter left the cached window: re-resolve and retry
+    #[cold]
+    fn fetch_window_miss(&mut self, pc: u16) -> FetchedInstruction {
+        self.refill_fetch_window(pc);
+        match self.fetch_in_window(pc) {
+            Some(fetched) => fetched,
+            // The instruction's bytes may extend past the window into a
+            // different mapping: never cached
+            None => self.fetch_uncached(pc),
+        }
+    }
+
+    #[cold]
     fn fetch_uncached(&mut self, pc: u16) -> FetchedInstruction {
         self.fetch_stats[2] += 1;
         FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()))
     }
 
+    #[cold]
     fn fetch_ram_miss(&mut self, pc: u16, ram_index: usize) -> FetchedInstruction {
         self.fetch_stats[1] += 1;
         let fetched = FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()));
@@ -504,6 +527,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
         fetched
     }
 
+    #[cold]
     fn fetch_machine_miss(&mut self, pc: u16, key: usize) -> FetchedInstruction {
         self.fetch_stats[1] += 1;
         let fetched = FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()));

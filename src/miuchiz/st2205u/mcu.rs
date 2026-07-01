@@ -66,6 +66,7 @@ impl<M: AddressSpace> Mcu<M> {
         mcu
     }
 
+    #[inline]
     pub fn step(&mut self) {
         if self.core.waiting_for_interrupt {
             // Nothing can happen until a peripheral event fires, so jump

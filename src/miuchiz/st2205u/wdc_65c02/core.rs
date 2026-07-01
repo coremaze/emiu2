@@ -148,6 +148,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         DecodedInstruction::decode(&mut self.address_space, self.registers.pc.into())
     }
 
+    #[inline]
     pub fn step(&mut self)
     where
         A: FetchesDecoded,

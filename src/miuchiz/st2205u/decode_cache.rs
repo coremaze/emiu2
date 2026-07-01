@@ -40,7 +40,7 @@ impl CachedEntry {
 /// against RAM, so modifying an instruction invalidates exactly that
 /// instruction and writes need no cache bookkeeping at all.
 pub struct RamDecodeCache {
-    pages: Vec<Option<Box<[RamCachedEntry]>>>,
+    pages: Vec<Option<Box<[RamCachedEntry; RAM_PAGE_SIZE]>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -62,9 +62,9 @@ impl RamDecodeCache {
     /// Look up the entry at `ram_index`, verifying it against the current
     /// RAM contents. The caller guarantees the instruction does not cross a
     /// 256-byte page, so `ram_index + 2` is a valid index.
-    #[inline]
+    #[inline(always)]
     pub fn get(&self, ram_index: usize, ram: &[u8]) -> Option<FetchedInstruction> {
-        let page = self.pages[ram_index / RAM_PAGE_SIZE].as_deref()?;
+        let page = self.pages.get(ram_index / RAM_PAGE_SIZE)?.as_deref()?;
         let cached = page[ram_index % RAM_PAGE_SIZE];
         if !cached.entry.valid {
             return None;
@@ -84,7 +84,7 @@ impl RamDecodeCache {
             bytes: [0; 3],
         };
         let page = self.pages[ram_index / RAM_PAGE_SIZE]
-            .get_or_insert_with(|| vec![EMPTY; RAM_PAGE_SIZE].into_boxed_slice());
+            .get_or_insert_with(|| Box::new([EMPTY; RAM_PAGE_SIZE]));
         page[ram_index % RAM_PAGE_SIZE] = RamCachedEntry {
             entry: CachedEntry {
                 fetched,
@@ -99,7 +99,7 @@ impl RamDecodeCache {
 /// are alias-free device-local addresses — bank switches never invalidate
 /// anything, and content changes invalidate exactly the affected pages.
 pub struct DecodeCache {
-    pages: Vec<Option<Box<[CachedEntry]>>>,
+    pages: Vec<Option<Box<[CachedEntry; PAGE_SIZE]>>>,
 }
 
 impl DecodeCache {
@@ -109,7 +109,7 @@ impl DecodeCache {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn get(&self, key: usize) -> Option<FetchedInstruction> {
         let page = self.pages.get(key / PAGE_SIZE)?.as_deref()?;
         let entry = page[key % PAGE_SIZE];
@@ -121,8 +121,7 @@ impl DecodeCache {
             return;
         };
 
-        let page =
-            slot.get_or_insert_with(|| vec![CachedEntry::INVALID; PAGE_SIZE].into_boxed_slice());
+        let page = slot.get_or_insert_with(|| Box::new([CachedEntry::INVALID; PAGE_SIZE]));
         page[key % PAGE_SIZE] = CachedEntry {
             fetched,
             valid: true,
