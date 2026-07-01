@@ -14,6 +14,37 @@ pub struct DecodedInstruction {
     pub extra_page_boundary_cycle: bool,
 }
 
+/// A decoded instruction in the compact form the execution loop consumes
+/// (and decode caches store): one quarter the size of `DecodedInstruction`,
+/// with the encoded length precomputed.
+#[derive(Clone, Copy)]
+pub struct FetchedInstruction {
+    pub instruction: Instruction,
+    /// Execution cycles under normal conditions (fits in u8)
+    pub cycles: u8,
+    /// Total encoded length including the opcode byte (1..=3)
+    pub length: u8,
+    /// Whether an operand crossing a page boundary costs an extra cycle
+    pub extra_page_boundary_cycle: bool,
+}
+
+impl From<&DecodedInstruction> for FetchedInstruction {
+    fn from(dins: &DecodedInstruction) -> Self {
+        Self {
+            instruction: dins.instruction,
+            cycles: dins.cycles as u8,
+            length: dins.instruction.encoded_length() as u8,
+            extra_page_boundary_cycle: dins.extra_page_boundary_cycle,
+        }
+    }
+}
+
+/// Instruction fetch which may be backed by a decode cache. Implementations
+/// must return exactly what `DecodedInstruction::decode` at `pc` would.
+pub trait FetchesDecoded {
+    fn fetch_decoded(&mut self, pc: u16) -> FetchedInstruction;
+}
+
 impl DecodedInstruction {
     /// Determines operation, addressing, and cycle information from an encoded 65C02 instruction
     pub fn decode(memory: &mut impl AddressSpace, offset: usize) -> Self {

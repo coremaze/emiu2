@@ -3,7 +3,7 @@ use crate::memory::AddressSpace;
 use super::Core;
 use super::HandlesInterrupt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum AddressingMode {
     Absolute(u16),                        // OPCODE $WWWW
     AbsoluteXIndexed(u16),                // OPCODE $WWWW,X

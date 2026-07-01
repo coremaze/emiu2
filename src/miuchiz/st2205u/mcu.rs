@@ -1,4 +1,3 @@
-use super::clock::Clock;
 use super::gpio::GpioInterfaceInternal;
 use super::interrupt::Interrupt;
 use super::psg::PsgChannel;
@@ -9,6 +8,12 @@ use super::St2205uAddressSpace;
 use crate::audio::AudioInterface;
 use crate::memory::AddressSpace;
 
+/// How often GPIO inputs are polled, in instruction cycles (~1 ms of
+/// emulated time). Inputs change at human timescales, so per-instruction
+/// polling is wasted work; port reads between polls see at most this much
+/// latency.
+const GPIO_POLL_INTERVAL_SYSCK: u64 = 8000;
+
 /// Representation of a ST2205U microcontroller.
 ///
 /// This microcontroller is capable of, through the use of bank registers,
@@ -16,15 +21,29 @@ use crate::memory::AddressSpace;
 ///
 /// This device also implements its own address space, which is addressible using
 /// 16 bits, which is directly exposed to the underlying 65C02.
-pub struct Mcu {
-    pub core: wdc_65c02::Core<St2205uAddressSpace>,
+///
+/// Peripherals are event-driven: each knows the cycle of its next state
+/// change, and the MCU only touches a peripheral when that cycle has been
+/// reached (checked once per instruction against the cached minimum). Events
+/// are processed at the end of the instruction during which they fall, which
+/// is exactly when a per-instruction polling implementation would process
+/// them, so the observable timing is identical.
+pub struct Mcu<M: AddressSpace> {
+    pub core: wdc_65c02::Core<St2205uAddressSpace<M>>,
     pub audio_sender: Box<dyn AudioInterface>,
+
+    /// Cached minimum of all peripherals' next event cycles (sysck)
+    next_event_sysck: u64,
+    /// Oscillator cycle at which the audio interface wants its next sample
+    next_audio_oscx: u64,
+    /// Instruction cycle of the next GPIO input poll
+    next_gpio_poll_sysck: u64,
 }
 
-impl Mcu {
+impl<M: AddressSpace> Mcu<M> {
     pub fn new(
         frequency: u64,
-        address_space: Box<dyn AddressSpace>,
+        address_space: M,
         io: Box<dyn GpioInterfaceInternal>,
         mut audio_sender: Box<dyn AudioInterface>,
     ) -> Self {
@@ -35,28 +54,67 @@ impl Mcu {
                 St2205uAddressSpace::new(address_space, io, frequency),
             ),
             audio_sender,
+            next_event_sysck: 0,
+            next_audio_oscx: 0,
+            next_gpio_poll_sysck: 0,
         };
 
         mcu.reset();
+        mcu.next_audio_oscx = mcu.audio_sender.next_sample_cycle();
+        mcu.process_events();
 
         mcu
     }
 
     pub fn step(&mut self) {
-        self.core.step();
-        self.core.address_space.set_clocks(
-            self.core.oscillator_cycles(),
-            self.core.instruction_cycles(),
-        );
+        if self.core.waiting_for_interrupt {
+            // Nothing can happen until a peripheral event fires, so jump
+            // straight to the next one (never less than one cycle forward).
+            self.core.cycles = (self.core.cycles + 1).max(self.next_event_sysck);
+        } else {
+            // Peripheral register accesses during this instruction take
+            // effect at its starting cycle boundary.
+            self.core.address_space.boundary_sysck = self.core.cycles;
+            self.core.step();
+        }
 
-        if self.core.address_space.base_timer.update() {
+        if self.core.cycles >= self.next_event_sysck || self.core.address_space.events_dirty {
+            self.process_events();
+        }
+
+        if self.core.address_space.interrupt.pending() {
+            // Cancel WAI mode if an interrupt is pending
+            self.core.waiting_for_interrupt = false;
+
+            if !self.core.flags.interrupt_disable && !self.core.interrupted() {
+                self.dispatch_interrupt();
+            }
+        }
+    }
+
+    /// Advance every peripheral whose next event cycle has been reached, and
+    /// recompute the cached minimum. Order matches the original
+    /// per-instruction update order: RTC, base timer, timers, audio, GPIO.
+    fn process_events(&mut self) {
+        let sysck = self.core.instruction_cycles();
+        let oscx = self.core.oscillator_cycles();
+        self.core.address_space.events_dirty = false;
+
+        if self.core.address_space.rtc.advance(oscx) {
+            self.core
+                .address_space
+                .interrupt
+                .assert_interrupt(Interrupt::Rtc);
+        }
+
+        if self.core.address_space.base_timer.advance(oscx) {
             self.core
                 .address_space
                 .interrupt
                 .assert_interrupt(Interrupt::BaseTimer);
         }
 
-        let timers_int = self.core.address_space.timer.update();
+        let timers_int = self.core.address_space.timer.advance(sysck);
 
         for i in 0..4 {
             // If a timer interrupt is pending, assert the interrupt and save the current PSG sample
@@ -87,67 +145,80 @@ impl Mcu {
         }
 
         // Sample the state of the PSG and send it to the audio interface
-        if self
-            .audio_sender
-            .needs_sample(self.core.oscillator_cycles())
-        {
-            let mix = self.core.address_space.psg.get_mix_f32();
-            self.audio_sender.add_sample(mix);
+        if oscx >= self.next_audio_oscx {
+            if self.audio_sender.needs_sample(oscx) {
+                let mix = self.core.address_space.psg.get_mix_f32();
+                self.audio_sender.add_sample(mix);
+            }
+            self.next_audio_oscx = self.audio_sender.next_sample_cycle();
         }
 
-        let port_a_transition = self
+        if sysck >= self.next_gpio_poll_sysck {
+            let port_a_transition = self
+                .core
+                .address_space
+                .gpio
+                .update_gpio_and_detect_pa_transition();
+            if port_a_transition {
+                self.core
+                    .address_space
+                    .interrupt
+                    .assert_interrupt(Interrupt::PortATransition);
+            }
+            self.next_gpio_poll_sysck = sysck + GPIO_POLL_INTERVAL_SYSCK;
+        }
+
+        // Oscillator-domain events fire at the first instruction cycle whose
+        // oscillator cycle has reached them
+        let osc_to_sysck = |oscx: u64| oscx.div_ceil(2);
+        self.next_event_sysck = self
             .core
             .address_space
-            .gpio
-            .update_gpio_and_detect_pa_transition();
-        if port_a_transition {
-            self.core
-                .address_space
-                .interrupt
-                .assert_interrupt(Interrupt::PortATransition);
-        }
+            .timer
+            .next_event()
+            .min(osc_to_sysck(
+                self.core.address_space.base_timer.next_event(),
+            ))
+            .min(osc_to_sysck(self.core.address_space.rtc.next_event()))
+            .min(osc_to_sysck(self.next_audio_oscx))
+            .min(self.next_gpio_poll_sysck);
+    }
 
+    fn dispatch_interrupt(&mut self) {
         let interrupt = self
             .core
             .address_space
             .interrupt
             .highest_priority_interrupt();
 
-        // Cancel WAI mode if an interrupt is pending
-        if interrupt.is_some() && self.core.waiting_for_interrupt {
-            self.core.waiting_for_interrupt = false;
-        }
+        if let Some(interrupt) = interrupt {
+            self.core
+                .address_space
+                .interrupt
+                .clear_interrupt_request(interrupt);
+            self.core.address_space.set_interrupted(true);
+            self.core.push_u16(self.core.registers.pc);
+            self.core.push_u8(self.core.flags.to_u8());
 
-        if !self.core.flags.interrupt_disable && !self.core.interrupted() {
-            if let Some(interrupt) = interrupt {
-                self.core
-                    .address_space
-                    .interrupt
-                    .clear_interrupt_request(interrupt);
-                self.core.address_space.set_interrupted(true);
-                self.core.push_u16(self.core.registers.pc);
-                self.core.push_u8(self.core.flags.to_u8());
+            let interrupt_vector = match interrupt {
+                Interrupt::Intx => vector::INTX.into(),
+                Interrupt::Timer0 => vector::T0.into(),
+                Interrupt::Timer1 => vector::T1.into(),
+                Interrupt::Timer2 => vector::T2.into(),
+                Interrupt::Timer3 => vector::T3.into(),
+                Interrupt::PortATransition => vector::PT.into(),
+                Interrupt::BaseTimer => vector::BT.into(),
+                Interrupt::LcdBuffer => vector::LCD.into(),
+                Interrupt::SpiTxEmpty => vector::STX.into(),
+                Interrupt::SpiRxReady => vector::SRX.into(),
+                Interrupt::UartTx => vector::UTX.into(),
+                Interrupt::UartRx => vector::URX.into(),
+                Interrupt::Usb => vector::USB.into(),
+                Interrupt::Pcm => vector::PCM.into(),
+                Interrupt::Rtc => vector::RTC.into(),
+            };
 
-                let interrupt_vector = match interrupt {
-                    Interrupt::Intx => vector::INTX.into(),
-                    Interrupt::Timer0 => vector::T0.into(),
-                    Interrupt::Timer1 => vector::T1.into(),
-                    Interrupt::Timer2 => vector::T2.into(),
-                    Interrupt::Timer3 => vector::T3.into(),
-                    Interrupt::PortATransition => vector::PT.into(),
-                    Interrupt::BaseTimer => vector::BT.into(),
-                    Interrupt::LcdBuffer => vector::LCD.into(),
-                    Interrupt::SpiTxEmpty => vector::STX.into(),
-                    Interrupt::SpiRxReady => vector::SRX.into(),
-                    Interrupt::UartTx => vector::UTX.into(),
-                    Interrupt::UartRx => vector::URX.into(),
-                    Interrupt::Usb => vector::USB.into(),
-                    Interrupt::Pcm => vector::PCM.into(),
-                    Interrupt::Rtc => vector::RTC.into(),
-                };
-
-                self.core.registers.pc = self.core.address_space.read_u16_le(interrupt_vector);
-            }
+            self.core.registers.pc = self.core.address_space.read_u16_le(interrupt_vector);
         }
     }
 

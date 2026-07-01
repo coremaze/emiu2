@@ -77,6 +77,31 @@ impl AddressSpace for HandheldAddressSpace {
             (AddressType::Flash, flash_addr) => self.flash.write_u8(flash_addr, value),
         }
     }
+
+    fn code_cache_key_range(&self, address: usize, len: usize) -> Option<usize> {
+        // The device selection (address bits 21+) must not change within the
+        // range, so a single region lookup covers all of it
+        let device_bits = (1 << 21) - 1;
+        if (address & device_bits) + len > device_bits + 1 {
+            return None;
+        }
+
+        match AddressType::parse_machine_addr(address) {
+            (AddressType::Video, _) => None,
+            // OTP keys sit directly above the flash's key range; the range
+            // must not wrap around the OTP mirror
+            (AddressType::Otp, otp_addr) => {
+                let offset = otp_addr % self.otp.len();
+                (offset + len <= self.otp.len()).then(|| sst39vf1681::Flash::len() + offset)
+            }
+            (AddressType::Flash, flash_addr) => self.flash.code_cache_key_range(flash_addr, len),
+        }
+    }
+
+    fn take_content_change(&mut self) -> crate::memory::ContentChange {
+        // Flash is the only writable code storage
+        self.flash.take_content_change()
+    }
 }
 
 #[derive(Debug)]
@@ -101,7 +126,7 @@ impl Display for ConfigurationError {
 }
 
 pub struct Handheld {
-    pub mcu: st2205u::Mcu,
+    pub mcu: st2205u::Mcu<HandheldAddressSpace>,
 }
 
 impl Handheld {
@@ -112,7 +137,7 @@ impl Handheld {
         io: Box<dyn GpioInterfaceInternal>,
         audio_sender: Box<dyn AudioInterface>,
     ) -> Result<Self, ConfigurationError> {
-        let machine_address_space = Box::new(HandheldAddressSpace::new(otp, flash, screen)?);
+        let machine_address_space = HandheldAddressSpace::new(otp, flash, screen)?;
 
         let mcu = Self {
             mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io, audio_sender),

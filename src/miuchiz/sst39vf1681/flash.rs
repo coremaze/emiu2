@@ -1,6 +1,6 @@
 use std::cmp::PartialEq;
 
-use crate::memory::AddressSpace;
+use crate::memory::{AddressSpace, ContentChange};
 
 const CHIP_CAPACITY: usize = 0x200000;
 const SECTOR_SIZE: usize = 0x1000;
@@ -59,6 +59,8 @@ pub struct Flash {
     data: Box<[u8; CHIP_CAPACITY]>,
     read_mode: ReadMode,
     command_writes: RingBuf<6, CommandWrite>,
+    /// The range of array contents changed by the most recent program/erase
+    pending_change: ContentChange,
 }
 
 impl Flash {
@@ -70,6 +72,7 @@ impl Flash {
             data: flash_box,
             read_mode: ReadMode::Data,
             command_writes: RingBuf::new(),
+            pending_change: ContentChange::None,
         })
     }
 
@@ -82,6 +85,10 @@ impl Flash {
             let addr = (sector * SECTOR_SIZE + i) % self.data.len();
             self.data[addr] = 0xFF;
         }
+        self.pending_change = ContentChange::Range {
+            start: (sector * SECTOR_SIZE) % self.data.len(),
+            len: SECTOR_SIZE,
+        };
     }
 
     fn block_erase(&mut self, block: usize) {
@@ -89,14 +96,23 @@ impl Flash {
             let addr = (block * BLOCK_SIZE + i) % self.data.len();
             self.data[addr] = 0xFF;
         }
+        self.pending_change = ContentChange::Range {
+            start: (block * BLOCK_SIZE) % self.data.len(),
+            len: BLOCK_SIZE,
+        };
     }
 
     fn chip_erase(&mut self) {
         self.data.fill(0xFF);
+        self.pending_change = ContentChange::All;
     }
 
     fn byte_program(&mut self, address: usize, value: u8) {
         self.data[address % self.data.len()] = value;
+        self.pending_change = ContentChange::Range {
+            start: address % self.data.len(),
+            len: 1,
+        };
     }
 
     fn status_register(&self) -> u8 {
@@ -149,6 +165,26 @@ impl AddressSpace for Flash {
             self.read_mode = ReadMode::Status { address };
             self.command_writes.clear();
         }
+    }
+
+    fn code_cache_key_range(&self, address: usize, len: usize) -> Option<usize> {
+        let address = address % CHIP_CAPACITY;
+        if address + len > CHIP_CAPACITY {
+            // The range would wrap around the chip: keys not contiguous
+            return None;
+        }
+        match self.read_mode {
+            // Reads at the status address return the status register, not
+            // array contents; a range containing it must not be cached
+            ReadMode::Status {
+                address: status_address,
+            } if (address..address + len).contains(&status_address) => None,
+            _ => Some(address),
+        }
+    }
+
+    fn take_content_change(&mut self) -> ContentChange {
+        std::mem::replace(&mut self.pending_change, ContentChange::None)
     }
 }
 

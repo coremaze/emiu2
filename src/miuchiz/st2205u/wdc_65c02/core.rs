@@ -1,4 +1,6 @@
-use super::{instr, opcode::Opcode, DecodedInstruction, HandlesInterrupt};
+use super::{
+    instr, opcode::Opcode, DecodedInstruction, FetchedInstruction, FetchesDecoded, HandlesInterrupt,
+};
 use crate::memory::AddressSpace;
 
 // This core should tick every 2 oscillations
@@ -146,23 +148,24 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         DecodedInstruction::decode(&mut self.address_space, self.registers.pc.into())
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self)
+    where
+        A: FetchesDecoded,
+    {
         // handle WAI mode
         if self.waiting_for_interrupt {
             self.cycles += 1;
             return;
         }
 
-        let dins = self.decode_next_instruction();
-        let ins = &dins.instruction;
+        let fins = self.address_space.fetch_decoded(self.registers.pc);
 
         // The program counter should be incremented before execution.
         // For example, conditional branches use relative addressing, relative
         // to 2 bytes after the beginning of the instruction.
-        // println!("{:04X}: {:<16} {ins:?}", self.registers.pc, ins.to_string());
-        self.registers.pc = self.registers.pc.wrapping_add(ins.encoded_length() as u16);
+        self.registers.pc = self.registers.pc.wrapping_add(fins.length as u16);
 
-        self.execute_instruction(&dins);
+        self.execute_instruction(&fins);
     }
 
     #[inline(always)]
@@ -195,7 +198,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         low as u16 | ((high as u16) << 8)
     }
 
-    fn execute_instruction(&mut self, dec_inst: &DecodedInstruction) {
+    fn execute_instruction(&mut self, dec_inst: &FetchedInstruction) {
         let op_fn = match dec_inst.instruction.opcode {
             Opcode::Adc => instr::adc,
             Opcode::And => instr::and,
@@ -298,7 +301,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         };
         let bounds_extra_cycle = op_fn(self, &dec_inst.instruction);
 
-        self.cycles += dec_inst.cycles;
+        self.cycles += dec_inst.cycles as u64;
         if bounds_extra_cycle && dec_inst.extra_page_boundary_cycle {
             self.cycles += 1;
         }

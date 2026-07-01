@@ -45,6 +45,10 @@ impl AudioInterface for WebAudio {
             self.buffer.clear();
         }
     }
+
+    fn next_sample_cycle(&self) -> u64 {
+        (self.clock_of_last_sample + self.clocks_between_samples).ceil() as u64
+    }
 }
 
 impl WebAudio {

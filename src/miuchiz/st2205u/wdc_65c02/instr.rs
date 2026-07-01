@@ -2,7 +2,7 @@ use crate::memory::AddressSpace;
 
 use super::{AddressingMode, Core, Flags, HandlesInterrupt, Opcode};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Instruction {
     pub opcode: Opcode,
     pub addressing_mode: AddressingMode,

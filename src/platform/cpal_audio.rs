@@ -68,6 +68,10 @@ impl AudioInterface for AudioSender {
             self.tx.send(values).expect("Failed to send audio data");
         }
     }
+
+    fn next_sample_cycle(&self) -> u64 {
+        (self.clock_of_last_sample + self.clocks_between_samples).ceil() as u64
+    }
 }
 
 pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>> {

@@ -1,4 +1,5 @@
 mod audio;
+mod bench;
 pub mod memory;
 mod miuchiz;
 mod platform;
@@ -29,6 +30,14 @@ struct Args {
     /// Show GPIO LED display
     #[arg(long, default_value_t = false)]
     show_gpio: bool,
+
+    /// Run headless at full speed for this many emulated seconds, then exit
+    #[arg(long)]
+    bench: Option<u64>,
+
+    /// With --bench, hash every instruction's state to fingerprint execution
+    #[arg(long, default_value_t = false)]
+    verify: bool,
 }
 
 fn main() {
@@ -49,6 +58,11 @@ fn main() {
             return;
         }
     };
+
+    if let Some(seconds) = args.bench {
+        bench::run(&otp_data, &flash_data, seconds, args.verify);
+        return;
+    }
 
     let scale = args.scale;
     let show_gpio = args.show_gpio;

@@ -7,7 +7,7 @@ mod opcode;
 
 pub use self::core::{Core, Flags, Registers};
 pub use addr_mode::AddressingMode;
-pub use decoder::DecodedInstruction;
+pub use decoder::{DecodedInstruction, FetchedInstruction, FetchesDecoded};
 pub use instr::Instruction;
 pub use interrupt::HandlesInterrupt;
 pub use opcode::Opcode;

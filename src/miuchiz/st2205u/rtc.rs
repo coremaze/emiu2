@@ -1,6 +1,5 @@
 pub struct State {
     clock_frequency: u64,
-    elapsed_ticks: u64,
     last_second_tick: u64,
 
     seconds: u8,
@@ -17,7 +16,6 @@ impl State {
     pub fn new(oscx: u64) -> Self {
         Self {
             clock_frequency: oscx,
-            elapsed_ticks: 0,
             last_second_tick: 0,
             seconds: 0,
             minutes: 0,
@@ -28,17 +26,22 @@ impl State {
         }
     }
 
-    pub fn set_ticks(&mut self, ticks: u64) -> bool {
-        let ticks_per_second = self.clock_frequency;
-        let next_second_tick = self.last_second_tick + ticks_per_second;
-
-        if ticks >= next_second_tick {
-            self.last_second_tick = next_second_tick;
+    /// Process elapsed time up to `ticks` (oscillator cycles). Returns
+    /// whether an interrupt should trigger. At most one second is consumed
+    /// per call; if further seconds are pending, `next_event` remains in the
+    /// past so this is called again immediately.
+    pub fn advance(&mut self, ticks: u64) -> bool {
+        if ticks >= self.next_event() {
+            self.last_second_tick += self.clock_frequency;
             return self.inc_second();
         }
 
-        self.elapsed_ticks = ticks;
         false
+    }
+
+    /// The oscillator cycle of the next second tick
+    pub fn next_event(&self) -> u64 {
+        self.last_second_tick + self.clock_frequency
     }
 
     fn inc_second(&mut self) -> bool {

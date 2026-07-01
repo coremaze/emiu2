@@ -1,7 +1,7 @@
 mod addr_space;
 mod bank;
 mod base_timer;
-mod clock;
+mod decode_cache;
 mod dma;
 mod gpio;
 mod interrupt;

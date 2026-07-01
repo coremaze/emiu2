@@ -1,5 +1,6 @@
 use super::bank;
 use super::base_timer;
+use super::decode_cache::{DecodeCache, RamDecodeCache};
 use super::dma;
 use super::gpio;
 use super::gpio::GpioInterfaceInternal;
@@ -9,7 +10,7 @@ use super::psg::PsgChannel;
 use super::rtc;
 use super::timer;
 use super::timer::TimerIndex;
-use super::wdc_65c02::HandlesInterrupt;
+use super::wdc_65c02::{DecodedInstruction, FetchedInstruction, FetchesDecoded, HandlesInterrupt};
 use crate::memory::AddressSpace;
 
 pub const OTP_SIZE: usize = 0x4000;
@@ -132,10 +133,47 @@ const DMOD: u16 = 0x005F;
 const MULL: u16 = 0x006E;
 const MULH: u16 = 0x006F;
 
-pub struct St2205uAddressSpace {
+enum TimerRegister {
+    Tcl,
+    Tch,
+}
+
+/// Cached resolution of the bank window the program counter currently
+/// executes in — a one-entry fetch TLB. Valid until a bank register write,
+/// an interrupt bank switch, or a machine content change invalidates it.
+#[derive(Clone, Copy)]
+struct FetchWindow {
+    /// Virtual bounds; instructions must fit strictly inside (`pc + 2 < end`)
+    start: u32,
+    end: u32,
+    kind: FetchKind,
+}
+
+#[derive(Clone, Copy)]
+enum FetchKind {
+    /// Window maps internal RAM: byte-verified RAM cache applies
+    Ram,
+    /// Window maps plain machine memory; cache key = base + (pc - start)
+    Machine { key_base: usize },
+    /// Reads have side effects or transient values: always decode fresh
+    Uncached,
+}
+
+impl FetchWindow {
+    const INVALID: FetchWindow = FetchWindow {
+        start: 1,
+        end: 0,
+        kind: FetchKind::Uncached,
+    };
+}
+
+/// The address space visible to the 65C02 core, generic over the machine
+/// address space `M` so that machine accesses dispatch statically and can be
+/// inlined into the memory hot path.
+pub struct St2205uAddressSpace<M: AddressSpace> {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
     /// larger address space through the use of its memory bank registers.
-    pub machine_addr_space: Box<dyn AddressSpace>,
+    pub machine_addr_space: M,
 
     ram: Ram,
 
@@ -147,14 +185,31 @@ pub struct St2205uAddressSpace {
     pub psg: psg::State,
     pub interrupt: interrupt::State,
     pub rtc: rtc::State,
+
+    /// The instruction cycle count at the start of the instruction currently
+    /// executing. Register accesses take effect at this cycle: peripherals
+    /// are only ever advanced through completed instructions.
+    pub boundary_sysck: u64,
+
+    /// Set when a register write may have changed a peripheral's next event
+    /// time, so the MCU rechecks its event schedule.
+    pub events_dirty: bool,
+
+    /// Cache of decoded instructions, keyed by machine address
+    decode_cache: DecodeCache,
+
+    /// Cache of decoded instructions in internal RAM
+    pub ram_decode_cache: RamDecodeCache,
+
+    /// One-entry TLB for instruction fetches
+    fetch_window: FetchWindow,
+
+    /// Fetch statistics: [cache hits, cache misses, uncacheable fetches]
+    pub fetch_stats: [u64; 3],
 }
 
-impl St2205uAddressSpace {
-    pub fn new(
-        machine_addr_space: Box<dyn AddressSpace>,
-        io: Box<dyn GpioInterfaceInternal>,
-        frequency: u64,
-    ) -> Self {
+impl<M: AddressSpace> St2205uAddressSpace<M> {
+    pub fn new(machine_addr_space: M, io: Box<dyn GpioInterfaceInternal>, frequency: u64) -> Self {
         Self {
             machine_addr_space,
             ram: [0u8; 0x8000],
@@ -167,6 +222,15 @@ impl St2205uAddressSpace {
             psg: psg::State::new(),
             interrupt: interrupt::State::new(),
             rtc: rtc::State::new(frequency),
+
+            boundary_sysck: 0,
+            events_dirty: true,
+
+            decode_cache: DecodeCache::new(),
+            ram_decode_cache: RamDecodeCache::new(0x8000),
+            fetch_window: FetchWindow::INVALID,
+
+            fetch_stats: [0; 3],
         }
     }
 
@@ -215,14 +279,14 @@ impl St2205uAddressSpace {
             VOL3 => self.psg.read_volx(PsgChannel::Channel3),
             PSGC => self.psg.read_psgc(),
             PSGM => self.psg.read_psgm(),
-            T0CL => self.timer.read_txcl(TimerIndex::T0),
-            T0CH => self.timer.read_txch(TimerIndex::T0),
-            T1CL => self.timer.read_txcl(TimerIndex::T1),
-            T1CH => self.timer.read_txch(TimerIndex::T1),
-            T2CL => self.timer.read_txcl(TimerIndex::T2),
-            T2CH => self.timer.read_txch(TimerIndex::T2),
-            T3CL => self.timer.read_txcl(TimerIndex::T3),
-            T3CH => self.timer.read_txch(TimerIndex::T3),
+            T0CL => self.timer.read_txcl(TimerIndex::T0, self.boundary_sysck),
+            T0CH => self.timer.read_txch(TimerIndex::T0, self.boundary_sysck),
+            T1CL => self.timer.read_txcl(TimerIndex::T1, self.boundary_sysck),
+            T1CH => self.timer.read_txch(TimerIndex::T1, self.boundary_sysck),
+            T2CL => self.timer.read_txcl(TimerIndex::T2, self.boundary_sysck),
+            T2CH => self.timer.read_txch(TimerIndex::T2, self.boundary_sysck),
+            T3CL => self.timer.read_txcl(TimerIndex::T3, self.boundary_sysck),
+            T3CH => self.timer.read_txch(TimerIndex::T3, self.boundary_sysck),
             TIEN => self.timer.read_tien(),
             PMCR => gpio::read_pmcr(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
@@ -248,14 +312,38 @@ impl St2205uAddressSpace {
     fn write_register(&mut self, address: u16, value: u8) {
         // println!("Write to register {address:X}");
         match address as u16 {
-            IRRL => bank::write_irrl(self, value),
-            IRRH => bank::write_irrh(self, value),
-            PRRL => bank::write_prrl(self, value),
-            PRRH => bank::write_prrh(self, value),
-            DRRL => bank::write_drrl(self, value),
-            DRRH => bank::write_drrh(self, value),
-            BRRL => bank::write_brrl(self, value),
-            BRRH => bank::write_brrh(self, value),
+            IRRL => {
+                bank::write_irrl(self, value);
+                self.invalidate_fetch_window();
+            }
+            IRRH => {
+                bank::write_irrh(self, value);
+                self.invalidate_fetch_window();
+            }
+            PRRL => {
+                bank::write_prrl(self, value);
+                self.invalidate_fetch_window();
+            }
+            PRRH => {
+                bank::write_prrh(self, value);
+                self.invalidate_fetch_window();
+            }
+            DRRL => {
+                bank::write_drrl(self, value);
+                self.invalidate_fetch_window();
+            }
+            DRRH => {
+                bank::write_drrh(self, value);
+                self.invalidate_fetch_window();
+            }
+            BRRL => {
+                bank::write_brrl(self, value);
+                self.invalidate_fetch_window();
+            }
+            BRRH => {
+                bank::write_brrh(self, value);
+                self.invalidate_fetch_window();
+            }
             DPRTL => dma::write_dptrl(self, value),
             DPRTH => dma::write_dptrh(self, value),
             DBKRL => dma::write_dbkrl(self, value),
@@ -294,15 +382,18 @@ impl St2205uAddressSpace {
             VOL3 => self.psg.write_volx(PsgChannel::Channel3, value),
             PSGC => self.psg.write_psgc(value),
             PSGM => self.psg.write_psgm(value),
-            T0CL => self.timer.write_txcl(TimerIndex::T0, value),
-            T0CH => self.timer.write_txch(TimerIndex::T0, value),
-            T1CL => self.timer.write_txcl(TimerIndex::T1, value),
-            T1CH => self.timer.write_txch(TimerIndex::T1, value),
-            T2CL => self.timer.write_txcl(TimerIndex::T2, value),
-            T2CH => self.timer.write_txch(TimerIndex::T2, value),
-            T3CL => self.timer.write_txcl(TimerIndex::T3, value),
-            T3CH => self.timer.write_txch(TimerIndex::T3, value),
-            TIEN => self.timer.write_tien(value),
+            T0CL => self.write_timer_register(TimerIndex::T0, value, TimerRegister::Tcl),
+            T0CH => self.write_timer_register(TimerIndex::T0, value, TimerRegister::Tch),
+            T1CL => self.write_timer_register(TimerIndex::T1, value, TimerRegister::Tcl),
+            T1CH => self.write_timer_register(TimerIndex::T1, value, TimerRegister::Tch),
+            T2CL => self.write_timer_register(TimerIndex::T2, value, TimerRegister::Tcl),
+            T2CH => self.write_timer_register(TimerIndex::T2, value, TimerRegister::Tch),
+            T3CL => self.write_timer_register(TimerIndex::T3, value, TimerRegister::Tcl),
+            T3CH => self.write_timer_register(TimerIndex::T3, value, TimerRegister::Tch),
+            TIEN => {
+                self.timer.write_tien(value, self.boundary_sysck);
+                self.events_dirty = true;
+            }
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
             PCL => gpio::write_pcl(&mut self.gpio, value),
@@ -323,6 +414,20 @@ impl St2205uAddressSpace {
         }
     }
 
+    /// The full contents of internal RAM, e.g. for state fingerprinting.
+    pub fn ram(&self) -> &[u8] {
+        &self.ram
+    }
+
+    fn write_timer_register(&mut self, timer: TimerIndex, value: u8, register: TimerRegister) {
+        match register {
+            TimerRegister::Tcl => self.timer.write_txcl(timer, value, self.boundary_sysck),
+            TimerRegister::Tch => self.timer.write_txch(timer, value, self.boundary_sysck),
+        }
+        // The write may have moved the timer's next overflow
+        self.events_dirty = true;
+    }
+
     fn read_ram(&self, address: usize) -> u8 {
         self.ram[address % self.ram.len()]
     }
@@ -333,9 +438,138 @@ impl St2205uAddressSpace {
     }
 }
 
-impl HandlesInterrupt for St2205uAddressSpace {
+impl<M: AddressSpace> FetchesDecoded for St2205uAddressSpace<M> {
+    fn fetch_decoded(&mut self, pc: u16) -> FetchedInstruction {
+        let window = self.fetch_window;
+        let vpc = pc as u32;
+        if vpc >= window.start && vpc + 2 < window.end {
+            match window.kind {
+                FetchKind::Ram => {
+                    let ram_index = pc as usize % self.ram.len();
+                    // Entries must not span a 256-byte RAM page (the byte
+                    // check reads up to ram_index + 2, and any 8K-aligned
+                    // bank window boundary is also a page boundary)
+                    if (ram_index ^ (ram_index + 2)) & !0xFF == 0 {
+                        if let Some(fetched) = self.ram_decode_cache.get(ram_index, &self.ram) {
+                            self.fetch_stats[0] += 1;
+                            return fetched;
+                        }
+                        return self.fetch_ram_miss(pc, ram_index);
+                    }
+                }
+                FetchKind::Machine { key_base } => {
+                    let key = key_base + (vpc - window.start) as usize;
+                    // Entries must not span a cache page (invalidation is
+                    // page-granular)
+                    if (key ^ (key + 2)) & !0xFFF == 0 {
+                        if let Some(fetched) = self.decode_cache.get(key) {
+                            self.fetch_stats[0] += 1;
+                            return fetched;
+                        }
+                        return self.fetch_machine_miss(pc, key);
+                    }
+                }
+                FetchKind::Uncached => {}
+            }
+            return self.fetch_uncached(pc);
+        }
+
+        self.refill_fetch_window(pc);
+        let window = self.fetch_window;
+        if vpc >= window.start && vpc + 2 < window.end {
+            return self.fetch_decoded(pc);
+        }
+
+        // The instruction's bytes may extend past the window into a
+        // different mapping: never cached
+        self.fetch_uncached(pc)
+    }
+}
+
+impl<M: AddressSpace> St2205uAddressSpace<M> {
+    fn fetch_uncached(&mut self, pc: u16) -> FetchedInstruction {
+        self.fetch_stats[2] += 1;
+        FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()))
+    }
+
+    fn fetch_ram_miss(&mut self, pc: u16, ram_index: usize) -> FetchedInstruction {
+        self.fetch_stats[1] += 1;
+        let fetched = FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()));
+        let bytes = [
+            self.ram[ram_index],
+            self.ram[ram_index + 1],
+            self.ram[ram_index + 2],
+        ];
+        self.ram_decode_cache.insert(ram_index, fetched, bytes);
+        fetched
+    }
+
+    fn fetch_machine_miss(&mut self, pc: u16, key: usize) -> FetchedInstruction {
+        self.fetch_stats[1] += 1;
+        let fetched = FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()));
+        self.decode_cache.insert(key, fetched);
+        fetched
+    }
+
+    /// Resolve the bank window containing `pc` and cache the result
+    fn refill_fetch_window(&mut self, pc: u16) {
+        let (start, len, kind) = match pc {
+            // Hardware registers: reads have side effects
+            0x0000..=0x007F => (0u32, 0x80u32, FetchKind::Uncached),
+            LOW_RAM_START..=LOW_RAM_END => (
+                LOW_RAM_START as u32,
+                (LOW_RAM_END - LOW_RAM_START + 1) as u32,
+                FetchKind::Ram,
+            ),
+            _ => {
+                let (reg, bits, start) = match pc {
+                    BRR_START..=BRR_END => (bank::brr(self), BRR_BITS, BRR_START),
+                    PRR_START..=PRR_END => {
+                        if self.interrupted() {
+                            (bank::irr(self), PRR_BITS, PRR_START)
+                        } else {
+                            (bank::prr(self), PRR_BITS, PRR_START)
+                        }
+                    }
+                    DRR_START..=DRR_END => (bank::drr(self), DRR_BITS, DRR_START),
+                    0..=0x1FFF => unreachable!("This range is excluded by parent match."),
+                };
+
+                let len = 1u32 << bits;
+                if reg & (1 << 15) != 0 {
+                    // The uppermost bank register bit selects internal RAM
+                    (start as u32, len, FetchKind::Ram)
+                } else {
+                    let machine_base = (reg as usize) << bits;
+                    match self
+                        .machine_addr_space
+                        .code_cache_key_range(machine_base, len as usize)
+                    {
+                        Some(key_base) => (start as u32, len, FetchKind::Machine { key_base }),
+                        None => (start as u32, len, FetchKind::Uncached),
+                    }
+                }
+            }
+        };
+
+        self.fetch_window = FetchWindow {
+            start,
+            end: start + len,
+            kind,
+        };
+    }
+
+    #[inline]
+    fn invalidate_fetch_window(&mut self) {
+        self.fetch_window = FetchWindow::INVALID;
+    }
+}
+
+impl<M: AddressSpace> HandlesInterrupt for St2205uAddressSpace<M> {
     fn set_interrupted(&mut self, interrupted: bool) {
         self.interrupt.set_interrupted(interrupted);
+        // Interrupt mode swaps the PRR window between PRR and IRR
+        self.invalidate_fetch_window();
     }
 
     fn interrupted(&self) -> bool {
@@ -343,7 +577,7 @@ impl HandlesInterrupt for St2205uAddressSpace {
     }
 }
 
-impl AddressSpace for St2205uAddressSpace {
+impl<M: AddressSpace> AddressSpace for St2205uAddressSpace<M> {
     fn read_u8(&mut self, address: usize) -> u8 {
         // The ST2205U address space is only 16 bits wide
         match address as u16 {
@@ -416,6 +650,15 @@ impl AddressSpace for St2205uAddressSpace {
                     let addr_mask = (1 << left_shift) - 1;
                     let machine_addr = ((reg as usize) << left_shift) | (address & addr_mask);
                     self.machine_addr_space.write_u8(machine_addr, value);
+                    // Rewritable code storage (flash) may have changed:
+                    // drop decodes cached from the affected range, and
+                    // re-validate the fetch window (the machine's cacheable
+                    // ranges may have changed with it)
+                    let change = self.machine_addr_space.take_content_change();
+                    if !matches!(change, crate::memory::ContentChange::None) {
+                        self.decode_cache.apply_change(change);
+                        self.invalidate_fetch_window();
+                    }
                 }
             }
         }

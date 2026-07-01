@@ -68,6 +68,12 @@ impl State {
         }
     }
 
+    /// Whether any interrupt request is awaiting dispatch. Cheap enough for
+    /// a per-instruction check.
+    pub fn pending(&self) -> bool {
+        self.shadow_ireq.u16() != 0
+    }
+
     pub fn highest_priority_interrupt(&self) -> Option<Interrupt> {
         // if self.shadow_ireq.u16() != 0 {
         //     dbg!(&self);

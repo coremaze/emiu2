@@ -6,9 +6,6 @@ pub struct State {
     /// The frequency of the clock source this timer receives
     input_clock_frequency: u64,
 
-    /// The number of cycles at `clock_frequency` which have elapsed
-    elapsed_ticks: u64,
-
     /// How many ticks have elapsed on this timer
     counter: u64,
 
@@ -29,7 +26,6 @@ impl State {
     pub fn new(clock_frequency: u64) -> Self {
         let mut timer = Self {
             input_clock_frequency: clock_frequency,
-            elapsed_ticks: 0,
             counter: 0,
             next_counter_tick: 0,
             btc: U8Register::new(0b0000_0000, 0b1111_1111),
@@ -40,8 +36,9 @@ impl State {
         timer
     }
 
-    pub fn set_elapsed_ticks(&mut self, ticks: u64) {
-        self.elapsed_ticks = ticks;
+    /// The oscillator cycle of the next counter tick
+    pub fn next_event(&self) -> u64 {
+        self.next_counter_tick
     }
 
     fn update_next_counter_tick(&mut self) {
@@ -59,13 +56,18 @@ impl State {
         self.counter % 8192
     }
 
-    /// Update the state of the timer. Returns whether it should trigger an interrupt
-    pub fn update(&mut self) -> bool {
-        // Increase counter only once enough time has elapsed
-        if self.elapsed_ticks < self.next_counter_tick {
-            return false;
+    /// Process all counter ticks up to `elapsed_ticks` (oscillator cycles).
+    /// Returns whether an interrupt should trigger.
+    pub fn advance(&mut self, elapsed_ticks: u64) -> bool {
+        let mut assert_interrupt = false;
+        while elapsed_ticks >= self.next_counter_tick {
+            assert_interrupt |= self.tick();
         }
+        assert_interrupt
+    }
 
+    /// A single counter tick. Returns whether it should trigger an interrupt
+    fn tick(&mut self) -> bool {
         self.increment_counter();
 
         // if self.btc() == 0 {
