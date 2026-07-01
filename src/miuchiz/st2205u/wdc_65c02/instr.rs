@@ -384,7 +384,10 @@ pub fn jsr<A: AddressSpace + HandlesInterrupt>(core: &mut Core<A>, mode: &Addres
     bound_crossed
 }
 
-pub fn nop<A: AddressSpace + HandlesInterrupt>(_core: &mut Core<A>, _mode: &AddressingMode) -> bool {
+pub fn nop<A: AddressSpace + HandlesInterrupt>(
+    _core: &mut Core<A>,
+    _mode: &AddressingMode,
+) -> bool {
     false
 }
 

@@ -25,6 +25,7 @@ then mostly idles in WAI).
 | 1: Event-driven peripherals | 87.5x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
 | 2: Static machine dispatch | 96x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
 | 3: Decode cache + fetch TLB | 111x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
+| 4: Fused dispatch + fetch slots | 168x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
 
 Cross-check on a busy in-game workload (`save.dat`, 20 emu-sec, ~2.1M
 executed instructions per emulated second — worst-case-like load):
@@ -32,7 +33,8 @@ executed instructions per emulated second — worst-case-like load):
 | Build | Speed | verify_hash (20s) |
 |---|---|---|
 | Baseline (HEAD + bench harness) | 7.4x realtime | `38f721b9d8ff7c01` |
-| All phases | 26x realtime | `38f721b9d8ff7c01` |
+| Phases 0-3 | 26x realtime | `38f721b9d8ff7c01` |
+| Phase 4 | 43x realtime (~89M instr/sec) | `38f721b9d8ff7c01` |
 
 `Dash 1.09.03.dat` verify_hash also matches baseline (`e482bdcced75cebc`).
 Every phase is cycle-exact: identical instruction streams at identical
@@ -109,20 +111,41 @@ check, a page-crossing check, and an array load.
 - Fetch stats on the busy save.dat run: 40.6M cached / 0.77M decode+insert /
   0.30M uncacheable.
 
+### Phase 4: Fused dispatch + per-window fetch slots — busy workload 1.6x
+
+Three changes, applied in sequence on the `perf-experiments` branch:
+
+- Fetch hot path fully inlined into `Core::step`; miss/refill/uncached
+  paths outlined as `#[cold]` functions; cache pages became fixed-size
+  arrays behind thin pointers (26x -> 29.4x on save.dat).
+- Fused dispatch: a 256-entry handler table indexed by the raw opcode
+  byte, one monomorphic function per (operation, addressing mode) pair.
+  Instruction implementations are unchanged: handlers rebuild the
+  `AddressingMode` from a raw u16 payload, and inlining folds all the
+  addressing-mode matches away. The table is built at `Core` construction
+  by decoding every opcode byte, so the decoder stays the single source
+  of truth. Cache entries shrank from 12 to 8 bytes (29.4x -> 41.5x).
+- Fetch TLB grew from one entry to one slot per 8K window, with separate
+  halves for normal/interrupt mode (PRR vs IRR mapping coexist), so
+  interrupt entry/exit and window-to-window jumps invalidate nothing;
+  bank register writes invalidate only their own window's slots. Data
+  reads/writes inline their hot register/RAM arms and outline the banked
+  path (41.5x -> 43x).
+
 ## Where this leaves the ESP32 goal
 
-Busy-workload cost is ~85-90 host cycles per emulated instruction on a
-Zen 3 core at ~4.8 GHz (≈26x realtime). Realtime needs ~2.1M instr/sec; a
-240 MHz ESP32 has a ~115-cycle budget per instruction and much lower IPC
-than Zen 3, so the interpreter needs roughly another 2-4x on the busy path
-before an ESP32-class target is comfortable. Remaining known costs, in
-rough order: the two-level dispatch in `execute_instruction` +
-`AddressingMode` matches (fuse into per-(opcode, mode) handlers stored in
-the decode cache), operand memory access through the full `read_u8` match
-chain (data-side fast path for RAM/zero-page), and `Mcu::step` event-check
-overhead. Memory budget also needs ESP32 tuning: the decode caches allocate
-lazily per 4K page (~50 KB per hot code page as entries are 12 B/byte);
-an ESP32 build would shrink entries and cap resident pages.
+Busy-workload cost is ~54 host cycles per emulated instruction on a Zen 3
+core at ~4.8 GHz (~43x realtime, ~89M instr/sec). Realtime needs ~2.1M
+instr/sec, so a 240 MHz ESP32 has a ~115-cycle budget — now within ~2x of
+the desktop cycle count, meaning realtime on ESP32-class hardware is
+plausible-to-likely for the busy path (Xtensa IPC is lower, but the hot
+data now fits in small caches; the idle path has 4x headroom). Remaining
+desktop hot spots are diffuse: the fused main loop itself (~66%), handler
+bodies, and the bench harness. Further large wins would need a structural
+change (e.g. basic-block chaining to amortize the per-instruction
+event/interrupt checks). Memory budget still needs ESP32 tuning: decode
+caches allocate lazily per 4K page at 8 B/byte (~32 KB per hot code page);
+an ESP32 build would cap resident pages and add LRU eviction.
 
 ## Reproducing
 

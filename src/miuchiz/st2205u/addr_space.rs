@@ -138,14 +138,20 @@ enum TimerRegister {
     Tch,
 }
 
-/// Cached resolution of the bank window the program counter currently
-/// executes in — a one-entry fetch TLB. Valid until a bank register write,
-/// an interrupt bank switch, or a machine content change invalidates it.
+/// Cached resolution of one 8K region of the virtual address space for
+/// instruction fetch — a fetch TLB slot. A bank window covers one or more
+/// slots (BRR one, PRR two, DRR four); each slot records the containing
+/// window's bounds and kind. The table has separate halves for normal and
+/// interrupt mode (whose PRR window maps through IRR instead), so interrupt
+/// entry/exit invalidates nothing. Slots stay valid until their bank
+/// register is written or a machine content change occurs.
 #[derive(Clone, Copy)]
-struct FetchWindow {
-    /// Virtual bounds; instructions must fit strictly inside (`pc + 2 < end`)
-    start: u32,
-    end: u32,
+struct FetchSlot {
+    /// Start of the containing bank window
+    window_start: u32,
+    /// Exclusive end of the containing bank window; 0 marks an invalid
+    /// slot, and instructions must fit strictly inside (`pc + 2 < end`)
+    window_end: u32,
     kind: FetchKind,
 }
 
@@ -159,13 +165,19 @@ enum FetchKind {
     Uncached,
 }
 
-impl FetchWindow {
-    const INVALID: FetchWindow = FetchWindow {
-        start: 1,
-        end: 0,
+impl FetchSlot {
+    const INVALID: FetchSlot = FetchSlot {
+        window_start: 1,
+        window_end: 0,
         kind: FetchKind::Uncached,
     };
 }
+
+/// Virtual address space divided into eight 8K fetch slots
+const FETCH_SLOT_SHIFT: u32 = 13;
+
+/// Slots 8..16 describe interrupt mode, where PRR maps through IRR
+const FETCH_SLOT_INTERRUPTED: usize = 8;
 
 /// The address space visible to the 65C02 core, generic over the machine
 /// address space `M` so that machine accesses dispatch statically and can be
@@ -201,8 +213,9 @@ pub struct St2205uAddressSpace<M: AddressSpace> {
     /// Cache of decoded instructions in internal RAM
     pub ram_decode_cache: RamDecodeCache,
 
-    /// One-entry TLB for instruction fetches
-    fetch_window: FetchWindow,
+    /// Fetch TLB: one slot per 8K of virtual address space, one half per
+    /// interrupt mode
+    fetch_slots: [FetchSlot; 16],
 
     /// Fetch statistics: [cache hits, cache misses, uncacheable fetches]
     pub fetch_stats: [u64; 3],
@@ -228,7 +241,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
 
             decode_cache: DecodeCache::new(),
             ram_decode_cache: RamDecodeCache::new(0x8000),
-            fetch_window: FetchWindow::INVALID,
+            fetch_slots: [FetchSlot::INVALID; 16],
 
             fetch_stats: [0; 3],
         }
@@ -314,35 +327,43 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
         match address as u16 {
             IRRL => {
                 bank::write_irrl(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (2, 3);
+                self.invalidate_fetch_slots(first, last);
             }
             IRRH => {
                 bank::write_irrh(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (2, 3);
+                self.invalidate_fetch_slots(first, last);
             }
             PRRL => {
                 bank::write_prrl(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (2, 3);
+                self.invalidate_fetch_slots(first, last);
             }
             PRRH => {
                 bank::write_prrh(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (2, 3);
+                self.invalidate_fetch_slots(first, last);
             }
             DRRL => {
                 bank::write_drrl(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (4, 7);
+                self.invalidate_fetch_slots(first, last);
             }
             DRRH => {
                 bank::write_drrh(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (4, 7);
+                self.invalidate_fetch_slots(first, last);
             }
             BRRL => {
                 bank::write_brrl(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (1, 1);
+                self.invalidate_fetch_slots(first, last);
             }
             BRRH => {
                 bank::write_brrh(self, value);
-                self.invalidate_fetch_window();
+                let (first, last) = (1, 1);
+                self.invalidate_fetch_slots(first, last);
             }
             DPRTL => dma::write_dptrl(self, value),
             DPRTH => dma::write_dptrh(self, value),
@@ -454,9 +475,11 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
     /// leaving it, everything else is outlined.
     #[inline(always)]
     fn fetch_in_window(&mut self, pc: u16) -> Option<FetchedInstruction> {
-        let window = self.fetch_window;
         let vpc = pc as u32;
-        if vpc < window.start || vpc + 2 >= window.end {
+        let slot_index = (vpc >> FETCH_SLOT_SHIFT) as usize
+            | (self.interrupted() as usize) * FETCH_SLOT_INTERRUPTED;
+        let window = self.fetch_slots[slot_index];
+        if vpc < window.window_start || vpc + 2 >= window.window_end {
             return None;
         }
 
@@ -478,7 +501,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 }
             }
             FetchKind::Machine { key_base } => {
-                let key = key_base + (vpc - window.start) as usize;
+                let key = key_base + (vpc - window.window_start) as usize;
                 // Entries must not span a cache page (invalidation is
                 // page-granular)
                 if (key ^ (key + 2)) & !0xFFF != 0 {
@@ -496,10 +519,10 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
         })
     }
 
-    /// The program counter left the cached window: re-resolve and retry
+    /// The program counter's fetch slot is invalid: re-resolve and retry
     #[cold]
     fn fetch_window_miss(&mut self, pc: u16) -> FetchedInstruction {
-        self.refill_fetch_window(pc);
+        self.refill_fetch_slots(pc);
         match self.fetch_in_window(pc) {
             Some(fetched) => fetched,
             // The instruction's bytes may extend past the window into a
@@ -541,8 +564,12 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
         fetched
     }
 
-    /// Resolve the bank window containing `pc` and cache the result
-    fn refill_fetch_window(&mut self, pc: u16) {
+    /// Resolve the bank window containing `pc` and fill its fetch slots.
+    /// The PRR window depends on the interrupt mode, so it only fills the
+    /// current mode's half of the table; every other window is
+    /// mode-independent and fills both halves.
+    fn refill_fetch_slots(&mut self, pc: u16) {
+        let mut both_halves = true;
         let (start, len, kind) = match pc {
             // Hardware registers: reads have side effects
             0x0000..=0x007F => (0u32, 0x80u32, FetchKind::Uncached),
@@ -555,6 +582,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 let (reg, bits, start) = match pc {
                     BRR_START..=BRR_END => (bank::brr(self), BRR_BITS, BRR_START),
                     PRR_START..=PRR_END => {
+                        both_halves = false;
                         if self.interrupted() {
                             (bank::irr(self), PRR_BITS, PRR_START)
                         } else {
@@ -582,24 +610,49 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             }
         };
 
-        self.fetch_window = FetchWindow {
-            start,
-            end: start + len,
+        let slot = FetchSlot {
+            window_start: start,
+            window_end: start + len,
             kind,
         };
+        let first = (start >> FETCH_SLOT_SHIFT) as usize;
+        let last = ((start + len - 1) >> FETCH_SLOT_SHIFT) as usize;
+        let halves = if both_halves {
+            [true, true]
+        } else {
+            let interrupted = self.interrupted();
+            [!interrupted, interrupted]
+        };
+        for (half, fill) in halves.into_iter().enumerate() {
+            if fill {
+                let base = half * FETCH_SLOT_INTERRUPTED;
+                for entry in &mut self.fetch_slots[base + first..=base + last] {
+                    *entry = slot;
+                }
+            }
+        }
+    }
+
+    /// Invalidate the fetch slots covering one bank window, in both halves
+    fn invalidate_fetch_slots(&mut self, first: usize, last: usize) {
+        for half in [0, FETCH_SLOT_INTERRUPTED] {
+            for entry in &mut self.fetch_slots[half + first..=half + last] {
+                *entry = FetchSlot::INVALID;
+            }
+        }
     }
 
     #[inline]
     fn invalidate_fetch_window(&mut self) {
-        self.fetch_window = FetchWindow::INVALID;
+        self.fetch_slots = [FetchSlot::INVALID; 16];
     }
 }
 
 impl<M: AddressSpace> HandlesInterrupt for St2205uAddressSpace<M> {
     fn set_interrupted(&mut self, interrupted: bool) {
         self.interrupt.set_interrupted(interrupted);
-        // Interrupt mode swaps the PRR window between PRR and IRR
-        self.invalidate_fetch_window();
+        // No fetch slot invalidation: the interrupt mode selects the other
+        // half of the slot table, which carries its own PRR/IRR resolution
     }
 
     fn interrupted(&self) -> bool {
@@ -608,11 +661,29 @@ impl<M: AddressSpace> HandlesInterrupt for St2205uAddressSpace<M> {
 }
 
 impl<M: AddressSpace> AddressSpace for St2205uAddressSpace<M> {
+    #[inline(always)]
     fn read_u8(&mut self, address: usize) -> u8 {
         // The ST2205U address space is only 16 bits wide
         match address as u16 {
             REGISTERS_START..=REGISTERS_END => self.read_register(address as u16),
             0x80..=0x1FFF => self.read_ram(address),
+            _ => self.read_banked(address),
+        }
+    }
+
+    #[inline(always)]
+    fn write_u8(&mut self, address: usize, value: u8) {
+        match address as u16 {
+            REGISTERS_START..=REGISTERS_END => self.write_register(address as u16, value),
+            LOW_RAM_START..=LOW_RAM_END => self.write_ram(address, value),
+            _ => self.write_banked(address, value),
+        }
+    }
+}
+
+impl<M: AddressSpace> St2205uAddressSpace<M> {
+    fn read_banked(&mut self, address: usize) -> u8 {
+        match address as u16 {
             BRR_START..=BRR_END | PRR_START..=PRR_END | DRR_START..=DRR_END => {
                 // left_shift represents how much the bank register needs to be shifted
                 // to represent its component of the larger machine address.
@@ -644,13 +715,12 @@ impl<M: AddressSpace> AddressSpace for St2205uAddressSpace<M> {
                     self.machine_addr_space.read_u8(machine_addr)
                 }
             }
+            _ => unreachable!("Only banked ranges reach read_banked."),
         }
     }
 
-    fn write_u8(&mut self, address: usize, value: u8) {
+    fn write_banked(&mut self, address: usize, value: u8) {
         match address as u16 {
-            REGISTERS_START..=REGISTERS_END => self.write_register(address as u16, value),
-            LOW_RAM_START..=LOW_RAM_END => self.write_ram(address, value),
             BRR_START..=BRR_END | PRR_START..=PRR_END | DRR_START..=DRR_END => {
                 // left_shift represents how much the bank register needs to be shifted
                 // to represent its component of the larger machine address.
@@ -691,6 +761,7 @@ impl<M: AddressSpace> AddressSpace for St2205uAddressSpace<M> {
                     }
                 }
             }
+            _ => unreachable!("Only banked ranges reach write_banked."),
         }
     }
 }

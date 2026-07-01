@@ -245,7 +245,12 @@ fn select_handler<A: AddressSpace + HandlesInterrupt>(
 
         // Not implemented (as in the previous match-based dispatch): these
         // panic when executed, not at table-build time
-        Opcode::Bit | Opcode::Brk | Opcode::Bvc | Opcode::Bvs | Opcode::Trb | Opcode::Tsb
+        Opcode::Bit
+        | Opcode::Brk
+        | Opcode::Bvc
+        | Opcode::Bvs
+        | Opcode::Trb
+        | Opcode::Tsb
         | Opcode::Stp => todo_handler(),
     }
 }
