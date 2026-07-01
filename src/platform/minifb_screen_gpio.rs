@@ -87,25 +87,30 @@ impl MiniFbScreen {
         title: &str,
         scale: usize,
         show_gpio: bool,
-    ) -> (Self, MiniFbGpioInternalInterface, Sender<Vec<Pixel>>) {
+    ) -> (
+        Self,
+        MiniFbGpioInternalInterface,
+        Sender<Vec<Pixel>>,
+        MiniFbWorker,
+    ) {
         let (host_tx, worker_rx) = channel::<MiniFBMessage>();
         let (worker_tx, host_rx) = channel::<MiniFBMessage>();
         let (screen_tx, screen_rx) = channel::<Vec<Pixel>>();
 
         let (gpio_external, gpio_internal) = MiniFbGpioInterface::create_interface();
 
-        let owned_title = title.to_owned();
-        std::thread::spawn(move || {
-            run_minifb_worker(
-                owned_title,
-                scale,
-                show_gpio,
-                gpio_external,
-                screen_rx,
-                worker_tx,
-                worker_rx,
-            )
-        });
+        // The window is NOT created here. On macOS, AppKit requires that all
+        // window/menu creation happen on the main thread, so the caller must
+        // drive `MiniFbWorker::run` from the main thread.
+        let worker = MiniFbWorker {
+            title: title.to_owned(),
+            scale,
+            show_gpio,
+            gpio_external,
+            screen_rx,
+            worker_tx,
+            worker_rx,
+        };
 
         (
             Self {
@@ -115,6 +120,7 @@ impl MiniFbScreen {
             },
             gpio_internal,
             screen_tx,
+            worker,
         )
     }
 
@@ -148,21 +154,42 @@ enum MiniFBMessage {
     Close,
 }
 
+/// Owns everything required to create and drive the minifb window. Because
+/// macOS requires window creation on the main thread, `run` is intended to be
+/// called from the main thread while the emulator runs on a background thread.
+pub struct MiniFbWorker {
+    title: String,
+    scale: usize,
+    show_gpio: bool,
+    gpio_external: MiniFbGpioExternalInterface,
+    screen_rx: Receiver<Vec<Pixel>>,
+    worker_tx: Sender<MiniFBMessage>,
+    worker_rx: Receiver<MiniFBMessage>,
+}
+
+impl MiniFbWorker {
+    pub fn run(self) {
+        run_minifb_worker(self);
+    }
+}
+
 struct MiniFbWindowButton {
     pub position: (usize, usize),
     pub button: MiuchizGpio,
     pub key: Option<Key>,
 }
 
-fn run_minifb_worker(
-    title: String,
-    scale: usize,
-    show_gpio: bool,
-    mut gpio_external: MiniFbGpioExternalInterface,
-    screen_rx: Receiver<Vec<Pixel>>,
-    worker_tx: Sender<MiniFBMessage>,
-    worker_rx: Receiver<MiniFBMessage>,
-) {
+fn run_minifb_worker(worker: MiniFbWorker) {
+    let MiniFbWorker {
+        title,
+        scale,
+        show_gpio,
+        mut gpio_external,
+        screen_rx,
+        worker_tx,
+        worker_rx,
+    } = worker;
+
     let width = 98;
     let height = 67;
 

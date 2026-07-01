@@ -52,12 +52,44 @@ fn main() {
 
     let scale = args.scale;
     let show_gpio = args.show_gpio;
+    let save_file = args.save_file;
 
-    let (mut screen, minifb_gpio, screen_tx) =
+    let (screen, minifb_gpio, screen_tx, worker) =
         platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
 
     let minifb_screen = platform::minifb_screen_gpio::MiniFbScreenInterface::new(screen_tx);
 
+    // The emulator runs on a background thread so that the minifb window can be
+    // created and pumped on the main thread, which macOS's AppKit requires.
+    let emulator = std::thread::spawn(move || {
+        run_emulator(
+            otp_data,
+            flash_data,
+            minifb_screen,
+            minifb_gpio,
+            screen,
+            save_file,
+        );
+    });
+
+    // Blocks on the main thread until the window is closed.
+    worker.run();
+
+    if let Err(why) = emulator.join() {
+        eprintln!("Emulator thread panicked: {why:?}");
+    }
+}
+
+fn run_emulator(
+    otp_data: Vec<u8>,
+    flash_data: Vec<u8>,
+    minifb_screen: platform::minifb_screen_gpio::MiniFbScreenInterface,
+    minifb_gpio: platform::minifb_screen_gpio::MiniFbGpioInternalInterface,
+    mut screen: platform::minifb_screen_gpio::MiniFbScreen,
+    save_file: Option<PathBuf>,
+) {
+    // Keep the audio stream alive for the lifetime of this thread. cpal's
+    // `Stream` is `!Send`, so it must be created and dropped on the same thread.
     let (stream, sender) = match platform::cpal_audio::stream_setup_for() {
         Ok((stream, sender)) => (stream, sender),
         Err(why) => {
@@ -106,7 +138,7 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_nanos(1));
     }
 
-    if let Some(save_file) = args.save_file {
+    if let Some(save_file) = save_file {
         match std::fs::write(&save_file, handheld.make_flash_dump()) {
             Ok(_) => {
                 println!("Saved flash to {save_file:?}");
