@@ -94,9 +94,8 @@ pub fn start_driving_emulator() -> Result<(), JsValue> {
         let nanoseconds = (elapsed_ms * 1_000_000.0) as u128;
         let cycles_per_second = state.0.mcu.core.cycles_per_second() as u128;
         let cycles_required_so_far = (nanoseconds * cycles_per_second) / 1_000_000_000;
-        while (state.0.mcu.core.cycles as u128) < cycles_required_so_far {
-            state.0.mcu.step();
-        }
+        let target = u64::try_from(cycles_required_so_far).unwrap_or(u64::MAX);
+        state.0.mcu.run(target, |_core| {});
     }) as Box<dyn FnMut()>);
 
     // Set up the interval for simulation

@@ -99,31 +99,25 @@ pub fn run(otp_data: &[u8], flash_data: &[u8], seconds: u64, verify: bool) {
 
     let cycles_per_second = handheld.mcu.core.cycles_per_second();
     let target_cycles = seconds * cycles_per_second;
-    let mut steps = 0u64;
-    let mut wai_steps = 0u64;
+    let mut instructions = 0u64;
     let mut hasher = Fnv::new();
 
     let started = Instant::now();
-    while handheld.mcu.core.cycles < target_cycles {
-        if handheld.mcu.core.waiting_for_interrupt {
-            wai_steps += 1;
-        }
-        if verify {
-            let core = &handheld.mcu.core;
-            if !core.waiting_for_interrupt {
-                hasher.write(&core.registers.pc.to_le_bytes());
-                hasher.write(&[
-                    core.registers.a,
-                    core.registers.x,
-                    core.registers.y,
-                    core.registers.sp,
-                    core.flags.to_u8(),
-                ]);
-                hasher.write(&core.cycles.to_le_bytes());
-            }
-        }
-        handheld.mcu.step();
-        steps += 1;
+    if verify {
+        handheld.mcu.run(target_cycles, |core| {
+            instructions += 1;
+            hasher.write(&core.registers.pc.to_le_bytes());
+            hasher.write(&[
+                core.registers.a,
+                core.registers.x,
+                core.registers.y,
+                core.registers.sp,
+                core.flags.to_u8(),
+            ]);
+            hasher.write(&core.cycles.to_le_bytes());
+        });
+    } else {
+        handheld.mcu.run(target_cycles, |_core| instructions += 1);
     }
     let elapsed = started.elapsed();
 
@@ -145,13 +139,8 @@ pub fn run(otp_data: &[u8], flash_data: &[u8], seconds: u64, verify: bool) {
         cycles_per_second as f64 / 1e6,
     );
     println!(
-        "steps:            {steps} ({:.2} M steps/host-sec)",
-        steps as f64 / host_seconds / 1e6
-    );
-    println!(
-        "instructions:     {} ({:.2} M instr/host-sec)",
-        steps - wai_steps,
-        (steps - wai_steps) as f64 / host_seconds / 1e6
+        "instructions:     {instructions} ({:.2} M instr/host-sec)",
+        instructions as f64 / host_seconds / 1e6
     );
     println!(
         "final_state:      PC={:04X} cycles={}",

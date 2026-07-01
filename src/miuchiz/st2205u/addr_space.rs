@@ -217,6 +217,10 @@ pub struct St2205uAddressSpace<M: AddressSpace> {
     /// interrupt mode
     fetch_slots: [FetchSlot; 16],
 
+    /// Bumped whenever any fetch slot is invalidated; sequential-fetch
+    /// streaks are only valid while this is unchanged
+    fetch_generation: u32,
+
     /// Fetch statistics: [cache hits, cache misses, uncacheable fetches]
     pub fetch_stats: [u64; 3],
 }
@@ -242,6 +246,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             decode_cache: DecodeCache::new(),
             ram_decode_cache: RamDecodeCache::new(0x8000),
             fetch_slots: [FetchSlot::INVALID; 16],
+            fetch_generation: 0,
 
             fetch_stats: [0; 3],
         }
@@ -463,7 +468,7 @@ impl<M: AddressSpace> FetchesDecoded for St2205uAddressSpace<M> {
     #[inline(always)]
     fn fetch_decoded(&mut self, pc: u16) -> FetchedInstruction {
         match self.fetch_in_window(pc) {
-            Some(fetched) => fetched,
+            Some((fetched, _)) => fetched,
             None => self.fetch_window_miss(pc),
         }
     }
@@ -472,9 +477,10 @@ impl<M: AddressSpace> FetchesDecoded for St2205uAddressSpace<M> {
 impl<M: AddressSpace> St2205uAddressSpace<M> {
     /// Fetch through the current fetch window; None if `pc` misses it.
     /// This is the per-instruction hot path: cache hits return without
-    /// leaving it, everything else is outlined.
+    /// leaving it, everything else is outlined. The second value is the
+    /// decode-cache key for cached machine memory, `usize::MAX` otherwise.
     #[inline(always)]
-    fn fetch_in_window(&mut self, pc: u16) -> Option<FetchedInstruction> {
+    fn fetch_in_window(&mut self, pc: u16) -> Option<(FetchedInstruction, usize)> {
         let vpc = pc as u32;
         let slot_index = (vpc >> FETCH_SLOT_SHIFT) as usize
             | (self.interrupted() as usize) * FETCH_SLOT_INTERRUPTED;
@@ -490,14 +496,14 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 // check reads up to ram_index + 2, and any 8K-aligned
                 // bank window boundary is also a page boundary)
                 if (ram_index ^ (ram_index + 2)) & !0xFF != 0 {
-                    return Some(self.fetch_uncached(pc));
+                    return Some((self.fetch_uncached(pc), usize::MAX));
                 }
                 match self.ram_decode_cache.get(ram_index, &self.ram) {
                     Some(fetched) => {
                         self.fetch_stats[0] += 1;
-                        fetched
+                        (fetched, usize::MAX)
                     }
-                    None => self.fetch_ram_miss(pc, ram_index),
+                    None => (self.fetch_ram_miss(pc, ram_index), usize::MAX),
                 }
             }
             FetchKind::Machine { key_base } => {
@@ -505,17 +511,17 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 // Entries must not span a cache page (invalidation is
                 // page-granular)
                 if (key ^ (key + 2)) & !0xFFF != 0 {
-                    return Some(self.fetch_uncached(pc));
+                    return Some((self.fetch_uncached(pc), usize::MAX));
                 }
                 match self.decode_cache.get(key) {
                     Some(fetched) => {
                         self.fetch_stats[0] += 1;
-                        fetched
+                        (fetched, key)
                     }
-                    None => self.fetch_machine_miss(pc, key),
+                    None => (self.fetch_machine_miss(pc, key), key),
                 }
             }
-            FetchKind::Uncached => self.fetch_uncached(pc),
+            FetchKind::Uncached => (self.fetch_uncached(pc), usize::MAX),
         })
     }
 
@@ -524,7 +530,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
     fn fetch_window_miss(&mut self, pc: u16) -> FetchedInstruction {
         self.refill_fetch_slots(pc);
         match self.fetch_in_window(pc) {
-            Some(fetched) => fetched,
+            Some((fetched, _)) => fetched,
             // The instruction's bytes may extend past the window into a
             // different mapping: never cached
             None => self.fetch_uncached(pc),
@@ -640,11 +646,42 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 *entry = FetchSlot::INVALID;
             }
         }
+        self.fetch_generation = self.fetch_generation.wrapping_add(1);
     }
 
     #[inline]
     fn invalidate_fetch_window(&mut self) {
         self.fetch_slots = [FetchSlot::INVALID; 16];
+        self.fetch_generation = self.fetch_generation.wrapping_add(1);
+    }
+
+    /// Current fetch-slot generation, for validating sequential-fetch streaks
+    #[inline(always)]
+    pub(super) fn fetch_generation(&self) -> u32 {
+        self.fetch_generation
+    }
+
+    /// Fetch like `fetch_decoded`, additionally returning the decode-cache
+    /// key of the instruction when it lives in cached machine memory
+    /// (`usize::MAX` otherwise). Callers may continue fetching sequentially
+    /// from `key + length` via `fetch_sequential` while the fetch
+    /// generation is unchanged and no 8K virtual boundary is crossed.
+    #[inline(always)]
+    pub(super) fn fetch_keyed(&mut self, pc: u16) -> (FetchedInstruction, usize) {
+        match self.fetch_in_window(pc) {
+            Some(hit) => hit,
+            None => (self.fetch_window_miss(pc), usize::MAX),
+        }
+    }
+
+    /// Continue a sequential fetch streak at `key`. Entries that would span
+    /// a cache page are never stored, so a stale or boundary key simply
+    /// misses and the caller falls back to a full fetch.
+    #[inline(always)]
+    pub(super) fn fetch_sequential(&mut self, key: usize) -> Option<FetchedInstruction> {
+        let fetched = self.decode_cache.get(key)?;
+        self.fetch_stats[0] += 1;
+        Some(fetched)
     }
 }
 

@@ -66,6 +66,92 @@ impl<M: AddressSpace> Mcu<M> {
         mcu
     }
 
+    /// Run until `core.cycles` reaches `target_sysck`, calling `observer`
+    /// with the pre-execution core state once per executed instruction
+    /// (exactly the states a `step()` loop would observe).
+    ///
+    /// Between two peripheral events no interrupt can become pending
+    /// (interrupts are only asserted in `process_events`), so instructions
+    /// are chained back-to-back with no per-instruction WAI/interrupt
+    /// checks. Straight-line code additionally fetches sequentially by
+    /// decode-cache key, skipping window resolution entirely; a streak
+    /// breaks on any branch, 8K virtual boundary, or fetch invalidation.
+    pub fn run<F: FnMut(&wdc_65c02::Core<St2205uAddressSpace<M>>)>(
+        &mut self,
+        target_sysck: u64,
+        mut observer: F,
+    ) {
+        while self.core.cycles < target_sysck {
+            if self.core.waiting_for_interrupt {
+                // Nothing can happen until a peripheral event fires
+                self.core.cycles = (self.core.cycles + 1).max(self.next_event_sysck);
+            } else if self.core.address_space.interrupt.pending()
+                || self.core.address_space.events_dirty
+            {
+                // Interrupt dispatch must be rechecked after every
+                // instruction: single-step until the state clears
+                observer(&self.core);
+                self.core.address_space.boundary_sysck = self.core.cycles;
+                self.core.step();
+            } else {
+                let limit = self.next_event_sysck.min(target_sysck);
+                let mut streak_key = usize::MAX;
+                let mut generation = self.core.address_space.fetch_generation();
+                loop {
+                    observer(&self.core);
+                    self.core.address_space.boundary_sysck = self.core.cycles;
+
+                    let pc = self.core.registers.pc;
+                    let (fins, key) = if streak_key != usize::MAX {
+                        match self.core.address_space.fetch_sequential(streak_key) {
+                            Some(fins) => (fins, streak_key),
+                            None => self.core.address_space.fetch_keyed(pc),
+                        }
+                    } else {
+                        self.core.address_space.fetch_keyed(pc)
+                    };
+                    self.core.execute_fetched(&fins);
+
+                    if self.core.cycles >= limit
+                        || self.core.address_space.events_dirty
+                        || self.core.waiting_for_interrupt
+                    {
+                        break;
+                    }
+
+                    // Continue the sequential streak only if execution fell
+                    // through (no branch), stayed inside the same 8K bank
+                    // window region, and no fetch mapping was invalidated
+                    let expected_pc = pc.wrapping_add(fins.length as u16);
+                    let new_generation = self.core.address_space.fetch_generation();
+                    streak_key = if key != usize::MAX
+                        && self.core.registers.pc == expected_pc
+                        && (pc ^ expected_pc) & !0x1FFF == 0
+                        && new_generation == generation
+                    {
+                        key + fins.length as usize
+                    } else {
+                        usize::MAX
+                    };
+                    generation = new_generation;
+                }
+            }
+
+            if self.core.cycles >= self.next_event_sysck || self.core.address_space.events_dirty {
+                self.process_events();
+            }
+
+            if self.core.address_space.interrupt.pending() {
+                // Cancel WAI mode if an interrupt is pending
+                self.core.waiting_for_interrupt = false;
+
+                if !self.core.flags.interrupt_disable && !self.core.interrupted() {
+                    self.dispatch_interrupt();
+                }
+            }
+        }
+    }
+
     #[inline]
     pub fn step(&mut self) {
         if self.core.waiting_for_interrupt {

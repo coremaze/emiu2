@@ -141,12 +141,8 @@ fn run_emulator(
         let cycles_required_so_far =
             (nanoseconds * handheld.mcu.core.cycles_per_second() as u128) / 1000000000;
 
-        while (handheld.mcu.core.cycles as u128) < cycles_required_so_far {
-            // let pc = handheld.mcu.core.registers.pc;
-            // let inst = handheld.mcu.core.decode_next_instruction();
-            // println!("{pc:04X}: {}", inst.instruction.to_string());
-            handheld.mcu.step();
-        }
+        let target = u64::try_from(cycles_required_so_far).unwrap_or(u64::MAX);
+        handheld.mcu.run(target, |_core| {});
 
         screen.update_state();
         std::thread::sleep(std::time::Duration::from_nanos(1));

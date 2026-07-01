@@ -163,13 +163,18 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         }
 
         let fins = self.address_space.fetch_decoded(self.registers.pc);
+        self.execute_fetched(&fins);
+    }
 
+    /// Execute one already-fetched instruction (no WAI handling)
+    #[inline(always)]
+    pub fn execute_fetched(&mut self, fins: &FetchedInstruction) {
         // The program counter should be incremented before execution.
         // For example, conditional branches use relative addressing, relative
         // to 2 bytes after the beginning of the instruction.
         self.registers.pc = self.registers.pc.wrapping_add(fins.length as u16);
 
-        self.execute_instruction(&fins);
+        self.execute_instruction(fins);
     }
 
     #[inline(always)]
