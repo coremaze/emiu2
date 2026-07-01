@@ -26,6 +26,7 @@ then mostly idles in WAI).
 | 2: Static machine dispatch | 96x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
 | 3: Decode cache + fetch TLB | 111x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
 | 4: Fused dispatch + fetch slots | 168x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
+| 5: Instruction chaining | 180x realtime | `68c4294775bbe628` | `c1282cee7f110734` |
 
 Cross-check on a busy in-game workload (`save.dat`, 20 emu-sec, ~2.1M
 executed instructions per emulated second — worst-case-like load):
@@ -35,6 +36,7 @@ executed instructions per emulated second — worst-case-like load):
 | Baseline (HEAD + bench harness) | 7.4x realtime | `38f721b9d8ff7c01` |
 | Phases 0-3 | 26x realtime | `38f721b9d8ff7c01` |
 | Phase 4 | 43x realtime (~89M instr/sec) | `38f721b9d8ff7c01` |
+| Phase 5 | 48.5x realtime (~101M instr/sec) | `38f721b9d8ff7c01` |
 
 `Dash 1.09.03.dat` verify_hash also matches baseline (`e482bdcced75cebc`).
 Every phase is cycle-exact: identical instruction streams at identical
@@ -132,20 +134,31 @@ Three changes, applied in sequence on the `perf-experiments` branch:
   reads/writes inline their hot register/RAM arms and outline the banked
   path (41.5x -> 43x).
 
+### Phase 5: Instruction chaining between events — busy +13%
+
+Interrupts can only become pending inside `process_events`, so between
+two event boundaries `Mcu::run` executes instructions back-to-back with
+no per-instruction WAI or interrupt-dispatch checks. Straight-line code
+also fetches sequentially by decode-cache key (`key + length`), skipping
+window resolution entirely; a streak breaks on any branch, 8K virtual
+boundary, or fetch-slot invalidation (generation counter). The run loop
+takes a per-instruction observer closure, so `--verify` hashes the exact
+chained execution path (and confirmed identical hashes *and* instruction
+counts); the GUI/web loops pass a no-op that compiles away.
+
 ## Where this leaves the ESP32 goal
 
-Busy-workload cost is ~54 host cycles per emulated instruction on a Zen 3
-core at ~4.8 GHz (~43x realtime, ~89M instr/sec). Realtime needs ~2.1M
-instr/sec, so a 240 MHz ESP32 has a ~115-cycle budget — now within ~2x of
-the desktop cycle count, meaning realtime on ESP32-class hardware is
-plausible-to-likely for the busy path (Xtensa IPC is lower, but the hot
-data now fits in small caches; the idle path has 4x headroom). Remaining
-desktop hot spots are diffuse: the fused main loop itself (~66%), handler
-bodies, and the bench harness. Further large wins would need a structural
-change (e.g. basic-block chaining to amortize the per-instruction
-event/interrupt checks). Memory budget still needs ESP32 tuning: decode
-caches allocate lazily per 4K page at 8 B/byte (~32 KB per hot code page);
-an ESP32 build would cap resident pages and add LRU eviction.
+Busy-workload cost is ~47 host cycles per emulated instruction on a Zen 3
+core at ~4.8 GHz (~48.5x realtime, ~101M instr/sec). Realtime needs ~2.1M
+instr/sec, so a 240 MHz ESP32 has a ~115-cycle budget — the desktop cycle
+count is now well inside it, making realtime on ESP32-class hardware
+plausible-to-likely even accounting for Xtensa's lower IPC; the idle path
+has ~4x further headroom. Remaining desktop cost is diffuse (handler
+bodies, cache loads, the run loop itself); the next wins are likely
+ESP32-specific rather than algorithmic: cap decode-cache pages with LRU
+eviction (entries are 8 B/byte, ~32 KB per hot 4K code page), pin hot
+state in internal SRAM, and map the flash image XIP with a RAM overlay
+for rewritten sectors.
 
 ## Reproducing
 
