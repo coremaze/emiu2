@@ -1,6 +1,7 @@
 mod addr_mode;
 mod core;
 mod decoder;
+mod handlers;
 pub(self) mod instr;
 mod interrupt;
 mod opcode;

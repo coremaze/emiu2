@@ -1,4 +1,4 @@
-use super::wdc_65c02::{FetchedInstruction, Instruction};
+use super::wdc_65c02::FetchedInstruction;
 use crate::memory::ContentChange;
 
 /// Cache pages are 4 KiB of key space (matching the flash's erase sector
@@ -22,10 +22,8 @@ struct CachedEntry {
 impl CachedEntry {
     const INVALID: CachedEntry = CachedEntry {
         fetched: FetchedInstruction {
-            instruction: Instruction {
-                opcode: super::wdc_65c02::Opcode::Nop,
-                addressing_mode: super::wdc_65c02::AddressingMode::Implied,
-            },
+            operand: 0,
+            opcode_byte: 0,
             cycles: 0,
             length: 0,
             extra_page_boundary_cycle: false,

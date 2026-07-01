@@ -1,6 +1,5 @@
-use super::{
-    instr, opcode::Opcode, DecodedInstruction, FetchedInstruction, FetchesDecoded, HandlesInterrupt,
-};
+use super::handlers::{self, Handler};
+use super::{DecodedInstruction, FetchedInstruction, FetchesDecoded, HandlesInterrupt};
 use crate::memory::AddressSpace;
 
 // This core should tick every 2 oscillations
@@ -22,6 +21,9 @@ where
     pub flags: Flags,
 
     pub waiting_for_interrupt: bool,
+
+    /// Fused execution handlers, indexed by raw opcode byte
+    handlers: [Handler<A>; 256],
 }
 
 #[derive(Default)]
@@ -129,6 +131,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
                 y: 0,
             },
             waiting_for_interrupt: false,
+            handlers: handlers::build_handler_table::<A>(),
         }
     }
 
@@ -200,107 +203,8 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
     }
 
     fn execute_instruction(&mut self, dec_inst: &FetchedInstruction) {
-        let op_fn = match dec_inst.instruction.opcode {
-            Opcode::Adc => instr::adc,
-            Opcode::And => instr::and,
-            Opcode::Asl => instr::asl,
-            Opcode::Bbr0 => instr::bbr0,
-            Opcode::Bbr1 => instr::bbr1,
-            Opcode::Bbr2 => instr::bbr2,
-            Opcode::Bbr3 => instr::bbr3,
-            Opcode::Bbr4 => instr::bbr4,
-            Opcode::Bbr5 => instr::bbr5,
-            Opcode::Bbr6 => instr::bbr6,
-            Opcode::Bbr7 => instr::bbr7,
-            Opcode::Bbs0 => instr::bbs0,
-            Opcode::Bbs1 => instr::bbs1,
-            Opcode::Bbs2 => instr::bbs2,
-            Opcode::Bbs3 => instr::bbs3,
-            Opcode::Bbs4 => instr::bbs4,
-            Opcode::Bbs5 => instr::bbs5,
-            Opcode::Bbs6 => instr::bbs6,
-            Opcode::Bbs7 => instr::bbs7,
-            Opcode::Bcc => instr::bcc,
-            Opcode::Bcs => instr::bcs,
-            Opcode::Beq => instr::beq,
-            Opcode::Bit => todo!(),
-            Opcode::Bmi => instr::bmi,
-            Opcode::Bne => instr::bne,
-            Opcode::Bpl => instr::bpl,
-            Opcode::Bra => instr::bra,
-            Opcode::Brk => todo!(),
-            Opcode::Bvc => todo!(),
-            Opcode::Bvs => todo!(),
-            Opcode::Clc => instr::clc,
-            Opcode::Cld => instr::cld,
-            Opcode::Cli => instr::cli,
-            Opcode::Clv => instr::clv,
-            Opcode::Cmp => instr::cmp,
-            Opcode::Cpx => instr::cpx,
-            Opcode::Cpy => instr::cpy,
-            Opcode::Dec => instr::dec,
-            Opcode::Dex => instr::dex,
-            Opcode::Dey => instr::dey,
-            Opcode::Eor => instr::eor,
-            Opcode::Inc => instr::inc,
-            Opcode::Inx => instr::inx,
-            Opcode::Iny => instr::iny,
-            Opcode::Jmp => instr::jmp,
-            Opcode::Jsr => instr::jsr,
-            Opcode::Lda => instr::lda,
-            Opcode::Ldx => instr::ldx,
-            Opcode::Ldy => instr::ldy,
-            Opcode::Lsr => instr::lsr,
-            Opcode::Nop => instr::nop,
-            Opcode::Ora => instr::ora,
-            Opcode::Pha => instr::pha,
-            Opcode::Php => instr::php,
-            Opcode::Phx => instr::phx,
-            Opcode::Phy => instr::phy,
-            Opcode::Pla => instr::pla,
-            Opcode::Plp => instr::plp,
-            Opcode::Plx => instr::plx,
-            Opcode::Ply => instr::ply,
-            Opcode::Rmb0 => instr::rmb0,
-            Opcode::Rmb1 => instr::rmb1,
-            Opcode::Rmb2 => instr::rmb2,
-            Opcode::Rmb3 => instr::rmb3,
-            Opcode::Rmb4 => instr::rmb4,
-            Opcode::Rmb5 => instr::rmb5,
-            Opcode::Rmb6 => instr::rmb6,
-            Opcode::Rmb7 => instr::rmb7,
-            Opcode::Rol => instr::rol,
-            Opcode::Ror => instr::ror,
-            Opcode::Rti => instr::rti,
-            Opcode::Rts => instr::rts,
-            Opcode::Sbc => instr::sbc,
-            Opcode::Sec => instr::sec,
-            Opcode::Sed => instr::sed,
-            Opcode::Sei => instr::sei,
-            Opcode::Smb0 => instr::smb0,
-            Opcode::Smb1 => instr::smb1,
-            Opcode::Smb2 => instr::smb2,
-            Opcode::Smb3 => instr::smb3,
-            Opcode::Smb4 => instr::smb4,
-            Opcode::Smb5 => instr::smb5,
-            Opcode::Smb6 => instr::smb6,
-            Opcode::Smb7 => instr::smb7,
-            Opcode::Sta => instr::sta,
-            Opcode::Stp => todo!(),
-            Opcode::Stx => instr::stx,
-            Opcode::Sty => instr::sty,
-            Opcode::Stz => instr::stz,
-            Opcode::Tax => instr::tax,
-            Opcode::Tay => instr::tay,
-            Opcode::Trb => todo!(),
-            Opcode::Tsb => todo!(),
-            Opcode::Tsx => instr::tsx,
-            Opcode::Txa => instr::txa,
-            Opcode::Txs => instr::txs,
-            Opcode::Tya => instr::tya,
-            Opcode::Wai => instr::wai,
-        };
-        let bounds_extra_cycle = op_fn(self, &dec_inst.instruction);
+        let op_fn = self.handlers[dec_inst.opcode_byte as usize];
+        let bounds_extra_cycle = op_fn(self, dec_inst.operand);
 
         self.cycles += dec_inst.cycles as u64;
         if bounds_extra_cycle && dec_inst.extra_page_boundary_cycle {

@@ -511,13 +511,17 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
     #[cold]
     fn fetch_uncached(&mut self, pc: u16) -> FetchedInstruction {
         self.fetch_stats[2] += 1;
-        FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()))
+        let opcode_byte = self.read_u8(pc.into());
+        let dins = DecodedInstruction::decode_from_byte(opcode_byte, self, pc.into());
+        FetchedInstruction::new(&dins, opcode_byte)
     }
 
     #[cold]
     fn fetch_ram_miss(&mut self, pc: u16, ram_index: usize) -> FetchedInstruction {
         self.fetch_stats[1] += 1;
-        let fetched = FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()));
+        let opcode_byte = self.ram[ram_index];
+        let dins = DecodedInstruction::decode_from_byte(opcode_byte, self, pc.into());
+        let fetched = FetchedInstruction::new(&dins, opcode_byte);
         let bytes = [
             self.ram[ram_index],
             self.ram[ram_index + 1],
@@ -530,7 +534,9 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
     #[cold]
     fn fetch_machine_miss(&mut self, pc: u16, key: usize) -> FetchedInstruction {
         self.fetch_stats[1] += 1;
-        let fetched = FetchedInstruction::from(&DecodedInstruction::decode(self, pc.into()));
+        let opcode_byte = self.read_u8(pc.into());
+        let dins = DecodedInstruction::decode_from_byte(opcode_byte, self, pc.into());
+        let fetched = FetchedInstruction::new(&dins, opcode_byte);
         self.decode_cache.insert(key, fetched);
         fetched
     }

@@ -15,11 +15,15 @@ pub struct DecodedInstruction {
 }
 
 /// A decoded instruction in the compact form the execution loop consumes
-/// (and decode caches store): one quarter the size of `DecodedInstruction`,
-/// with the encoded length precomputed.
+/// (and decode caches store): the raw opcode byte selects a fused handler,
+/// `operand` carries the addressing payload, and the encoded length is
+/// precomputed.
 #[derive(Clone, Copy)]
 pub struct FetchedInstruction {
-    pub instruction: Instruction,
+    /// Raw addressing payload; the handler knows how to interpret it
+    pub operand: u16,
+    /// Raw opcode byte, indexing the core's fused handler table
+    pub opcode_byte: u8,
     /// Execution cycles under normal conditions (fits in u8)
     pub cycles: u8,
     /// Total encoded length including the opcode byte (1..=3)
@@ -28,10 +32,11 @@ pub struct FetchedInstruction {
     pub extra_page_boundary_cycle: bool,
 }
 
-impl From<&DecodedInstruction> for FetchedInstruction {
-    fn from(dins: &DecodedInstruction) -> Self {
+impl FetchedInstruction {
+    pub fn new(dins: &DecodedInstruction, opcode_byte: u8) -> Self {
         Self {
-            instruction: dins.instruction,
+            operand: dins.instruction.addressing_mode.payload(),
+            opcode_byte,
             cycles: dins.cycles as u8,
             length: dins.instruction.encoded_length() as u8,
             extra_page_boundary_cycle: dins.extra_page_boundary_cycle,
@@ -49,6 +54,12 @@ impl DecodedInstruction {
     /// Determines operation, addressing, and cycle information from an encoded 65C02 instruction
     pub fn decode(memory: &mut impl AddressSpace, offset: usize) -> Self {
         let opcode = memory.read_u8(offset);
+        Self::decode_from_byte(opcode, memory, offset)
+    }
+
+    /// Decode with the opcode byte already read; operand bytes are read from
+    /// `memory` at `offset + 1..`.
+    pub fn decode_from_byte(opcode: u8, memory: &mut impl AddressSpace, offset: usize) -> Self {
         // Cycles for conditional branches should be increased by 1 if taken
         // ADC and SBC should have one more cycle if the decimal flag is set
         match opcode {

@@ -26,6 +26,32 @@ pub enum AddressingMode {
 }
 
 impl AddressingMode {
+    /// The raw operand payload, as stored in a `FetchedInstruction`. Fused
+    /// handlers reconstruct the mode from this via the constructors in
+    /// `handlers`; the two must stay in sync.
+    pub fn payload(&self) -> u16 {
+        match *self {
+            AddressingMode::Absolute(w)
+            | AddressingMode::AbsoluteXIndexed(w)
+            | AddressingMode::AbsoluteYIndexed(w)
+            | AddressingMode::AbsoluteXIndexedIndirect(w)
+            | AddressingMode::Indirect(w)
+            | AddressingMode::AbsoluteAddress(w)
+            | AddressingMode::IndirectAddress(w)
+            | AddressingMode::AbsoluteXIndexedIndirectAddress(w) => w,
+            AddressingMode::Immediate(b)
+            | AddressingMode::XIndexedIndirect(b)
+            | AddressingMode::IndirectYIndexed(b)
+            | AddressingMode::ZeroPage(b)
+            | AddressingMode::IndirectZeroPage(b)
+            | AddressingMode::ZeroPageXIndexed(b)
+            | AddressingMode::ZeroPageYIndexed(b) => b as u16,
+            AddressingMode::Relative(r) => r as u8 as u16,
+            AddressingMode::ZeroPageRelative(zp, rel) => zp as u16 | ((rel as u8 as u16) << 8),
+            AddressingMode::Implied => 0,
+        }
+    }
+
     pub fn encoded_length(&self) -> usize {
         match &self {
             AddressingMode::Absolute(_) => 2,
@@ -50,6 +76,7 @@ impl AddressingMode {
     }
 
     // Returns the byte read as well as whether a page boundary was crossed
+    #[inline(always)]
     pub fn read_operand_u8<A: AddressSpace + HandlesInterrupt>(
         &self,
         core: &mut Core<A>,
@@ -108,6 +135,7 @@ impl AddressingMode {
     }
 
     // Returns the byte read as well as whether a page boundary was crossed
+    #[inline(always)]
     pub fn read_operand_i8<A: AddressSpace + HandlesInterrupt>(
         &self,
         _core: &mut Core<A>,
@@ -121,6 +149,7 @@ impl AddressingMode {
     }
 
     // Basically for JMP and JSR
+    #[inline(always)]
     pub fn read_operand_u16<A: AddressSpace + HandlesInterrupt>(
         &self,
         core: &mut Core<A>,
@@ -141,6 +170,7 @@ impl AddressingMode {
     }
 
     // BBR and BBS
+    #[inline(always)]
     pub fn read_operand_u8_i8<A: AddressSpace + HandlesInterrupt>(
         &self,
         core: &mut Core<A>,
@@ -155,6 +185,7 @@ impl AddressingMode {
     }
 
     // Returns whether a page boundary was crossed
+    #[inline(always)]
     pub fn write_operand_u8<A: AddressSpace + HandlesInterrupt>(
         &self,
         core: &mut Core<A>,
