@@ -41,6 +41,11 @@ web-sys = { version = "0.3", features = [
     "AudioProcessingEvent",
     "GainNode",
     "AudioParam",
+    "WebSocket",
+    "BinaryType",
+    "MessageEvent",
+    "Event",
+    "CloseEvent",
 ] }
 wasm-bindgen-futures = "0.4"
 

@@ -1120,7 +1120,76 @@
         <button id="power" style="grid-area: power;" aria-label="Power Button">Power</button>
         <button id="mute" style="grid-area: mute;" aria-label="Mute Button">Mute</button>
     </div>
-    
+
+    <style>
+        #netplay {
+            max-width: 480px;
+            margin: 12px auto;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background-color: rgba(0, 0, 0, 0.35);
+            color: #e5e7eb;
+            font-size: 14px;
+        }
+        #netplay summary {
+            cursor: pointer;
+            font-weight: 600;
+        }
+        #netplay .netplay-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        #netplay input {
+            flex: 1;
+            min-width: 120px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #4b5563;
+            background-color: #1f2937;
+            color: #e5e7eb;
+        }
+        #netplay button {
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: none;
+            background-color: var(--color-button);
+            color: white;
+            cursor: pointer;
+        }
+        #netplay button:hover {
+            background-color: var(--color-button-hover);
+        }
+        #netplay-code {
+            font-family: monospace;
+            font-size: 18px;
+            letter-spacing: 2px;
+            font-weight: 700;
+        }
+        #netplay-status {
+            margin-top: 6px;
+            opacity: 0.85;
+        }
+    </style>
+    <details id="netplay" style="display: none;">
+        <summary>Play with a friend (IR over the internet)</summary>
+        <div class="netplay-row">
+            <label for="relay-url">Relay:</label>
+            <input type="text" id="relay-url" placeholder="ws://host:5885">
+            <button id="netplay-connect">Connect</button>
+        </div>
+        <div class="netplay-row" id="netplay-pairing" style="display: none;">
+            <span>Your code: <span id="netplay-code"></span></span>
+            <input type="text" id="friend-code" placeholder="friend's code" maxlength="6"
+                   autocapitalize="characters" autocomplete="off" spellcheck="false">
+            <button id="netplay-join">Join</button>
+            <button id="netplay-leave" style="display: none;">Leave</button>
+        </div>
+        <div id="netplay-status" aria-live="polite">not connected</div>
+    </details>
+
     <div id="upload-container">
         <fieldset id="otp-options" class="source-section">
             <legend>OTP Configuration</legend>

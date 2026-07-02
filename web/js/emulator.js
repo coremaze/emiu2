@@ -4,7 +4,14 @@ import init, {
     set_button_state, 
     get_button_state, 
     get_flash_dump, 
-    start_driving_emulator 
+    start_driving_emulator, 
+    ir_connect, 
+    ir_join, 
+    ir_leave, 
+    ir_code, 
+    ir_connected, 
+    ir_paired, 
+    ir_status 
 } from '/pkg/emiu2.js';
 
 // Database utility for IndexedDB operations
@@ -450,6 +457,9 @@ async function run() {
             // Trigger reflow to ensure the transition works
             void controlsElement.offsetWidth;
             controlsElement.classList.add('visible');
+
+            // Show the netplay panel now that an emulator exists.
+            initializeNetplayUI();
             
             // Show reset button
             showResetButton();
@@ -902,3 +912,62 @@ function initializeFileInputs() {
 
 // Ensure this is called appropriately
 initializeFileInputs(); 
+// ---------------------------------------------------------------------------
+// Netplay: IR over the internet through an emiu2 relay server.
+
+function initializeNetplayUI() {
+    const panel = document.getElementById('netplay');
+    const urlInput = document.getElementById('relay-url');
+    const connectButton = document.getElementById('netplay-connect');
+    const pairingRow = document.getElementById('netplay-pairing');
+    const codeSpan = document.getElementById('netplay-code');
+    const friendInput = document.getElementById('friend-code');
+    const joinButton = document.getElementById('netplay-join');
+    const leaveButton = document.getElementById('netplay-leave');
+    const statusLine = document.getElementById('netplay-status');
+
+    // A sensible default: same host as the page, the relay's default
+    // port, wss when the page itself is secure (required by browsers).
+    if (!urlInput.value) {
+        const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+        const host = location.hostname || 'localhost';
+        urlInput.value = `${scheme}://${host}:5885`;
+    }
+
+    connectButton.addEventListener('click', () => {
+        try {
+            ir_connect(urlInput.value.trim());
+        } catch (e) {
+            statusLine.textContent = String(e);
+        }
+    });
+
+    joinButton.addEventListener('click', () => {
+        try {
+            ir_join(friendInput.value.trim());
+        } catch (e) {
+            statusLine.textContent = String(e);
+        }
+    });
+
+    leaveButton.addEventListener('click', () => {
+        try {
+            ir_leave();
+        } catch (e) {
+            statusLine.textContent = String(e);
+        }
+    });
+
+    setInterval(() => {
+        statusLine.textContent = ir_status();
+        const connected = ir_connected();
+        const paired = ir_paired();
+        pairingRow.style.display = connected ? 'flex' : 'none';
+        codeSpan.textContent = ir_code();
+        joinButton.style.display = paired ? 'none' : '';
+        friendInput.style.display = paired ? 'none' : '';
+        leaveButton.style.display = paired ? '' : 'none';
+    }, 500);
+
+    panel.style.display = 'block';
+}
