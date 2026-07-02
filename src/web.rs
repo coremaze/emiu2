@@ -2,6 +2,7 @@ use console_error_panic_hook;
 use wasm_bindgen::prelude::*;
 use web_sys;
 
+use crate::ir::DisconnectedIr;
 use crate::miuchiz::{Handheld, MiuchizButtonStates, MiuchizGpio};
 use crate::platform::web_audio::WebAudio;
 use crate::platform::web_gpio::WasmGpioInterface;
@@ -50,6 +51,7 @@ pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<()
         Box::new(screen_interface),
         Box::new(wasm_gpio),
         Box::new(wasm_audio_interface),
+        Box::new(DisconnectedIr),
     )
     .map_err(|e| JsValue::from_str(&format!("Failed to initialize handheld: {}", e)))?;
 

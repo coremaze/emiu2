@@ -15,10 +15,10 @@ impl WasmGpioInterface {
 }
 
 impl GpioInterfaceInternal for WasmGpioInterface {
-    fn get_inputs(&mut self) -> GpioConnections {
+    fn get_inputs(&mut self, _cycle: u64) -> GpioConnections {
         let state = self.button_states.borrow();
         state.to_gpio_connections()
     }
 
-    fn set_outputs(&mut self, _state: GpioState) {}
+    fn set_outputs(&mut self, _state: GpioState, _cycle: u64) {}
 }

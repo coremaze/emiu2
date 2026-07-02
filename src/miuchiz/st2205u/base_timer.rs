@@ -90,11 +90,12 @@ impl State {
         let btreq5 = clock % (TIMER_FREQUENCY / 512) == 0;
         // 2048 Hz
         let btreq6 = clock % (TIMER_FREQUENCY / 2048) == 0;
-        // 8192 Hz or BTC
-        let btreq7 = if self.btc.get() == 0 {
-            clock % (TIMER_FREQUENCY / 8192) == 0
-        } else {
-            clock % (TIMER_FREQUENCY / self.btc.get() as u64) == 0
+        // 8192 Hz / BTC: BTC divides the 8192 Hz rate (BTC of 0 or 1 both
+        // give the full 8192 Hz). The counter itself ticks at 8192 Hz, so
+        // the period in ticks is simply the BTC value.
+        let btreq7 = match self.btc.get() as u64 {
+            0 | 1 => true,
+            period => clock % period == 0,
         };
 
         // Put the new bits in place

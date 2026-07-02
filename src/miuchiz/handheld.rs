@@ -1,9 +1,10 @@
 use super::{
+    ir::IrCircuit,
     sst39vf1681,
     st2205u::{self, GpioInterfaceInternal},
     st7626,
 };
-use crate::{audio::AudioInterface, memory::AddressSpace, screen::Screen};
+use crate::{audio::AudioInterface, ir::IrInterface, memory::AddressSpace, screen::Screen};
 use std::fmt::Display;
 
 pub const SYSTEM_FREQ: u64 = 16_000_000;
@@ -111,8 +112,13 @@ impl Handheld {
         screen: Box<dyn Screen>,
         io: Box<dyn GpioInterfaceInternal>,
         audio_sender: Box<dyn AudioInterface>,
+        ir_transceiver: Box<dyn IrInterface>,
     ) -> Result<Self, ConfigurationError> {
         let machine_address_space = Box::new(HandheldAddressSpace::new(otp, flash, screen)?);
+
+        // The PCB's IR circuitry sits between the chip's ports and the
+        // rest of the board I/O.
+        let io = Box::new(IrCircuit::new(io, ir_transceiver, SYSTEM_FREQ));
 
         let mcu = Self {
             mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io, audio_sender),

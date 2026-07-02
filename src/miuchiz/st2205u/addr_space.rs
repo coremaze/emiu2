@@ -111,6 +111,7 @@ const BRRL: u16 = 0x0036;
 const BRRH: u16 = 0x0037;
 
 const PMCR: u16 = 0x003A;
+const XREQ: u16 = 0x003B;
 
 const IREQL: u16 = 0x003C;
 const IREQH: u16 = 0x003D;
@@ -170,6 +171,13 @@ impl St2205uAddressSpace {
         }
     }
 
+    /// Updates the GPIO block, including the pin activity that can raise
+    /// interrupts. The TCO0 clocking output follows Timer0's enable bit.
+    pub fn update_gpio(&mut self, cycle: u64) -> gpio::PortActivity {
+        let timer0_enabled = self.timer.read_tien() & 0b0000_0001 != 0;
+        self.gpio.update(cycle, timer0_enabled)
+    }
+
     fn read_register(&mut self, address: u16) -> u8 {
         // println!("Read from register {address:X}");
         match address {
@@ -225,6 +233,7 @@ impl St2205uAddressSpace {
             T3CH => self.timer.read_txch(TimerIndex::T3),
             TIEN => self.timer.read_tien(),
             PMCR => gpio::read_pmcr(&self.gpio),
+            XREQ => gpio::read_xreq(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
             PCL => gpio::read_pcl(&self.gpio),
             BTEN => base_timer::read_bten(&self.base_timer),
@@ -304,6 +313,7 @@ impl St2205uAddressSpace {
             T3CH => self.timer.write_txch(TimerIndex::T3, value),
             TIEN => self.timer.write_tien(value),
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
+            XREQ => gpio::write_xreq(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
             PCL => gpio::write_pcl(&mut self.gpio, value),
             BTEN => base_timer::write_bten(&mut self.base_timer, value),

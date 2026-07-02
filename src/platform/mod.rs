@@ -9,3 +9,5 @@ pub mod web_screen;
 pub mod cpal_audio;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod minifb_screen_gpio;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod socket_ir;

@@ -59,7 +59,7 @@ pub struct MiniFbGpioInternalInterface {
 }
 
 impl GpioInterfaceInternal for MiniFbGpioInternalInterface {
-    fn get_inputs(&mut self) -> GpioConnections {
+    fn get_inputs(&mut self, _cycle: u64) -> GpioConnections {
         if let Some(buttons) = self.button_rx.recv() {
             self.connections = buttons.to_gpio_connections();
         }
@@ -67,7 +67,7 @@ impl GpioInterfaceInternal for MiniFbGpioInternalInterface {
         self.connections.clone()
     }
 
-    fn set_outputs(&mut self, state: GpioState) {
+    fn set_outputs(&mut self, state: GpioState, _cycle: u64) {
         // Only send the state if it has changed or None.
         if Some(state.clone()) != self.last_gpio_state {
             self.gpio_leds_tx.send(state.clone());

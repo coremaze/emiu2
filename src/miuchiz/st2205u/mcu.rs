@@ -95,16 +95,21 @@ impl Mcu {
             self.audio_sender.add_sample(mix);
         }
 
-        let port_a_transition = self
+        let activity = self
             .core
             .address_space
-            .gpio
-            .update_gpio_and_detect_pa_transition();
-        if port_a_transition {
+            .update_gpio(self.core.oscillator_cycles());
+        if activity.port_a_transition {
             self.core
                 .address_space
                 .interrupt
                 .assert_interrupt(Interrupt::PortATransition);
+        }
+        if activity.intx {
+            self.core
+                .address_space
+                .interrupt
+                .assert_interrupt(Interrupt::Intx);
         }
 
         let interrupt = self

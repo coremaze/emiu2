@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod ir;
 pub mod memory;
 pub mod miuchiz;
 pub mod platform;
