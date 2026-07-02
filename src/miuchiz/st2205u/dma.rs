@@ -4,6 +4,7 @@ use super::{
     St2205uAddressSpace,
 };
 use crate::memory::AddressSpace;
+use crate::state::{StateError, StateReader, StateWriter};
 
 // DMA channels and function modes are not implemented yet.
 
@@ -84,6 +85,26 @@ impl State {
             dsel: U8Register::new(0b0000_0000, 0b0000_0011),
             dmod: U8Register::new(0b0000_0000, 0b0011_1111),
         }
+    }
+
+    pub fn save_state(&self, writer: &mut StateWriter) {
+        self.src_dptr.save_state(writer);
+        self.dest_dptr.save_state(writer);
+        self.src_dbkr.save_state(writer);
+        self.dest_dbkr.save_state(writer);
+        self.dcnt.save_state(writer);
+        self.dsel.save_state(writer);
+        self.dmod.save_state(writer);
+    }
+
+    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+        self.src_dptr.load_state(reader)?;
+        self.dest_dptr.load_state(reader)?;
+        self.src_dbkr.load_state(reader)?;
+        self.dest_dbkr.load_state(reader)?;
+        self.dcnt.load_state(reader)?;
+        self.dsel.load_state(reader)?;
+        self.dmod.load_state(reader)
     }
 }
 

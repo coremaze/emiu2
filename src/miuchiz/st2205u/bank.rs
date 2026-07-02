@@ -1,4 +1,5 @@
 use super::{reg::U16Register, St2205uAddressSpace};
+use crate::state::{StateError, StateReader, StateWriter};
 
 pub struct State {
     brr: U16Register,
@@ -16,6 +17,20 @@ impl State {
             irr: U16Register::new(0b0000_0000_0000_0000, 0b1000_1111_1111_1111),
             drr: U16Register::new(0b0000_0000_0000_0000, 0b1000_0111_1111_1111),
         }
+    }
+
+    pub fn save_state(&self, writer: &mut StateWriter) {
+        self.brr.save_state(writer);
+        self.prr.save_state(writer);
+        self.irr.save_state(writer);
+        self.drr.save_state(writer);
+    }
+
+    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+        self.brr.load_state(reader)?;
+        self.prr.load_state(reader)?;
+        self.irr.load_state(reader)?;
+        self.drr.load_state(reader)
     }
 }
 

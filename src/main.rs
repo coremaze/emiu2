@@ -5,6 +5,7 @@ mod miuchiz;
 mod platform;
 mod screen;
 pub mod ssc;
+pub mod state;
 
 use std::path::PathBuf;
 
@@ -22,6 +23,11 @@ struct Args {
     /// Flash image to save
     #[arg(long)]
     save_file: Option<PathBuf>,
+
+    /// Savestate file used by the F5 (save) / F9 (load) hotkeys.
+    /// Defaults to the flash image path with ".state" appended.
+    #[arg(long)]
+    state_file: Option<PathBuf>,
 
     /// Pixel scale
     #[arg(long, default_value_t = 3)]
@@ -68,7 +74,7 @@ fn main() {
         }
     };
 
-    let flash_data = match std::fs::read(args.flash_file) {
+    let flash_data = match std::fs::read(&args.flash_file) {
         Ok(data) => data,
         Err(why) => {
             eprintln!("Could not read flash file: {why}");
@@ -79,6 +85,9 @@ fn main() {
     let scale = args.scale;
     let show_gpio = args.show_gpio;
     let save_file = args.save_file;
+    let state_file = args
+        .state_file
+        .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
 
     let ir_transceiver = match build_ir(&args.ir) {
         Ok(ir_transceiver) => ir_transceiver,
@@ -103,6 +112,7 @@ fn main() {
             minifb_gpio,
             screen,
             save_file,
+            state_file,
             ir_transceiver,
         );
     });
@@ -115,6 +125,7 @@ fn main() {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_emulator(
     otp_data: Vec<u8>,
     flash_data: Vec<u8>,
@@ -122,6 +133,7 @@ fn run_emulator(
     minifb_gpio: platform::minifb_screen_gpio::MiniFbGpioInternalInterface,
     mut screen: platform::minifb_screen_gpio::MiniFbScreen,
     save_file: Option<PathBuf>,
+    state_file: PathBuf,
     ir_transceiver: Box<dyn ir::IrInterface + Send>,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's
@@ -155,14 +167,16 @@ fn run_emulator(
     };
     // std::thread::sleep(std::time::Duration::from_secs(3));
 
-    let beginning = std::time::Instant::now();
+    // Wall-clock pacing anchor. Re-anchored whenever the emulated cycle
+    // counter jumps (savestate load), so the machine always runs at 1x
+    // from its current position instead of fast-forwarding to catch up.
+    let mut anchor_time = std::time::Instant::now();
+    let mut anchor_cycles = handheld.mcu.core.cycles;
 
     while screen.is_open() {
-        let now = std::time::Instant::now();
-        let elapsed = now - beginning;
-        let nanoseconds = elapsed.as_nanos();
-        let cycles_required_so_far =
-            (nanoseconds * handheld.mcu.core.cycles_per_second() as u128) / 1000000000;
+        let nanoseconds = anchor_time.elapsed().as_nanos();
+        let cycles_required_so_far = anchor_cycles as u128
+            + (nanoseconds * handheld.mcu.core.cycles_per_second() as u128) / 1000000000;
 
         while (handheld.mcu.core.cycles as u128) < cycles_required_so_far {
             // let pc = handheld.mcu.core.registers.pc;
@@ -172,6 +186,28 @@ fn run_emulator(
         }
 
         screen.update_state();
+
+        if screen.take_save_state_request() {
+            match std::fs::write(&state_file, handheld.save_state()) {
+                Ok(()) => println!("Saved state to {state_file:?}"),
+                Err(why) => eprintln!("Failed to save state: {why}"),
+            }
+        }
+
+        if screen.take_load_state_request() {
+            match std::fs::read(&state_file) {
+                Ok(data) => match handheld.load_state(&data) {
+                    Ok(()) => {
+                        anchor_time = std::time::Instant::now();
+                        anchor_cycles = handheld.mcu.core.cycles;
+                        println!("Loaded state from {state_file:?}");
+                    }
+                    Err(why) => eprintln!("Failed to load state: {why}"),
+                },
+                Err(why) => eprintln!("Failed to read state file: {why}"),
+            }
+        }
+
         std::thread::sleep(std::time::Duration::from_nanos(1));
     }
 

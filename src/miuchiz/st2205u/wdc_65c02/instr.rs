@@ -796,6 +796,15 @@ mod tests {
         }
 
         fn write_u8(&mut self, address: usize, value: u8) {}
+
+        fn save_state(&self, _writer: &mut crate::state::StateWriter) {}
+
+        fn load_state(
+            &mut self,
+            _reader: &mut crate::state::StateReader,
+        ) -> Result<(), crate::state::StateError> {
+            Ok(())
+        }
     }
 
     impl HandlesInterrupt for MockAddressSpace {

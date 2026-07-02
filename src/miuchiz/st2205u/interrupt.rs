@@ -1,5 +1,6 @@
 use super::reg::U16Register;
 use super::wdc_65c02::HandlesInterrupt;
+use crate::state::{StateError, StateReader, StateWriter};
 
 #[derive(Debug)]
 pub struct State {
@@ -119,6 +120,21 @@ impl State {
         let mask = 1u16 << bit;
 
         self.shadow_ireq.set_u16(self.shadow_ireq.u16() & !mask);
+    }
+
+    pub fn save_state(&self, writer: &mut StateWriter) {
+        self.ireq.save_state(writer);
+        self.shadow_ireq.save_state(writer);
+        self.iena.save_state(writer);
+        writer.put_bool(self.interrupted);
+    }
+
+    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+        self.ireq.load_state(reader)?;
+        self.shadow_ireq.load_state(reader)?;
+        self.iena.load_state(reader)?;
+        self.interrupted = reader.take_bool()?;
+        Ok(())
     }
 }
 

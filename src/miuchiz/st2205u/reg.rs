@@ -1,3 +1,5 @@
+use crate::state::{StateError, StateReader, StateWriter};
+
 #[derive(Default, Clone, Debug)]
 pub struct U8Register {
     val: u8,
@@ -33,6 +35,16 @@ impl U8Register {
 
     fn apply_mask(&mut self) {
         self.val &= self.mask;
+    }
+
+    /// The mask is fixed configuration; only the value is state.
+    pub fn save_state(&self, writer: &mut StateWriter) {
+        writer.put_u8(self.val);
+    }
+
+    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+        self.set(reader.take_u8()?);
+        Ok(())
     }
 }
 
@@ -95,5 +107,15 @@ impl U16Register {
 
     pub fn h_mask(&self) -> u8 {
         self.h.mask()
+    }
+
+    pub fn save_state(&self, writer: &mut StateWriter) {
+        self.l.save_state(writer);
+        self.h.save_state(writer);
+    }
+
+    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+        self.l.load_state(reader)?;
+        self.h.load_state(reader)
     }
 }
