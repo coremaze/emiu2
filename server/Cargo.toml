@@ -1,0 +1,7 @@
+[package]
+name = "emiu2-relay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+emiu2-netplay = { path = "../netplay" }

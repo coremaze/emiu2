@@ -29,6 +29,7 @@ pub mod error_code {
     pub const SELF_JOIN: u8 = 3;
     pub const ALREADY_PAIRED: u8 = 4;
     pub const BAD_VERSION: u8 = 5;
+    pub const THROTTLED: u8 = 6;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

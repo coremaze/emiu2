@@ -21,4 +21,5 @@ pub mod code;
 pub mod protocol;
 
 pub use code::FriendCode;
+pub use protocol::error_code;
 pub use protocol::{Decoder, Message, ProtocolError, CLIENT_MAGIC, PROTOCOL_VERSION};
