@@ -3,6 +3,7 @@ pub mod ir;
 pub mod memory;
 pub mod miuchiz;
 pub mod platform;
+pub mod rollback;
 pub mod screen;
 pub mod ssc;
 pub mod state;

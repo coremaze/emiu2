@@ -3,6 +3,7 @@ mod ir;
 pub mod memory;
 mod miuchiz;
 mod platform;
+mod rollback;
 mod screen;
 pub mod ssc;
 pub mod state;
@@ -42,9 +43,14 @@ struct Args {
     ir: String,
 }
 
-fn build_ir(spec: &str) -> Result<Box<dyn ir::IrInterface + Send>, String> {
+type IrSetup = (
+    Box<dyn ir::IrInterface + Send>,
+    Option<Box<dyn ir::IrRollbackControl + Send>>,
+);
+
+fn build_ir(spec: &str) -> Result<IrSetup, String> {
     if spec == "none" {
-        return Ok(Box::new(ir::DisconnectedIr));
+        return Ok((Box::new(ir::DisconnectedIr), None));
     }
     if let Some(port) = spec.strip_prefix("listen:") {
         let port: u16 = port
@@ -53,9 +59,12 @@ fn build_ir(spec: &str) -> Result<Box<dyn ir::IrInterface + Send>, String> {
         let socket = platform::socket_ir::SocketIr::listen(("0.0.0.0", port))
             .map_err(|why| format!("Could not listen for IR peers on port {port}: {why}"))?;
         eprintln!("IR: listening on port {port}");
-        Ok(Box::new(socket))
+        let rollback = socket.rollback_handle();
+        Ok((Box::new(socket), Some(Box::new(rollback))))
     } else if let Some(addr) = spec.strip_prefix("connect:") {
-        Ok(Box::new(platform::socket_ir::SocketIr::connect(addr)))
+        let socket = platform::socket_ir::SocketIr::connect(addr);
+        let rollback = socket.rollback_handle();
+        Ok((Box::new(socket), Some(Box::new(rollback))))
     } else {
         Err(format!(
             "Invalid --ir value {spec:?} (expected none, listen:<port>, or connect:<host:port>)"
@@ -89,8 +98,8 @@ fn main() {
         .state_file
         .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
 
-    let ir_transceiver = match build_ir(&args.ir) {
-        Ok(ir_transceiver) => ir_transceiver,
+    let (ir_transceiver, ir_rollback) = match build_ir(&args.ir) {
+        Ok(setup) => setup,
         Err(why) => {
             eprintln!("{why}");
             return;
@@ -114,6 +123,7 @@ fn main() {
             save_file,
             state_file,
             ir_transceiver,
+            ir_rollback,
         );
     });
 
@@ -135,6 +145,7 @@ fn run_emulator(
     save_file: Option<PathBuf>,
     state_file: PathBuf,
     ir_transceiver: Box<dyn ir::IrInterface + Send>,
+    ir_rollback: Option<Box<dyn ir::IrRollbackControl + Send>>,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's
     // `Stream` is `!Send`, so it must be created and dropped on the same thread.
@@ -167,9 +178,14 @@ fn run_emulator(
     };
     // std::thread::sleep(std::time::Duration::from_secs(3));
 
+    let mut rollback_driver = ir_rollback
+        .map(|control| -> Box<dyn ir::IrRollbackControl> { control })
+        .map(rollback::RollbackDriver::new);
+
     // Wall-clock pacing anchor. Re-anchored whenever the emulated cycle
-    // counter jumps (savestate load), so the machine always runs at 1x
-    // from its current position instead of fast-forwarding to catch up.
+    // counter jumps (savestate load or IR rollback), so the machine
+    // always runs at 1x from its current position instead of
+    // fast-forwarding to catch up.
     let mut anchor_time = std::time::Instant::now();
     let mut anchor_cycles = handheld.mcu.core.cycles;
 
@@ -183,6 +199,13 @@ fn run_emulator(
             // let inst = handheld.mcu.core.decode_next_instruction();
             // println!("{pc:04X}: {}", inst.instruction.to_string());
             handheld.mcu.step();
+        }
+
+        if let Some(driver) = rollback_driver.as_mut() {
+            if driver.run(&mut handheld) {
+                anchor_time = std::time::Instant::now();
+                anchor_cycles = handheld.mcu.core.cycles;
+            }
         }
 
         screen.update_state();

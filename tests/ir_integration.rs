@@ -15,13 +15,19 @@ use emiu2::ir::IrInterface;
 use emiu2::memory::AddressSpace;
 use emiu2::miuchiz::{GpioConnections, GpioInterfaceInternal, GpioState, Handheld, SYSTEM_FREQ};
 use emiu2::platform::socket_ir::SocketIr;
+use emiu2::rollback::RollbackDriver;
 use emiu2::screen::{Pixel, Screen};
 use std::cell::{Cell, RefCell};
+use std::io::{Read as IoRead, Write as IoWrite};
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 // ST2205U registers
+const PB: usize = 0x01;
+const PCB: usize = 0x09;
 const PMCR: usize = 0x3A;
 const XREQ: usize = 0x3B;
 const IENAL: usize = 0x3E;
@@ -532,6 +538,233 @@ fn firmware_reply_arrives_within_the_senders_listen_window() {
     for (i, &b) in reply.iter().enumerate() {
         assert_eq!(read(&mut requester, IR_RX_BUF + i), b, "reply byte {i}");
     }
+}
+
+/// Drives PB6, the receiver module's power supply, the way the firmware
+/// does: off while transmitting, on while listening. `PCB` bit 6 must be
+/// configured as an output first.
+fn set_rx_power(h: &mut Handheld, powered: bool) {
+    write(h, PB, if powered { 0x40 } else { 0x00 });
+}
+
+/// A TCP proxy that delays every byte by a fixed amount in each
+/// direction, modeling a high-latency internet link.
+fn spawn_delay_proxy(target_port: u16, delay: Duration) -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("could not bind proxy");
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let Ok((client, _)) = listener.accept() else {
+            return;
+        };
+        let Ok(upstream) = TcpStream::connect(("127.0.0.1", target_port)) else {
+            return;
+        };
+        client.set_nodelay(true).ok();
+        upstream.set_nodelay(true).ok();
+        let (Ok(client_copy), Ok(upstream_copy)) = (client.try_clone(), upstream.try_clone())
+        else {
+            return;
+        };
+        std::thread::spawn(move || delay_pipe(client, upstream_copy, delay));
+        delay_pipe(upstream, client_copy, delay);
+    });
+    port
+}
+
+fn delay_pipe(mut from: TcpStream, mut to: TcpStream, delay: Duration) {
+    let (tx, rx) = mpsc::channel::<(Instant, Vec<u8>)>();
+    std::thread::spawn(move || {
+        while let Ok((arrived, data)) = rx.recv() {
+            let release = arrived + delay;
+            let now = Instant::now();
+            if release > now {
+                std::thread::sleep(release - now);
+            }
+            if to.write_all(&data).is_err() {
+                return;
+            }
+        }
+    });
+    let mut buf = [0u8; 4096];
+    loop {
+        match from.read(&mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(n) => {
+                if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// On a link whose round trip far exceeds the firmware's ~98ms listen
+/// window, the handshake can only complete through rollback: replies
+/// always arrive after the requester has stopped listening, so the
+/// requester's machine must be rewound to its listen-window snapshot and
+/// the reply replayed inside it. Models the full firmware behavior
+/// including retransmission with the receiver powered off.
+#[test]
+fn rollback_recovers_handshake_over_high_latency_link() {
+    let Some((otp, flash)) = load_firmware() else {
+        eprintln!("skipping: firmware images not present");
+        return;
+    };
+
+    // Both machines are paced at 1/8 of real time: a debug build cannot
+    // sustain two full-speed machines on one thread, and uniform slow
+    // motion is invisible to the transport (all scheduling is in
+    // emulated time). The proxy delay is in wall time, so 400ms here is
+    // 50ms of emulated one-way delay: a 100ms emulated round trip,
+    // comfortably past the ~98ms listen window.
+    const PACE_DIV: u32 = 8;
+    const ONE_WAY_DELAY: Duration = Duration::from_millis(400);
+
+    let listen_ir = SocketIr::listen(("127.0.0.1", 0)).expect("could not bind IR socket");
+    let port = listen_ir.local_addr().unwrap().port();
+    let proxy_port = spawn_delay_proxy(port, ONE_WAY_DELAY);
+    let connect_ir = SocketIr::connect(format!("127.0.0.1:{proxy_port}"));
+
+    let requester_control = connect_ir.rollback_handle();
+    let responder_control = listen_ir.rollback_handle();
+
+    let start = Instant::now();
+    while !(listen_ir.connected() && connect_ir.connected()) {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "IR sockets never connected through the proxy"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let mut requester = make_handheld(&otp, &flash, Box::new(connect_ir));
+    let mut responder = make_handheld(&otp, &flash, Box::new(listen_ir));
+    setup_interrupt_bank(&mut requester);
+    setup_interrupt_bank(&mut responder);
+
+    // PB6 (receiver power) as an output on both boards.
+    write(&mut requester, PCB, 0x40);
+    write(&mut responder, PCB, 0x40);
+
+    let mut requester_driver = RollbackDriver::new(Box::new(requester_control));
+    let mut responder_driver = RollbackDriver::new(Box::new(responder_control));
+
+    let request: Vec<u8> = (0..16).map(|i| 0xC0 + i).collect();
+    let reply = [0xF1, 0x02];
+
+    // The requester transmits blind, receiver off, like the firmware.
+    set_rx_power(&mut requester, false);
+    setup_transmit(&mut requester, &request);
+    set_rx_power(&mut responder, true);
+    setup_receive(&mut responder);
+
+    let listen_window = 200 * (SYSTEM_FREQ / 2) / 2048; // core cycles
+
+    let mut listening_since: Option<u64> = None;
+    let mut retransmits = 0u32;
+    let mut responder_transmitting = false;
+    let mut replies_sent = 0u32;
+    let mut rollbacks = 0u32;
+
+    // Each machine is paced against the wall clock independently, with
+    // its own anchor, exactly like the real run loop: after a rollback
+    // the machine must resume at 1x from the restored point, because the
+    // rest of the frame it is waiting for is still arriving over the
+    // network in real time. A shared fast-forwarding target would race
+    // ahead of the arriving edges.
+    struct Paced {
+        anchor_wall: Instant,
+        anchor_cycles: u64,
+    }
+
+    impl Paced {
+        fn new(h: &Handheld) -> Self {
+            Self {
+                anchor_wall: Instant::now(),
+                anchor_cycles: h.mcu.core.cycles,
+            }
+        }
+
+        fn run_to_target(&self, h: &mut Handheld) {
+            let cps = h.mcu.core.cycles_per_second() as u128;
+            let target = self.anchor_cycles as u128
+                + self.anchor_wall.elapsed().as_nanos() * cps
+                    / 1_000_000_000
+                    / u128::from(PACE_DIV);
+            while (h.mcu.core.cycles as u128) < target {
+                h.mcu.step();
+            }
+        }
+    }
+
+    let begin = Instant::now();
+    let mut requester_pace = Paced::new(&requester);
+    let mut responder_pace = Paced::new(&responder);
+    let heard_reply = loop {
+        if begin.elapsed() > Duration::from_secs(90) {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+        requester_pace.run_to_target(&mut requester);
+        responder_pace.run_to_target(&mut responder);
+
+        if requester_driver.run(&mut requester) {
+            rollbacks += 1;
+            requester_pace = Paced::new(&requester);
+        }
+        if responder_driver.run(&mut responder) {
+            responder_pace = Paced::new(&responder);
+        }
+
+        // Requester: TX done -> listen; window expired -> retransmit.
+        if listening_since.is_none() && read(&mut requester, IR_STATE) & 0x01 == 0 {
+            set_rx_power(&mut requester, true);
+            setup_receive(&mut requester);
+            listening_since = Some(requester.mcu.core.cycles);
+        }
+        if let Some(since) = listening_since {
+            if read(&mut requester, IR_STATE) & 0x80 != 0 {
+                break true; // reply heard
+            }
+            if requester.mcu.core.cycles.saturating_sub(since) > listen_window {
+                retransmits += 1;
+                listening_since = None;
+                set_rx_power(&mut requester, false);
+                setup_transmit(&mut requester, &request);
+            }
+        }
+
+        // Responder: answer every received request, like the firmware's
+        // response script (duplicates get re-answered).
+        if !responder_transmitting && read(&mut responder, IR_STATE) & 0x80 != 0 {
+            responder_transmitting = true;
+            replies_sent += 1;
+            set_rx_power(&mut responder, false);
+            setup_transmit(&mut responder, &reply);
+        }
+        if responder_transmitting && read(&mut responder, IR_STATE) & 0x01 == 0 {
+            responder_transmitting = false;
+            set_rx_power(&mut responder, true);
+            setup_receive(&mut responder);
+        }
+    };
+    assert!(heard_reply, "handshake never completed over the slow link");
+
+    assert!(
+        retransmits >= 1,
+        "the reply should not fit the listen window on this link \
+         (retransmits: {retransmits})"
+    );
+    assert!(
+        rollbacks >= 1,
+        "the handshake completed without any rollback, so the link \
+         latency did not exercise the mechanism"
+    );
+    assert_eq!(read(&mut requester, IR_LEN) as usize, reply.len());
+    for (i, &b) in reply.iter().enumerate() {
+        assert_eq!(read(&mut requester, IR_RX_BUF + i), b, "reply byte {i}");
+    }
+    assert!(replies_sent >= 1);
 }
 
 #[test]

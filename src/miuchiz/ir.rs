@@ -76,7 +76,11 @@ impl GpioInterfaceInternal for IrCircuit {
             self.carrier_out = state.tco0;
             self.transceiver.set_carrier(cycle, state.tco0);
         }
-        self.rx_powered = state.pb & PB_RX_POWER != 0;
+        let rx_powered = state.pb & PB_RX_POWER != 0;
+        if rx_powered != self.rx_powered {
+            self.rx_powered = rx_powered;
+            self.transceiver.set_receiver_power(cycle, rx_powered);
+        }
         self.io.set_outputs(state, cycle);
     }
 
