@@ -1,5 +1,6 @@
 mod audio;
 mod ir;
+mod ir_replay;
 pub mod memory;
 mod miuchiz;
 mod platform;
