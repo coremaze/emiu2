@@ -14,6 +14,7 @@ use emiu2::audio::AudioInterface;
 use emiu2::ir::IrInterface;
 use emiu2::memory::AddressSpace;
 use emiu2::miuchiz::{GpioConnections, GpioInterfaceInternal, GpioState, Handheld, SYSTEM_FREQ};
+use emiu2::platform::relay_ir::RelayIr;
 use emiu2::platform::socket_ir::SocketIr;
 use emiu2::rollback::RollbackDriver;
 use emiu2::screen::{Pixel, Screen};
@@ -598,27 +599,182 @@ fn delay_pipe(mut from: TcpStream, mut to: TcpStream, delay: Duration) {
     }
 }
 
+/// High-latency handshake tests pace both machines at 1/8 of real time:
+/// a debug build cannot sustain two full-speed machines on one thread,
+/// and uniform slow motion is invisible to the transport (all scheduling
+/// is in emulated time). The proxy delay is in wall time, so 400ms here
+/// is 50ms of emulated one-way delay: a 100ms emulated round trip,
+/// comfortably past the ~98ms listen window.
+const PACE_DIV: u32 = 8;
+const ONE_WAY_DELAY: Duration = Duration::from_millis(400);
+
+/// Paces a machine against the wall clock with its own anchor, exactly
+/// like the real run loop: after a rollback the machine must resume at
+/// 1x from the restored point, because the rest of the frame it is
+/// waiting for is still arriving over the network in real time. A
+/// shared fast-forwarding target would race ahead of the arriving edges.
+struct Paced {
+    anchor_wall: Instant,
+    anchor_cycles: u64,
+}
+
+impl Paced {
+    fn new(h: &Handheld) -> Self {
+        Self {
+            anchor_wall: Instant::now(),
+            anchor_cycles: h.mcu.core.cycles,
+        }
+    }
+
+    fn run_to_target(&self, h: &mut Handheld) {
+        let cps = h.mcu.core.cycles_per_second() as u128;
+        let target = self.anchor_cycles as u128
+            + self.anchor_wall.elapsed().as_nanos() * cps / 1_000_000_000 / u128::from(PACE_DIV);
+        while (h.mcu.core.cycles as u128) < target {
+            h.mcu.step();
+        }
+    }
+}
+
+struct HandshakeOutcome {
+    heard_reply: bool,
+    retransmits: u32,
+    rollbacks: u32,
+    replies_sent: u32,
+}
+
+/// Runs the firmware's request/reply handshake between two staged
+/// handhelds, modeling the full firmware behavior: the requester
+/// transmits blind (receiver off), listens ~98ms, and retransmits on
+/// timeout; the responder answers every received request. Both rollback
+/// drivers run every quantum, as in the real emulator loop.
+fn drive_high_latency_handshake(
+    requester: &mut Handheld,
+    responder: &mut Handheld,
+    requester_driver: &mut RollbackDriver,
+    responder_driver: &mut RollbackDriver,
+    request: &[u8],
+    reply: &[u8],
+) -> HandshakeOutcome {
+    setup_interrupt_bank(requester);
+    setup_interrupt_bank(responder);
+
+    // PB6 (receiver power) as an output on both boards.
+    write(requester, PCB, 0x40);
+    write(responder, PCB, 0x40);
+
+    // The requester transmits blind, receiver off, like the firmware.
+    set_rx_power(requester, false);
+    setup_transmit(requester, request);
+    set_rx_power(responder, true);
+    setup_receive(responder);
+
+    let listen_window = 200 * (SYSTEM_FREQ / 2) / 2048; // core cycles
+
+    let mut listening_since: Option<u64> = None;
+    let mut retransmits = 0u32;
+    let mut responder_transmitting = false;
+    let mut replies_sent = 0u32;
+    let mut rollbacks = 0u32;
+
+    let begin = Instant::now();
+    let mut requester_pace = Paced::new(requester);
+    let mut responder_pace = Paced::new(responder);
+    let heard_reply = loop {
+        if begin.elapsed() > Duration::from_secs(90) {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+        requester_pace.run_to_target(requester);
+        responder_pace.run_to_target(responder);
+
+        if requester_driver.run(requester) {
+            rollbacks += 1;
+            requester_pace = Paced::new(requester);
+        }
+        if responder_driver.run(responder) {
+            responder_pace = Paced::new(responder);
+        }
+
+        // Requester: TX done -> listen; window expired -> retransmit.
+        if listening_since.is_none() && read(requester, IR_STATE) & 0x01 == 0 {
+            set_rx_power(requester, true);
+            setup_receive(requester);
+            listening_since = Some(requester.mcu.core.cycles);
+        }
+        if let Some(since) = listening_since {
+            if read(requester, IR_STATE) & 0x80 != 0 {
+                break true; // reply heard
+            }
+            if requester.mcu.core.cycles.saturating_sub(since) > listen_window {
+                retransmits += 1;
+                listening_since = None;
+                set_rx_power(requester, false);
+                setup_transmit(requester, request);
+            }
+        }
+
+        // Responder: answer every received request, like the firmware's
+        // response script (duplicates get re-answered).
+        if !responder_transmitting && read(responder, IR_STATE) & 0x80 != 0 {
+            responder_transmitting = true;
+            replies_sent += 1;
+            set_rx_power(responder, false);
+            setup_transmit(responder, reply);
+        }
+        if responder_transmitting && read(responder, IR_STATE) & 0x01 == 0 {
+            responder_transmitting = false;
+            set_rx_power(responder, true);
+            setup_receive(responder);
+        }
+    };
+
+    HandshakeOutcome {
+        heard_reply,
+        retransmits,
+        rollbacks,
+        replies_sent,
+    }
+}
+
+fn assert_handshake_needed_rollback(
+    requester: &mut Handheld,
+    outcome: &HandshakeOutcome,
+    reply: &[u8],
+) {
+    assert!(
+        outcome.heard_reply,
+        "handshake never completed over the slow link"
+    );
+    assert!(
+        outcome.retransmits >= 1,
+        "the reply should not fit the listen window on this link \
+         (retransmits: {})",
+        outcome.retransmits
+    );
+    assert!(
+        outcome.rollbacks >= 1,
+        "the handshake completed without any rollback, so the link \
+         latency did not exercise the mechanism"
+    );
+    assert_eq!(read(requester, IR_LEN) as usize, reply.len());
+    for (i, &b) in reply.iter().enumerate() {
+        assert_eq!(read(requester, IR_RX_BUF + i), b, "reply byte {i}");
+    }
+    assert!(outcome.replies_sent >= 1);
+}
+
 /// On a link whose round trip far exceeds the firmware's ~98ms listen
 /// window, the handshake can only complete through rollback: replies
 /// always arrive after the requester has stopped listening, so the
 /// requester's machine must be rewound to its listen-window snapshot and
-/// the reply replayed inside it. Models the full firmware behavior
-/// including retransmission with the receiver powered off.
+/// the reply replayed inside it.
 #[test]
 fn rollback_recovers_handshake_over_high_latency_link() {
     let Some((otp, flash)) = load_firmware() else {
         eprintln!("skipping: firmware images not present");
         return;
     };
-
-    // Both machines are paced at 1/8 of real time: a debug build cannot
-    // sustain two full-speed machines on one thread, and uniform slow
-    // motion is invisible to the transport (all scheduling is in
-    // emulated time). The proxy delay is in wall time, so 400ms here is
-    // 50ms of emulated one-way delay: a 100ms emulated round trip,
-    // comfortably past the ~98ms listen window.
-    const PACE_DIV: u32 = 8;
-    const ONE_WAY_DELAY: Duration = Duration::from_millis(400);
 
     let listen_ir = SocketIr::listen(("127.0.0.1", 0)).expect("could not bind IR socket");
     let port = listen_ir.local_addr().unwrap().port();
@@ -639,132 +795,83 @@ fn rollback_recovers_handshake_over_high_latency_link() {
 
     let mut requester = make_handheld(&otp, &flash, Box::new(connect_ir));
     let mut responder = make_handheld(&otp, &flash, Box::new(listen_ir));
-    setup_interrupt_bank(&mut requester);
-    setup_interrupt_bank(&mut responder);
-
-    // PB6 (receiver power) as an output on both boards.
-    write(&mut requester, PCB, 0x40);
-    write(&mut responder, PCB, 0x40);
-
     let mut requester_driver = RollbackDriver::new(Box::new(requester_control));
     let mut responder_driver = RollbackDriver::new(Box::new(responder_control));
 
     let request: Vec<u8> = (0..16).map(|i| 0xC0 + i).collect();
     let reply = [0xF1, 0x02];
+    let outcome = drive_high_latency_handshake(
+        &mut requester,
+        &mut responder,
+        &mut requester_driver,
+        &mut responder_driver,
+        &request,
+        &reply,
+    );
+    assert_handshake_needed_rollback(&mut requester, &outcome, &reply);
+}
 
-    // The requester transmits blind, receiver off, like the firmware.
-    set_rx_power(&mut requester, false);
-    setup_transmit(&mut requester, &request);
-    set_rx_power(&mut responder, true);
-    setup_receive(&mut responder);
-
-    let listen_window = 200 * (SYSTEM_FREQ / 2) / 2048; // core cycles
-
-    let mut listening_since: Option<u64> = None;
-    let mut retransmits = 0u32;
-    let mut responder_transmitting = false;
-    let mut replies_sent = 0u32;
-    let mut rollbacks = 0u32;
-
-    // Each machine is paced against the wall clock independently, with
-    // its own anchor, exactly like the real run loop: after a rollback
-    // the machine must resume at 1x from the restored point, because the
-    // rest of the frame it is waiting for is still arriving over the
-    // network in real time. A shared fast-forwarding target would race
-    // ahead of the arriving edges.
-    struct Paced {
-        anchor_wall: Instant,
-        anchor_cycles: u64,
-    }
-
-    impl Paced {
-        fn new(h: &Handheld) -> Self {
-            Self {
-                anchor_wall: Instant::now(),
-                anchor_cycles: h.mcu.core.cycles,
-            }
-        }
-
-        fn run_to_target(&self, h: &mut Handheld) {
-            let cps = h.mcu.core.cycles_per_second() as u128;
-            let target = self.anchor_cycles as u128
-                + self.anchor_wall.elapsed().as_nanos() * cps
-                    / 1_000_000_000
-                    / u128::from(PACE_DIV);
-            while (h.mcu.core.cycles as u128) < target {
-                h.mcu.step();
-            }
-        }
-    }
-
-    let begin = Instant::now();
-    let mut requester_pace = Paced::new(&requester);
-    let mut responder_pace = Paced::new(&responder);
-    let heard_reply = loop {
-        if begin.elapsed() > Duration::from_secs(90) {
-            break false;
-        }
-        std::thread::sleep(Duration::from_millis(2));
-        requester_pace.run_to_target(&mut requester);
-        responder_pace.run_to_target(&mut responder);
-
-        if requester_driver.run(&mut requester) {
-            rollbacks += 1;
-            requester_pace = Paced::new(&requester);
-        }
-        if responder_driver.run(&mut responder) {
-            responder_pace = Paced::new(&responder);
-        }
-
-        // Requester: TX done -> listen; window expired -> retransmit.
-        if listening_since.is_none() && read(&mut requester, IR_STATE) & 0x01 == 0 {
-            set_rx_power(&mut requester, true);
-            setup_receive(&mut requester);
-            listening_since = Some(requester.mcu.core.cycles);
-        }
-        if let Some(since) = listening_since {
-            if read(&mut requester, IR_STATE) & 0x80 != 0 {
-                break true; // reply heard
-            }
-            if requester.mcu.core.cycles.saturating_sub(since) > listen_window {
-                retransmits += 1;
-                listening_since = None;
-                set_rx_power(&mut requester, false);
-                setup_transmit(&mut requester, &request);
-            }
-        }
-
-        // Responder: answer every received request, like the firmware's
-        // response script (duplicates get re-answered).
-        if !responder_transmitting && read(&mut responder, IR_STATE) & 0x80 != 0 {
-            responder_transmitting = true;
-            replies_sent += 1;
-            set_rx_power(&mut responder, false);
-            setup_transmit(&mut responder, &reply);
-        }
-        if responder_transmitting && read(&mut responder, IR_STATE) & 0x01 == 0 {
-            responder_transmitting = false;
-            set_rx_power(&mut responder, true);
-            setup_receive(&mut responder);
-        }
+/// The same high-latency handshake, but through the relay server with
+/// friend-code pairing: the full netplay stack end to end. One client
+/// reaches the relay through the delay proxy, so the peer-to-peer round
+/// trip is the same 100ms of emulated time as in the direct socket test.
+#[test]
+fn relay_with_rollback_recovers_handshake_over_high_latency_link() {
+    let Some((otp, flash)) = load_firmware() else {
+        eprintln!("skipping: firmware images not present");
+        return;
     };
-    assert!(heard_reply, "handshake never completed over the slow link");
 
-    assert!(
-        retransmits >= 1,
-        "the reply should not fit the listen window on this link \
-         (retransmits: {retransmits})"
-    );
-    assert!(
-        rollbacks >= 1,
-        "the handshake completed without any rollback, so the link \
-         latency did not exercise the mechanism"
-    );
-    assert_eq!(read(&mut requester, IR_LEN) as usize, reply.len());
-    for (i, &b) in reply.iter().enumerate() {
-        assert_eq!(read(&mut requester, IR_RX_BUF + i), b, "reply byte {i}");
+    let server_addr = emiu2_relay::RelayServer::bind(("127.0.0.1", 0))
+        .expect("could not bind relay")
+        .spawn();
+    let proxy_port = spawn_delay_proxy(server_addr.port(), ONE_WAY_DELAY);
+
+    let requester_ir = RelayIr::connect(format!("127.0.0.1:{proxy_port}"));
+    let responder_ir = RelayIr::connect(format!("127.0.0.1:{}", server_addr.port()));
+    let requester_commander = requester_ir.commander();
+    let responder_commander = responder_ir.commander();
+    let requester_control = requester_ir.rollback_handle();
+    let responder_control = responder_ir.rollback_handle();
+
+    // Wait for both welcomes (the proxied one takes a round trip), then
+    // pair by friend code, like a user typing "join <code>".
+    let start = Instant::now();
+    let responder_code = loop {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "clients never received their friend codes"
+        );
+        if let (Some(_), Some(code)) = (requester_commander.code(), responder_commander.code()) {
+            break code;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    requester_commander.join(responder_code);
+    while !(requester_commander.paired() && responder_commander.paired()) {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "clients never paired"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(replies_sent >= 1);
+
+    let mut requester = make_handheld(&otp, &flash, Box::new(requester_ir));
+    let mut responder = make_handheld(&otp, &flash, Box::new(responder_ir));
+    let mut requester_driver = RollbackDriver::new(Box::new(requester_control));
+    let mut responder_driver = RollbackDriver::new(Box::new(responder_control));
+
+    let request: Vec<u8> = (0..16).map(|i| 0xC0 + i).collect();
+    let reply = [0xE7, 0x15];
+    let outcome = drive_high_latency_handshake(
+        &mut requester,
+        &mut responder,
+        &mut requester_driver,
+        &mut responder_driver,
+        &request,
+        &reply,
+    );
+    assert_handshake_needed_rollback(&mut requester, &outcome, &reply);
 }
 
 #[test]

@@ -39,7 +39,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     show_gpio: bool,
 
-    /// IR transceiver: none, listen:<port>, or connect:<host:port>
+    /// IR transceiver: none, listen:<port>, connect:<host:port>, or
+    /// relay:<host:port> (an emiu2 relay server; pair with friend codes
+    /// by typing "join <code>" on standard input)
     #[arg(long, default_value = "none")]
     ir: String,
 }
@@ -47,11 +49,12 @@ struct Args {
 type IrSetup = (
     Box<dyn ir::IrInterface + Send>,
     Option<Box<dyn ir::IrRollbackControl + Send>>,
+    Option<platform::relay_ir::RelayCommander>,
 );
 
 fn build_ir(spec: &str) -> Result<IrSetup, String> {
     if spec == "none" {
-        return Ok((Box::new(ir::DisconnectedIr), None));
+        return Ok((Box::new(ir::DisconnectedIr), None, None));
     }
     if let Some(port) = spec.strip_prefix("listen:") {
         let port: u16 = port
@@ -61,15 +64,58 @@ fn build_ir(spec: &str) -> Result<IrSetup, String> {
             .map_err(|why| format!("Could not listen for IR peers on port {port}: {why}"))?;
         eprintln!("IR: listening on port {port}");
         let rollback = socket.rollback_handle();
-        Ok((Box::new(socket), Some(Box::new(rollback))))
+        Ok((Box::new(socket), Some(Box::new(rollback)), None))
     } else if let Some(addr) = spec.strip_prefix("connect:") {
         let socket = platform::socket_ir::SocketIr::connect(addr);
         let rollback = socket.rollback_handle();
-        Ok((Box::new(socket), Some(Box::new(rollback))))
+        Ok((Box::new(socket), Some(Box::new(rollback)), None))
+    } else if let Some(addr) = spec.strip_prefix("relay:") {
+        let relay = platform::relay_ir::RelayIr::connect(addr);
+        let rollback = relay.rollback_handle();
+        let commander = relay.commander();
+        Ok((Box::new(relay), Some(Box::new(rollback)), Some(commander)))
     } else {
         Err(format!(
-            "Invalid --ir value {spec:?} (expected none, listen:<port>, or connect:<host:port>)"
+            "Invalid --ir value {spec:?} (expected none, listen:<port>, \
+             connect:<host:port>, or relay:<host:port>)"
         ))
+    }
+}
+
+/// Reads pairing commands from standard input while the emulator runs.
+fn relay_console(commander: platform::relay_ir::RelayCommander) {
+    use std::io::BufRead;
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { return };
+        let mut parts = line.split_whitespace();
+        match parts.next() {
+            Some("join") => match parts.next().and_then(emiu2_netplay::FriendCode::parse) {
+                Some(code) => commander.join(code),
+                None => eprintln!("Usage: join <6-character friend code>"),
+            },
+            Some("leave") => commander.leave(),
+            Some("status") => {
+                let code = commander
+                    .code()
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "not assigned yet".into());
+                eprintln!(
+                    "IR relay: {}, {}. Your code: {code}",
+                    if commander.connected() {
+                        "connected"
+                    } else {
+                        "connecting..."
+                    },
+                    if commander.paired() {
+                        "paired"
+                    } else {
+                        "not paired"
+                    },
+                );
+            }
+            Some(_) => eprintln!("Commands: join <code>, leave, status"),
+            None => {}
+        }
     }
 }
 
@@ -99,13 +145,17 @@ fn main() {
         .state_file
         .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
 
-    let (ir_transceiver, ir_rollback) = match build_ir(&args.ir) {
+    let (ir_transceiver, ir_rollback, ir_commander) = match build_ir(&args.ir) {
         Ok(setup) => setup,
         Err(why) => {
             eprintln!("{why}");
             return;
         }
     };
+
+    if let Some(commander) = ir_commander {
+        std::thread::spawn(move || relay_console(commander));
+    }
 
     let (screen, minifb_gpio, screen_tx, worker) =
         platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
