@@ -112,7 +112,9 @@ impl Registry {
     fn send(&self, to: FriendCode, message: Message) {
         if let Some(client) = self.clients.get(&to) {
             // A dead writer is cleaned up by its own connection teardown.
-            let _ = client.sender.send(message.encode());
+            let _ = client
+                .sender
+                .send(crate::Outgoing::Protocol(message.encode()));
         }
     }
 }

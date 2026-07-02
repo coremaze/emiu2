@@ -6,20 +6,26 @@
 //! codes are ephemeral: assigned when a client says hello, gone when it
 //! disconnects.
 //!
-//! Native emulators speak the length-prefixed protocol directly over
-//! TCP after an 8-byte magic. The first byte a client sends selects the
-//! dialect, which is how WebSocket support (an HTTP `GET` upgrade)
-//! shares the port.
+//! Two dialects share the port, selected by the first byte a client
+//! sends: native emulators send an 8-byte magic and then the
+//! length-prefixed protocol as a plain TCP stream, while browsers send
+//! an HTTP `GET` upgrade and then carry each protocol message in one
+//! WebSocket binary frame.
 
+mod base64;
 mod registry;
+mod sha1;
+pub mod websocket;
 
 use emiu2_netplay::{error_code, Decoder, FriendCode, Message, CLIENT_MAGIC, PROTOCOL_VERSION};
 use registry::{JoinOutcome, Registry};
+use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use websocket::{FrameAssembler, WsEvent};
 
 /// Refuse connections beyond this many concurrent clients.
 const MAX_CLIENTS: usize = 512;
@@ -82,9 +88,71 @@ impl RelayServer {
     }
 }
 
-/// How a connected client receives bytes: pre-encoded messages queued to
-/// its writer thread.
-pub(crate) type ClientSender = mpsc::Sender<Vec<u8>>;
+/// What a connection's writer thread can be asked to send.
+pub(crate) enum Outgoing {
+    /// An encoded protocol message (framed per dialect by the writer).
+    Protocol(Vec<u8>),
+    /// A WebSocket pong; native connections have no equivalent.
+    WsPong(Vec<u8>),
+}
+
+/// How a connected client receives messages: queued to its writer.
+pub(crate) type ClientSender = mpsc::Sender<Outgoing>;
+
+#[derive(Clone, Copy)]
+enum Framing {
+    Native,
+    WebSocket,
+}
+
+/// Per-dialect incremental parsing of the byte stream into messages.
+enum Dialect {
+    Native(Decoder),
+    WebSocket(FrameAssembler),
+}
+
+impl Dialect {
+    fn ingest(
+        &mut self,
+        bytes: &[u8],
+        sender: &ClientSender,
+        messages: &mut VecDeque<Message>,
+    ) -> std::io::Result<()> {
+        match self {
+            Dialect::Native(decoder) => {
+                decoder.push(bytes);
+                while let Some(message) = decoder
+                    .next()
+                    .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?
+                {
+                    messages.push_back(message);
+                }
+            }
+            Dialect::WebSocket(assembler) => {
+                assembler.push(bytes);
+                while let Some(event) = assembler.next()? {
+                    match event {
+                        WsEvent::Message(frame) => {
+                            let message = Message::decode_frame(&frame)
+                                .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?;
+                            messages.push_back(message);
+                        }
+                        WsEvent::Ping(payload) => {
+                            let _ = sender.send(Outgoing::WsPong(payload));
+                        }
+                        WsEvent::Close => {
+                            return Err(std::io::Error::new(
+                                ErrorKind::ConnectionAborted,
+                                "websocket close",
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 fn serve_client(mut stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::io::Result<()> {
     stream.set_nodelay(true).ok();
@@ -108,27 +176,82 @@ fn serve_client(mut stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::
         ));
     }
 
-    serve_native_client(stream, registry)
+    serve_session(
+        stream,
+        registry,
+        Framing::Native,
+        Dialect::Native(Decoder::new()),
+        Vec::new(),
+    )
 }
 
-/// Placeholder until WebSocket support lands: refuse politely.
 fn serve_websocket_client(
     mut stream: TcpStream,
-    _registry: &Arc<Mutex<Registry>>,
-    _first: u8,
+    registry: &Arc<Mutex<Registry>>,
+    first: u8,
 ) -> std::io::Result<()> {
-    stream
-        .write_all(b"HTTP/1.1 501 Not Implemented\r\nConnection: close\r\n\r\n")
-        .ok();
-    Ok(())
+    // Read the request head; the first byte was consumed by the sniff.
+    let mut request = vec![first];
+    let mut chunk = [0u8; 1024];
+    let header_end = loop {
+        if let Some(end) = find_header_end(&request) {
+            break end;
+        }
+        if request.len() > 16 * 1024 {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "oversized HTTP request",
+            ));
+        }
+        match stream.read(&mut chunk)? {
+            0 => {
+                return Err(std::io::Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "incomplete HTTP request",
+                ))
+            }
+            n => request.extend_from_slice(&chunk[..n]),
+        }
+    };
+
+    match websocket::upgrade_response(&request[..header_end]) {
+        Ok(response) => stream.write_all(&response)?,
+        Err(response) => {
+            stream.write_all(&response).ok();
+            return Ok(());
+        }
+    }
+
+    // Bytes past the header already belong to the frame stream.
+    let leftover = request[header_end..].to_vec();
+    serve_session(
+        stream,
+        registry,
+        Framing::WebSocket,
+        Dialect::WebSocket(FrameAssembler::new()),
+        leftover,
+    )
 }
 
-fn serve_native_client(stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::io::Result<()> {
-    let writer_stream = stream.try_clone()?;
-    let (sender, outbox) = mpsc::channel::<Vec<u8>>();
-    let writer = std::thread::spawn(move || writer_loop(writer_stream, outbox));
+fn find_header_end(request: &[u8]) -> Option<usize> {
+    request
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)
+}
 
-    let result = native_reader_loop(stream, registry, &sender);
+fn serve_session(
+    stream: TcpStream,
+    registry: &Arc<Mutex<Registry>>,
+    framing: Framing,
+    mut dialect: Dialect,
+    initial: Vec<u8>,
+) -> std::io::Result<()> {
+    let writer_stream = stream.try_clone()?;
+    let (sender, outbox) = mpsc::channel::<Outgoing>();
+    let writer = std::thread::spawn(move || writer_loop(writer_stream, outbox, framing));
+
+    let result = reader_session(stream, registry, &sender, &mut dialect, initial);
 
     // Closing the channel ends the writer; the writer shuts the socket
     // down when it exits, which also unblocks any pending read.
@@ -137,21 +260,32 @@ fn serve_native_client(stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> st
     result
 }
 
-fn writer_loop(mut stream: TcpStream, outbox: mpsc::Receiver<Vec<u8>>) {
+fn writer_loop(mut stream: TcpStream, outbox: mpsc::Receiver<Outgoing>, framing: Framing) {
     loop {
-        match outbox.recv_timeout(PING_INTERVAL) {
-            Ok(bytes) => {
-                if stream.write_all(&bytes).is_err() {
-                    break;
-                }
-            }
+        let bytes = match outbox.recv_timeout(PING_INTERVAL) {
+            Ok(Outgoing::Protocol(bytes)) => match framing {
+                Framing::Native => bytes,
+                Framing::WebSocket => websocket::frame_binary(&bytes),
+            },
+            Ok(Outgoing::WsPong(payload)) => match framing {
+                Framing::Native => continue,
+                Framing::WebSocket => websocket::frame_pong(&payload),
+            },
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if stream.write_all(&Message::Ping.encode()).is_err() {
-                    break;
+                let ping = Message::Ping.encode();
+                match framing {
+                    Framing::Native => ping,
+                    Framing::WebSocket => websocket::frame_binary(&ping),
                 }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        if stream.write_all(&bytes).is_err() {
+            break;
         }
+    }
+    if let Framing::WebSocket = framing {
+        stream.write_all(&websocket::frame_close()).ok();
     }
     stream.shutdown(Shutdown::Both).ok();
 }
@@ -162,15 +296,18 @@ struct Session {
     last_join: Option<Instant>,
 }
 
-fn native_reader_loop(
+fn reader_session(
     mut stream: TcpStream,
     registry: &Arc<Mutex<Registry>>,
     sender: &ClientSender,
+    dialect: &mut Dialect,
+    initial: Vec<u8>,
 ) -> std::io::Result<()> {
-    let mut decoder = Decoder::new();
+    let mut pending = VecDeque::new();
+    dialect.ingest(&initial, sender, &mut pending)?;
 
     // The first message must be a Hello with a compatible version.
-    let hello = read_message(&mut stream, &mut decoder)?;
+    let hello = next_message_blocking(&mut stream, sender, dialect, &mut pending)?;
     let Message::Hello { version } = hello else {
         return Err(std::io::Error::new(
             ErrorKind::InvalidData,
@@ -178,31 +315,38 @@ fn native_reader_loop(
         ));
     };
     if version != PROTOCOL_VERSION {
-        let _ = sender.send(
+        let _ = sender.send(Outgoing::Protocol(
             Message::Error {
                 code: error_code::BAD_VERSION,
                 message: format!("server speaks version {PROTOCOL_VERSION}"),
             }
             .encode(),
-        );
+        ));
         return Ok(());
     }
 
     let code = registry.lock().unwrap().register(sender.clone());
-    let _ = sender.send(
+    let _ = sender.send(Outgoing::Protocol(
         Message::Welcome {
             version: PROTOCOL_VERSION,
             code,
         }
         .encode(),
-    );
+    ));
 
     let mut session = Session {
         code,
         last_join: None,
     };
 
-    let result = session_loop(&mut stream, registry, sender, &mut decoder, &mut session);
+    let result = session_loop(
+        &mut stream,
+        registry,
+        sender,
+        dialect,
+        &mut pending,
+        &mut session,
+    );
     registry.lock().unwrap().unregister(session.code);
     result
 }
@@ -211,7 +355,8 @@ fn session_loop(
     stream: &mut TcpStream,
     registry: &Arc<Mutex<Registry>>,
     sender: &ClientSender,
-    decoder: &mut Decoder,
+    dialect: &mut Dialect,
+    pending: &mut VecDeque<Message>,
     session: &mut Session,
 ) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
@@ -219,17 +364,15 @@ fn session_loop(
     let mut chunk = [0u8; 4096];
 
     loop {
+        while let Some(message) = pending.pop_front() {
+            handle_message(message, registry, sender, session);
+        }
+
         match stream.read(&mut chunk) {
             Ok(0) => return Ok(()),
             Ok(n) => {
                 last_activity = Instant::now();
-                decoder.push(&chunk[..n]);
-                while let Some(message) = decoder
-                    .next()
-                    .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?
-                {
-                    handle_message(message, registry, sender, session);
-                }
+                dialect.ingest(&chunk[..n], sender, pending)?;
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
                 if last_activity.elapsed() > IDLE_TIMEOUT {
@@ -289,7 +432,7 @@ fn handle_message(
                 .relay(session.code, Message::IrData { records });
         }
         Message::Ping => {
-            let _ = sender.send(Message::Pong.encode());
+            let _ = sender.send(Outgoing::Protocol(Message::Pong.encode()));
         }
         Message::Pong => {}
         // Server-to-client messages or a second Hello from a client are
@@ -303,23 +446,25 @@ fn handle_message(
 }
 
 fn send_error(sender: &ClientSender, code: u8, message: &str) {
-    let _ = sender.send(
+    let _ = sender.send(Outgoing::Protocol(
         Message::Error {
             code,
             message: message.into(),
         }
         .encode(),
-    );
+    ));
 }
 
 /// Blocking read of the next complete message (used for the Hello).
-fn read_message(stream: &mut TcpStream, decoder: &mut Decoder) -> std::io::Result<Message> {
+fn next_message_blocking(
+    stream: &mut TcpStream,
+    sender: &ClientSender,
+    dialect: &mut Dialect,
+    pending: &mut VecDeque<Message>,
+) -> std::io::Result<Message> {
     let mut chunk = [0u8; 1024];
     loop {
-        if let Some(message) = decoder
-            .next()
-            .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?
-        {
+        if let Some(message) = pending.pop_front() {
             return Ok(message);
         }
         match stream.read(&mut chunk) {
@@ -329,7 +474,7 @@ fn read_message(stream: &mut TcpStream, decoder: &mut Decoder) -> std::io::Resul
                     "disconnected before Hello",
                 ))
             }
-            Ok(n) => decoder.push(&chunk[..n]),
+            Ok(n) => dialect.ingest(&chunk[..n], sender, pending)?,
             Err(e) => return Err(e),
         }
     }
