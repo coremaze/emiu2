@@ -1,7 +1,7 @@
 use std::cmp::PartialEq;
 
 use crate::memory::AddressSpace;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 const CHIP_CAPACITY: usize = 0x200000;
 const SECTOR_SIZE: usize = 0x1000;
@@ -152,7 +152,7 @@ impl AddressSpace for Flash {
         }
     }
 
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_bytes(self.data.as_ref());
         match self.read_mode {
             ReadMode::Data => writer.put_u8(0),
@@ -174,18 +174,18 @@ impl AddressSpace for Flash {
         }
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         reader.take_into(self.data.as_mut())?;
         self.read_mode = match reader.take_u8()? {
             0 => ReadMode::Data,
             1 => ReadMode::Status {
                 address: reader.take_u64()? as usize,
             },
-            _ => return Err(StateError::Corrupt("flash read mode")),
+            _ => return Err(SnapshotError::Corrupt("flash read mode")),
         };
         let index = reader.take_u8()? as usize;
         if index >= self.command_writes.size() {
-            return Err(StateError::Corrupt("flash command ring index"));
+            return Err(SnapshotError::Corrupt("flash command ring index"));
         }
         self.command_writes.index = index;
         for slot in &mut self.command_writes.data {

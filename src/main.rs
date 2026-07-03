@@ -6,8 +6,8 @@ mod miuchiz;
 mod platform;
 mod rollback;
 mod screen;
+pub mod snapshot;
 pub mod ssc;
-pub mod state;
 
 use std::path::PathBuf;
 
@@ -29,7 +29,7 @@ struct Args {
     /// Savestate file used by the F5 (save) / F9 (load) hotkeys.
     /// Defaults to the flash image path with ".state" appended.
     #[arg(long)]
-    state_file: Option<PathBuf>,
+    savestate_file: Option<PathBuf>,
 
     /// Pixel scale
     #[arg(long, default_value_t = 3)]
@@ -141,8 +141,8 @@ fn main() {
     let scale = args.scale;
     let show_gpio = args.show_gpio;
     let save_file = args.save_file;
-    let state_file = args
-        .state_file
+    let savestate_file = args
+        .savestate_file
         .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
 
     let (ir_transceiver, ir_rollback, ir_commander) = match build_ir(&args.ir) {
@@ -172,7 +172,7 @@ fn main() {
             minifb_gpio,
             screen,
             save_file,
-            state_file,
+            savestate_file,
             ir_transceiver,
             ir_rollback,
         );
@@ -194,7 +194,7 @@ fn run_emulator(
     minifb_gpio: platform::minifb_screen_gpio::MiniFbGpioInternalInterface,
     mut screen: platform::minifb_screen_gpio::MiniFbScreen,
     save_file: Option<PathBuf>,
-    state_file: PathBuf,
+    savestate_file: PathBuf,
     ir_transceiver: Box<dyn ir::IrInterface + Send>,
     ir_rollback: Option<Box<dyn ir::IrRollbackControl + Send>>,
 ) {
@@ -261,20 +261,20 @@ fn run_emulator(
 
         screen.update_state();
 
-        if screen.take_save_state_request() {
-            match std::fs::write(&state_file, handheld.save_state()) {
-                Ok(()) => println!("Saved state to {state_file:?}"),
+        if screen.take_snapshot_request() {
+            match std::fs::write(&savestate_file, handheld.snapshot()) {
+                Ok(()) => println!("Saved savestate to {savestate_file:?}"),
                 Err(why) => eprintln!("Failed to save state: {why}"),
             }
         }
 
-        if screen.take_load_state_request() {
-            match std::fs::read(&state_file) {
-                Ok(data) => match handheld.load_state(&data) {
+        if screen.take_restore_request() {
+            match std::fs::read(&savestate_file) {
+                Ok(data) => match handheld.restore(&data) {
                     Ok(()) => {
                         anchor_time = std::time::Instant::now();
                         anchor_cycles = handheld.mcu.core.cycles;
-                        println!("Loaded state from {state_file:?}");
+                        println!("Loaded savestate from {savestate_file:?}");
                     }
                     Err(why) => eprintln!("Failed to load state: {why}"),
                 },

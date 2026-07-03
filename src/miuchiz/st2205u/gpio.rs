@@ -1,4 +1,4 @@
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 #[derive(Debug, Clone)]
 pub struct GpioConnections {
@@ -86,9 +86,9 @@ pub trait GpioInterfaceInternal {
     /// Board circuitry between the chip and the outside world may hold
     /// emulation state of its own; host-side endpoints have none and can
     /// leave these defaults.
-    fn save_state(&self, _writer: &mut StateWriter) {}
+    fn snapshot(&self, _writer: &mut SnapshotWriter) {}
 
-    fn load_state(&mut self, _reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, _reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         Ok(())
     }
 }
@@ -136,13 +136,13 @@ impl Default for PortRegister {
 }
 
 impl PortRegister {
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u8(self.input);
         writer.put_u8(self.output);
         writer.put_u8(self.pull_mask);
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.input = reader.take_u8()?;
         self.output = reader.take_u8()?;
         self.pull_mask = reader.take_u8()?;
@@ -336,11 +336,11 @@ impl State {
         intx
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
         for port in [
             &self.pa, &self.pb, &self.pc, &self.pd, &self.pe, &self.pf, &self.pl,
         ] {
-            port.save_state(writer);
+            port.snapshot(writer);
         }
         writer.put_u8(self.psc);
         writer.put_u8(self.pse);
@@ -355,10 +355,10 @@ impl State {
         writer.put_u8(self.xreq);
         writer.put_u8(self.last_pe_input);
         writer.put_bool(self.tco0_active);
-        self.io.save_state(writer);
+        self.io.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         for port in [
             &mut self.pa,
             &mut self.pb,
@@ -368,7 +368,7 @@ impl State {
             &mut self.pf,
             &mut self.pl,
         ] {
-            port.load_state(reader)?;
+            port.restore(reader)?;
         }
         self.psc = reader.take_u8()?;
         self.pse = reader.take_u8()?;
@@ -389,7 +389,7 @@ impl State {
         self.xreq = reader.take_u8()?;
         self.last_pe_input = reader.take_u8()?;
         self.tco0_active = reader.take_bool()?;
-        self.io.load_state(reader)
+        self.io.restore(reader)
     }
 
     fn update_port_gpio(&mut self, port: GpioPort, inputs: &GpioConnections) {

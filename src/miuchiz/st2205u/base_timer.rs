@@ -1,5 +1,5 @@
 use super::reg::U8Register;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 const TIMER_FREQUENCY: u64 = 8192;
 
@@ -123,22 +123,22 @@ impl State {
         assert_new_interrupt
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u64(self.elapsed_ticks);
         writer.put_u64(self.counter);
         writer.put_u64(self.next_counter_tick);
-        self.btc.save_state(writer);
-        self.bten.save_state(writer);
-        self.btreq.save_state(writer);
+        self.btc.snapshot(writer);
+        self.bten.snapshot(writer);
+        self.btreq.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.elapsed_ticks = reader.take_u64()?;
         self.counter = reader.take_u64()?;
         self.next_counter_tick = reader.take_u64()?;
-        self.btc.load_state(reader)?;
-        self.bten.load_state(reader)?;
-        self.btreq.load_state(reader)
+        self.btc.restore(reader)?;
+        self.bten.restore(reader)?;
+        self.btreq.restore(reader)
     }
 }
 

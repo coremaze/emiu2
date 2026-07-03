@@ -797,12 +797,12 @@ mod tests {
 
         fn write_u8(&mut self, address: usize, value: u8) {}
 
-        fn save_state(&self, _writer: &mut crate::state::StateWriter) {}
+        fn snapshot(&self, _writer: &mut crate::snapshot::SnapshotWriter) {}
 
-        fn load_state(
+        fn restore(
             &mut self,
-            _reader: &mut crate::state::StateReader,
-        ) -> Result<(), crate::state::StateError> {
+            _reader: &mut crate::snapshot::SnapshotReader,
+        ) -> Result<(), crate::snapshot::SnapshotError> {
             Ok(())
         }
     }

@@ -9,7 +9,7 @@ use crate::{
     ir::IrInterface,
     memory::AddressSpace,
     screen::Screen,
-    state::{StateError, StateReader, StateWriter, MAGIC, VERSION},
+    snapshot::{SnapshotError, SnapshotReader, SnapshotWriter, MAGIC, VERSION},
 };
 use std::fmt::Display;
 
@@ -85,16 +85,22 @@ impl AddressSpace for HandheldAddressSpace {
         }
     }
 
-    // The OTP is read-only and reconstructed from its image file, so only
-    // the flash and LCD carry state.
-    fn save_state(&self, writer: &mut StateWriter) {
-        self.flash.save_state(writer);
-        self.lcd.save_state(writer);
+    // The OTP is read-only, but it is included anyway: it is tiny next
+    // to the flash, and carrying it makes a savestate immune to the OTP
+    // file going missing or changing between save and load. Savestates
+    // are how players will usually stop playing (the firmware only
+    // persists to flash when the device sleeps), so they must not
+    // depend on anything external.
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_bytes(&self.otp[..]);
+        self.flash.snapshot(writer);
+        self.lcd.snapshot(writer);
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
-        self.flash.load_state(reader)?;
-        self.lcd.load_state(reader)
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        reader.take_into(&mut self.otp[..])?;
+        self.flash.restore(reader)?;
+        self.lcd.restore(reader)
     }
 }
 
@@ -151,34 +157,34 @@ impl Handheld {
         self.mcu.read_machine_area(start, size)
     }
 
-    /// Serializes the complete machine state. The result is self-contained
-    /// (it includes the flash) but assumes the same OTP image on restore.
-    pub fn save_state(&self) -> Vec<u8> {
-        self.save_state_reusing(Vec::new())
+    /// Serializes the complete machine state. The result is fully
+    /// self-contained, including the OTP and flash contents.
+    pub fn snapshot(&self) -> Vec<u8> {
+        self.snapshot_reusing(Vec::new())
     }
 
-    /// Like `save_state`, but reuses an existing buffer's allocation.
+    /// Like `snapshot`, but reuses an existing buffer's allocation.
     /// Useful when snapshotting frequently (e.g. IR rollback).
-    pub fn save_state_reusing(&self, buf: Vec<u8>) -> Vec<u8> {
-        let mut writer = StateWriter::from_vec(buf);
+    pub fn snapshot_reusing(&self, buf: Vec<u8>) -> Vec<u8> {
+        let mut writer = SnapshotWriter::from_vec(buf);
         writer.put_bytes(MAGIC);
         writer.put_u16(VERSION);
-        self.mcu.save_state(&mut writer);
+        self.mcu.snapshot(&mut writer);
         writer.into_bytes()
     }
 
-    /// Restores state captured by `save_state`, in place. Host connections
+    /// Restores state captured by `snapshot`, in place. Host connections
     /// (screen, audio, buttons, IR transport) are unaffected.
-    pub fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {
-        let mut reader = StateReader::new(data);
+    pub fn restore(&mut self, data: &[u8]) -> Result<(), SnapshotError> {
+        let mut reader = SnapshotReader::new(data);
         if reader.take_bytes(MAGIC.len())? != MAGIC {
-            return Err(StateError::BadMagic);
+            return Err(SnapshotError::BadMagic);
         }
         let version = reader.take_u16()?;
         if version != VERSION {
-            return Err(StateError::UnsupportedVersion(version));
+            return Err(SnapshotError::UnsupportedVersion(version));
         }
-        self.mcu.load_state(&mut reader)?;
+        self.mcu.restore(&mut reader)?;
         reader.finish()
     }
 }

@@ -1,4 +1,4 @@
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 #[derive(Default, Clone, Debug)]
 pub struct U8Register {
@@ -38,11 +38,11 @@ impl U8Register {
     }
 
     /// The mask is fixed configuration; only the value is state.
-    pub fn save_state(&self, writer: &mut StateWriter) {
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u8(self.val);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.set(reader.take_u8()?);
         Ok(())
     }
@@ -109,13 +109,13 @@ impl U16Register {
         self.h.mask()
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
-        self.l.save_state(writer);
-        self.h.save_state(writer);
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.l.snapshot(writer);
+        self.h.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
-        self.l.load_state(reader)?;
-        self.h.load_state(reader)
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.l.restore(reader)?;
+        self.h.restore(reader)
     }
 }

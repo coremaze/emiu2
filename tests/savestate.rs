@@ -11,7 +11,7 @@ use emiu2::audio::AudioInterface;
 use emiu2::ir::DisconnectedIr;
 use emiu2::miuchiz::{GpioConnections, GpioInterfaceInternal, GpioState, Handheld};
 use emiu2::screen::{Pixel, Screen};
-use emiu2::state::StateError;
+use emiu2::snapshot::SnapshotError;
 use std::path::PathBuf;
 
 struct NullScreen;
@@ -82,31 +82,34 @@ fn same_span_from_same_state_is_byte_identical() {
 
     let mut handheld = make_handheld(&otp, &flash);
     run_until_cycle(&mut handheld, BOOT_CYCLES);
-    let state_a = handheld.save_state();
+    let state_a = handheld.snapshot();
     let cycles_at_a = handheld.mcu.core.cycles;
 
     run_until_cycle(&mut handheld, cycles_at_a + SPAN_CYCLES);
-    let state_b = handheld.save_state();
+    let state_b = handheld.snapshot();
 
     // Rewind the same machine and replay the span.
-    handheld.load_state(&state_a).expect("restore in place");
+    handheld.restore(&state_a).expect("restore in place");
     assert_eq!(
         handheld.mcu.core.cycles, cycles_at_a,
         "cycle counter must rewind with the state"
     );
     run_until_cycle(&mut handheld, cycles_at_a + SPAN_CYCLES);
-    let state_c = handheld.save_state();
+    let state_c = handheld.snapshot();
     assert!(
         state_b == state_c,
         "replaying the same span from a restored state diverged"
     );
 
     // A fresh machine restored from the same savestate must also replay
-    // identically (the savestate-from-disk pattern).
-    let mut fresh = make_handheld(&otp, &flash);
-    fresh.load_state(&state_a).expect("restore into fresh");
+    // identically (the savestate-from-disk pattern) — even one built
+    // with a blank OTP, since the savestate carries the OTP with it and
+    // must survive the original files going missing.
+    let blank_otp = vec![0u8; otp.len()];
+    let mut fresh = make_handheld(&blank_otp, &flash);
+    fresh.restore(&state_a).expect("restore into fresh");
     run_until_cycle(&mut fresh, cycles_at_a + SPAN_CYCLES);
-    let state_d = fresh.save_state();
+    let state_d = fresh.snapshot();
     assert!(
         state_b == state_d,
         "a fresh machine restored from the savestate diverged"
@@ -120,9 +123,9 @@ fn roundtrip_without_stepping_preserves_every_byte() {
     let flash = vec![0u8; 0x200000];
     let mut handheld = make_handheld(&otp, &flash);
 
-    let saved = handheld.save_state();
-    handheld.load_state(&saved).expect("load own savestate");
-    let saved_again = handheld.save_state();
+    let saved = handheld.snapshot();
+    handheld.restore(&saved).expect("load own savestate");
+    let saved_again = handheld.snapshot();
     assert!(saved == saved_again);
 }
 
@@ -133,21 +136,21 @@ fn bad_data_is_rejected() {
     let mut handheld = make_handheld(&otp, &flash);
 
     assert_eq!(
-        handheld.load_state(b"not a savestate"),
-        Err(StateError::BadMagic)
+        handheld.restore(b"not a savestate"),
+        Err(SnapshotError::BadMagic)
     );
 
-    let mut truncated = handheld.save_state();
+    let mut truncated = handheld.snapshot();
     truncated.truncate(truncated.len() - 1);
     assert_eq!(
-        handheld.load_state(&truncated),
-        Err(StateError::UnexpectedEof)
+        handheld.restore(&truncated),
+        Err(SnapshotError::UnexpectedEof)
     );
 
-    let mut trailing = handheld.save_state();
+    let mut trailing = handheld.snapshot();
     trailing.push(0);
     assert_eq!(
-        handheld.load_state(&trailing),
-        Err(StateError::TrailingData)
+        handheld.restore(&trailing),
+        Err(SnapshotError::TrailingData)
     );
 }

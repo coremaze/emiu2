@@ -8,7 +8,7 @@ use super::wdc_65c02::HandlesInterrupt;
 use super::St2205uAddressSpace;
 use crate::audio::AudioInterface;
 use crate::memory::AddressSpace;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 /// Representation of a ST2205U microcontroller.
 ///
@@ -157,12 +157,12 @@ impl Mcu {
         }
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
-        self.core.save_state(writer);
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.core.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
-        self.core.load_state(reader)?;
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.core.restore(reader)?;
         // The restored cycle counter may be far from where playback left
         // off; let the audio sink resynchronize its sample cursor.
         self.audio_sender

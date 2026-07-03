@@ -80,8 +80,8 @@ pub struct MiniFbScreen {
     tx: Sender<MiniFBMessage>,
     rx: Receiver<MiniFBMessage>,
     closed: bool,
-    save_state_requested: bool,
-    load_state_requested: bool,
+    snapshot_requested: bool,
+    restore_requested: bool,
 }
 
 impl MiniFbScreen {
@@ -119,8 +119,8 @@ impl MiniFbScreen {
                 tx: host_tx,
                 rx: host_rx,
                 closed: false,
-                save_state_requested: false,
-                load_state_requested: false,
+                snapshot_requested: false,
+                restore_requested: false,
             },
             gpio_internal,
             screen_tx,
@@ -136,8 +136,8 @@ impl MiniFbScreen {
         while let Ok(message) = self.rx.try_recv() {
             match message {
                 MiniFBMessage::Close => self.closed = true,
-                MiniFBMessage::SaveState => self.save_state_requested = true,
-                MiniFBMessage::LoadState => self.load_state_requested = true,
+                MiniFBMessage::Snapshot => self.snapshot_requested = true,
+                MiniFBMessage::Restore => self.restore_requested = true,
             }
         }
     }
@@ -147,13 +147,13 @@ impl MiniFbScreen {
     }
 
     /// Whether the user pressed the save-state key since the last call.
-    pub fn take_save_state_request(&mut self) -> bool {
-        std::mem::take(&mut self.save_state_requested)
+    pub fn take_snapshot_request(&mut self) -> bool {
+        std::mem::take(&mut self.snapshot_requested)
     }
 
     /// Whether the user pressed the load-state key since the last call.
-    pub fn take_load_state_request(&mut self) -> bool {
-        std::mem::take(&mut self.load_state_requested)
+    pub fn take_restore_request(&mut self) -> bool {
+        std::mem::take(&mut self.restore_requested)
     }
 }
 
@@ -165,8 +165,8 @@ impl Drop for MiniFbScreen {
 
 enum MiniFBMessage {
     Close,
-    SaveState,
-    LoadState,
+    Snapshot,
+    Restore,
 }
 
 /// Owns everything required to create and drive the minifb window. Because
@@ -338,7 +338,7 @@ fn run_minifb_worker(worker: MiniFbWorker) {
             match worker_rx.try_recv() {
                 Ok(MiniFBMessage::Close) => close = true,
                 // Savestate requests only flow worker -> host.
-                Ok(MiniFBMessage::SaveState) | Ok(MiniFBMessage::LoadState) => {}
+                Ok(MiniFBMessage::Snapshot) | Ok(MiniFBMessage::Restore) => {}
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
                     println!("Worker thread disconnected");
@@ -381,12 +381,12 @@ fn run_minifb_worker(worker: MiniFbWorker) {
 
         // Savestate hotkeys: F5 saves, F9 loads.
         if window.is_key_pressed(Key::F5, KeyRepeat::No) {
-            if let Err(err) = worker_tx.send(MiniFBMessage::SaveState) {
+            if let Err(err) = worker_tx.send(MiniFBMessage::Snapshot) {
                 eprintln!("Failed to send save-state message: {err:?}");
             }
         }
         if window.is_key_pressed(Key::F9, KeyRepeat::No) {
-            if let Err(err) = worker_tx.send(MiniFBMessage::LoadState) {
+            if let Err(err) = worker_tx.send(MiniFBMessage::Restore) {
                 eprintln!("Failed to send load-state message: {err:?}");
             }
         }

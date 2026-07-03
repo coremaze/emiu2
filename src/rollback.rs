@@ -39,7 +39,7 @@ impl RollbackDriver {
             RollbackDirective::Continue => false,
             RollbackDirective::TakeSnapshot => {
                 let buf = std::mem::take(&mut self.spare);
-                let filled = handheld.save_state_reusing(buf);
+                let filled = handheld.snapshot_reusing(buf);
                 self.spare = std::mem::replace(&mut self.snapshot, filled);
                 self.have_snapshot = true;
                 self.control
@@ -51,7 +51,7 @@ impl RollbackDriver {
                     return false;
                 }
                 let abandoned = handheld.mcu.core.oscillator_cycles();
-                match handheld.load_state(&self.snapshot) {
+                match handheld.restore(&self.snapshot) {
                     Ok(()) => {
                         self.control
                             .rolled_back(handheld.mcu.core.oscillator_cycles(), abandoned);

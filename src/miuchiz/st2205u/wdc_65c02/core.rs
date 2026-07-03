@@ -1,6 +1,6 @@
 use super::{instr, opcode::Opcode, DecodedInstruction, HandlesInterrupt};
 use crate::memory::AddressSpace;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 // This core should tick every 2 oscillations
 const CYCLE_FREQUENCY_DIVISOR: u64 = 2;
@@ -147,7 +147,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         DecodedInstruction::decode(&mut self.address_space, self.registers.pc.into())
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u64(self.cycles);
         writer.put_u8(self.registers.sp);
         writer.put_u16(self.registers.pc);
@@ -156,10 +156,10 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         writer.put_u8(self.registers.y);
         writer.put_u8(self.flags.to_u8());
         writer.put_bool(self.waiting_for_interrupt);
-        self.address_space.save_state(writer);
+        self.address_space.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.cycles = reader.take_u64()?;
         self.registers.sp = reader.take_u8()?;
         self.registers.pc = reader.take_u16()?;
@@ -168,7 +168,7 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
         self.registers.y = reader.take_u8()?;
         self.flags = Flags::from_u8(reader.take_u8()?);
         self.waiting_for_interrupt = reader.take_bool()?;
-        self.address_space.load_state(reader)
+        self.address_space.restore(reader)
     }
 
     pub fn step(&mut self) {

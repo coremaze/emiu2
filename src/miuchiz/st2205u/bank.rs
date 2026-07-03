@@ -1,5 +1,5 @@
 use super::{reg::U16Register, St2205uAddressSpace};
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 pub struct State {
     brr: U16Register,
@@ -19,18 +19,18 @@ impl State {
         }
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
-        self.brr.save_state(writer);
-        self.prr.save_state(writer);
-        self.irr.save_state(writer);
-        self.drr.save_state(writer);
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.brr.snapshot(writer);
+        self.prr.snapshot(writer);
+        self.irr.snapshot(writer);
+        self.drr.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
-        self.brr.load_state(reader)?;
-        self.prr.load_state(reader)?;
-        self.irr.load_state(reader)?;
-        self.drr.load_state(reader)
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.brr.restore(reader)?;
+        self.prr.restore(reader)?;
+        self.irr.restore(reader)?;
+        self.drr.restore(reader)
     }
 }
 

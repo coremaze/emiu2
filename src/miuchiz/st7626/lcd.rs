@@ -1,7 +1,7 @@
 use crate::{
     memory::AddressSpace,
     screen::{Pixel, Screen},
-    state::{StateError, StateReader, StateWriter},
+    snapshot::{SnapshotError, SnapshotReader, SnapshotWriter},
 };
 
 const COMMAND_REG: usize = 0;
@@ -471,7 +471,7 @@ impl AddressSpace for Lcd {
         }
     }
 
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_bool(self.ext);
         match self.active_command {
             None => writer.put_u8(0xFF),
@@ -488,17 +488,17 @@ impl AddressSpace for Lcd {
         writer.put_u16(self.voltage.get());
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.ext = reader.take_bool()?;
         self.active_command = match reader.take_u8()? {
             0xFF => None,
-            id => Some(Command::from_id(id).ok_or(StateError::Corrupt("LCD command"))?),
+            id => Some(Command::from_id(id).ok_or(SnapshotError::Corrupt("LCD command"))?),
         };
         self.byte_since_command = reader.take_u64()? as usize;
         reader.take_into(&mut self.ddram)?;
         let ddram_ptr = reader.take_u64()? as usize;
         if ddram_ptr > self.ddram.len() {
-            return Err(StateError::Corrupt("LCD DDRAM pointer"));
+            return Err(SnapshotError::Corrupt("LCD DDRAM pointer"));
         }
         self.ddram_ptr = ddram_ptr;
         self.start_page = reader.take_u8()?;

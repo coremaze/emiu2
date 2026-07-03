@@ -13,7 +13,7 @@
 
 use super::st2205u::{GpioConnections, GpioInterfaceInternal, GpioPort, GpioState};
 use crate::ir::IrInterface;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 /// How often to poll the receive side of the transceiver, in oscillator
 /// cycles. The firmware samples the line from its 8192Hz base timer ISR
@@ -86,20 +86,20 @@ impl GpioInterfaceInternal for IrCircuit {
 
     // The circuit's own latches are board-level emulation state; the
     // transceiver and inner io are host connections and stay live.
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_bool(self.carrier_out);
         writer.put_bool(self.rx_powered);
         writer.put_bool(self.carrier_seen);
         writer.put_u64(self.next_rx_poll);
-        self.io.save_state(writer);
+        self.io.snapshot(writer);
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.carrier_out = reader.take_bool()?;
         self.rx_powered = reader.take_bool()?;
         self.carrier_seen = reader.take_bool()?;
         self.next_rx_poll = reader.take_u64()?;
-        self.io.load_state(reader)
+        self.io.restore(reader)
     }
 }
 

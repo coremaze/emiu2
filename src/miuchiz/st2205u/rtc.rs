@@ -1,4 +1,4 @@
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 pub struct State {
     clock_frequency: u64,
@@ -163,7 +163,7 @@ impl State {
         }
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u64(self.elapsed_ticks);
         writer.put_u64(self.last_second_tick);
         writer.put_u8(self.seconds);
@@ -176,7 +176,7 @@ impl State {
         writer.put_u8(self.rctr.requests);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.elapsed_ticks = reader.take_u64()?;
         self.last_second_tick = reader.take_u64()?;
         self.seconds = reader.take_u8()?;

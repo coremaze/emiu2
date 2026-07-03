@@ -22,10 +22,13 @@ To start the emulator, run `emiu2 <OTP_FILE> <FLASH_FILE>`. Run `emiu2 --help` f
 ### Savestates
 
 On desktop, F5 saves the complete machine state and F9 restores it. The
-state file defaults to the flash image path with `.state` appended;
-override it with `--state-file`. A savestate includes the flash
-contents, so it is self-contained, but it must be restored with the
-same OTP image.
+savestate file defaults to the flash image path with `.state` appended;
+override it with `--savestate-file`. A savestate is fully
+self-contained — it includes the OTP and flash contents — so it stays
+loadable even if the original image files change or go missing. Since
+the firmware only writes to flash when the device goes to sleep,
+making a savestate is the reliable way to stop playing without losing
+progress.
 
 ### Playing together
 

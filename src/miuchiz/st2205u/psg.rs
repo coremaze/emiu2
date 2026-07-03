@@ -1,4 +1,4 @@
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 use std::collections::VecDeque;
 
 /// Programmable Sound Generator
@@ -57,7 +57,7 @@ impl Multiplicator {
         self.external_mulh
     }
 
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u8(self.external_mull);
         writer.put_u8(self.external_mulh);
         writer.put_bool(self.last_mulh_was_1);
@@ -66,7 +66,7 @@ impl Multiplicator {
         writer.put_u8(self.internal_mull);
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.external_mull = reader.take_u8()?;
         self.external_mulh = reader.take_u8()?;
         self.last_mulh_was_1 = reader.take_bool()?;
@@ -303,26 +303,26 @@ impl State {
         result
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_u8(self.psgc.read_psgc());
         for state in &self.psg_states {
-            state.save_state(writer);
+            state.snapshot(writer);
         }
         for volume in &self.volumes {
             writer.put_u8(volume.get_u8());
         }
-        self.multiplicator.save_state(writer);
+        self.multiplicator.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         self.psgc.write_psgc(reader.take_u8()?);
         for state in &mut self.psg_states {
-            state.load_state(reader)?;
+            state.restore(reader)?;
         }
         for volume in &mut self.volumes {
             volume.set_u8(reader.take_u8()?);
         }
-        self.multiplicator.load_state(reader)
+        self.multiplicator.restore(reader)
     }
 }
 
@@ -361,7 +361,7 @@ impl PsgModeState {
     }
 
     // Tags follow the PSGM register encoding: 00 PCM, 01 tone, 11 ADPCM.
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         match self {
             PsgModeState::PcmDac {
                 fifo,
@@ -389,7 +389,7 @@ impl PsgModeState {
         }
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         *self = match reader.take_u8()? {
             0b00 => {
                 let len = reader.take_u32()? as usize;
@@ -414,7 +414,7 @@ impl PsgModeState {
                     current_sample: reader.take_i16()?,
                 }
             }
-            _ => return Err(StateError::Corrupt("PSG channel mode")),
+            _ => return Err(SnapshotError::Corrupt("PSG channel mode")),
         };
         Ok(())
     }

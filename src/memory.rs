@@ -1,4 +1,4 @@
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 pub trait AddressSpace {
     // This uses &mut self because a read could possibly mutate the state of hardware
@@ -10,8 +10,8 @@ pub trait AddressSpace {
 
     /// Serializes the runtime-mutable state behind this address space.
     /// ROM-only spaces write nothing.
-    fn save_state(&self, writer: &mut StateWriter);
+    fn snapshot(&self, writer: &mut SnapshotWriter);
 
-    /// Restores state previously written by `save_state`, in place.
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError>;
+    /// Restores state previously written by `snapshot`, in place.
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError>;
 }

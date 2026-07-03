@@ -4,7 +4,7 @@ use super::{
     St2205uAddressSpace,
 };
 use crate::memory::AddressSpace;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 // DMA channels and function modes are not implemented yet.
 
@@ -87,24 +87,24 @@ impl State {
         }
     }
 
-    pub fn save_state(&self, writer: &mut StateWriter) {
-        self.src_dptr.save_state(writer);
-        self.dest_dptr.save_state(writer);
-        self.src_dbkr.save_state(writer);
-        self.dest_dbkr.save_state(writer);
-        self.dcnt.save_state(writer);
-        self.dsel.save_state(writer);
-        self.dmod.save_state(writer);
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.src_dptr.snapshot(writer);
+        self.dest_dptr.snapshot(writer);
+        self.src_dbkr.snapshot(writer);
+        self.dest_dbkr.snapshot(writer);
+        self.dcnt.snapshot(writer);
+        self.dsel.snapshot(writer);
+        self.dmod.snapshot(writer);
     }
 
-    pub fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
-        self.src_dptr.load_state(reader)?;
-        self.dest_dptr.load_state(reader)?;
-        self.src_dbkr.load_state(reader)?;
-        self.dest_dbkr.load_state(reader)?;
-        self.dcnt.load_state(reader)?;
-        self.dsel.load_state(reader)?;
-        self.dmod.load_state(reader)
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.src_dptr.restore(reader)?;
+        self.dest_dptr.restore(reader)?;
+        self.src_dbkr.restore(reader)?;
+        self.dest_dbkr.restore(reader)?;
+        self.dcnt.restore(reader)?;
+        self.dsel.restore(reader)?;
+        self.dmod.restore(reader)
     }
 }
 

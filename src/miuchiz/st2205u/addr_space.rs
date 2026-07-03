@@ -11,7 +11,7 @@ use super::timer;
 use super::timer::TimerIndex;
 use super::wdc_65c02::HandlesInterrupt;
 use crate::memory::AddressSpace;
-use crate::state::{StateError, StateReader, StateWriter};
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 pub const OTP_SIZE: usize = 0x4000;
 pub type Otp = [u8; OTP_SIZE];
@@ -432,29 +432,29 @@ impl AddressSpace for St2205uAddressSpace {
         }
     }
 
-    fn save_state(&self, writer: &mut StateWriter) {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
         writer.put_bytes(&self.ram);
-        self.banks.save_state(writer);
-        self.dma.save_state(writer);
-        self.gpio.save_state(writer);
-        self.base_timer.save_state(writer);
-        self.timer.save_state(writer);
-        self.psg.save_state(writer);
-        self.interrupt.save_state(writer);
-        self.rtc.save_state(writer);
-        self.machine_addr_space.save_state(writer);
+        self.banks.snapshot(writer);
+        self.dma.snapshot(writer);
+        self.gpio.snapshot(writer);
+        self.base_timer.snapshot(writer);
+        self.timer.snapshot(writer);
+        self.psg.snapshot(writer);
+        self.interrupt.snapshot(writer);
+        self.rtc.snapshot(writer);
+        self.machine_addr_space.snapshot(writer);
     }
 
-    fn load_state(&mut self, reader: &mut StateReader) -> Result<(), StateError> {
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
         reader.take_into(&mut self.ram)?;
-        self.banks.load_state(reader)?;
-        self.dma.load_state(reader)?;
-        self.gpio.load_state(reader)?;
-        self.base_timer.load_state(reader)?;
-        self.timer.load_state(reader)?;
-        self.psg.load_state(reader)?;
-        self.interrupt.load_state(reader)?;
-        self.rtc.load_state(reader)?;
-        self.machine_addr_space.load_state(reader)
+        self.banks.restore(reader)?;
+        self.dma.restore(reader)?;
+        self.gpio.restore(reader)?;
+        self.base_timer.restore(reader)?;
+        self.timer.restore(reader)?;
+        self.psg.restore(reader)?;
+        self.interrupt.restore(reader)?;
+        self.rtc.restore(reader)?;
+        self.machine_addr_space.restore(reader)
     }
 }
