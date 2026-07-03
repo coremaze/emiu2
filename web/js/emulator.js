@@ -11,7 +11,7 @@ import init, {
     ir_code, 
     ir_connected, 
     ir_paired, 
-    ir_status 
+    ir_take_notice 
 } from '/pkg/emiu2.js';
 
 // Database utility for IndexedDB operations
@@ -930,7 +930,8 @@ function resolveRelayUrl() {
 function initializeNetplayUI() {
     const toggle = document.getElementById('netplay-button');
     const panel = document.getElementById('netplay');
-    const statusLine = document.getElementById('netplay-status');
+    const indicator = document.getElementById('netplay-indicator');
+    const stateText = document.getElementById('netplay-state');
     const codeSpan = document.getElementById('netplay-code');
     const copyButton = document.getElementById('netplay-copy');
     const joinRow = document.getElementById('netplay-join-row');
@@ -943,7 +944,7 @@ function initializeNetplayUI() {
         try {
             action();
         } catch (e) {
-            statusLine.textContent = String(e);
+            showNotification(String(e), 5000);
         }
     };
 
@@ -956,21 +957,44 @@ function initializeNetplayUI() {
         report(() => ir_connect(resolveRelayUrl()));
     };
 
+    let wasPaired = false;
+    const refresh = () => {
+        ensureConnected();
+
+        // Events (pairing changes, errors) surface as page notifications;
+        // the panel itself only reflects the current state.
+        for (;;) {
+            const notice = ir_take_notice();
+            if (!notice) break;
+            showNotification(notice, 4000);
+        }
+
+        const connected = ir_connected();
+        const paired = ir_paired();
+        indicator.className = paired ? 'paired' : connected ? 'online' : '';
+        stateText.textContent = paired
+            ? 'Paired \u2014 your infrared link is live'
+            : connected
+                ? 'Online \u2014 trade codes with a friend to play together'
+                : 'Connecting\u2026';
+
+        const code = ir_code();
+        codeSpan.textContent = code || '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7';
+        copyButton.disabled = !code;
+
+        joinRow.style.display = paired ? 'none' : 'flex';
+        leaveRow.style.display = paired ? 'flex' : 'none';
+        if (paired && !wasPaired) {
+            friendInput.value = '';
+        }
+        wasPaired = paired;
+    };
+
     toggle.addEventListener('click', () => {
         toggle.style.display = 'none';
         panel.style.display = 'block';
-        ensureConnected();
-
-        setInterval(() => {
-            ensureConnected();
-            statusLine.textContent = ir_status();
-            const code = ir_code();
-            codeSpan.textContent = code || '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7';
-            copyButton.disabled = !code;
-            const paired = ir_paired();
-            joinRow.style.display = paired ? 'none' : 'flex';
-            leaveRow.style.display = paired ? 'flex' : 'none';
-        }, 500);
+        refresh();
+        setInterval(refresh, 500);
     }, { once: true });
 
     joinButton.addEventListener('click', () => {

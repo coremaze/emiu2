@@ -613,20 +613,19 @@
             background-color: var(--color-danger-hover);
         }
 
-        /* Netplay: friend-code pairing, shown once the emulator runs */
+        /* Netplay: friend-code pairing, shown once the emulator runs.
+           Sized like #start-button: full width of the page column, with
+           the body's own vertical rhythm providing the spacing. */
         #netplay-button {
-            position: relative;
-            margin: 10px auto;
-            width: min(50em, 90vw, calc(50em * 98/67));
-            max-width: 90vw;
+            display: none; /* shown by script once the emulator runs */
+            width: 100%;
             padding: 10px 15px;
             font-size: 14px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            display: none;
             background-color: var(--color-button);
             color: var(--color-text-on-primary);
             border: none;
-            border-radius: 5px;
+            border-radius: var(--border-radius-md);
+            box-shadow: var(--shadow-sm);
             cursor: pointer;
         }
 
@@ -636,26 +635,48 @@
 
         #netplay {
             display: none;
-            margin: 10px auto;
-            width: min(50em, 90vw, calc(50em * 98/67));
-            max-width: 90vw;
-            box-sizing: border-box;
             background: var(--color-surface);
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--shadow-sm);
             text-align: left;
         }
 
+        /* Controls in a row stretch to a common height; text centers. */
         #netplay .netplay-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-            margin: 10px 0;
+            gap: var(--spacing-sm);
+            align-items: stretch;
+            margin: var(--spacing-md) 0;
         }
 
+        #netplay .netplay-row > span,
         #netplay label {
-            display: inline;
+            display: inline-block;
             margin: 0;
+            min-width: auto;
+            align-self: center;
+        }
+
+        /* Connection state, as a colored dot plus a short label.
+           Amber while connecting, blue online, green paired. */
+        #netplay-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--color-warning);
+        }
+
+        #netplay-indicator.online {
+            background-color: var(--color-info);
+        }
+
+        #netplay-indicator.paired {
+            background-color: var(--color-success);
+        }
+
+        #netplay-state {
+            color: var(--color-text-secondary);
+            font-size: 14px;
         }
 
         #netplay-code {
@@ -669,13 +690,16 @@
             background-color: #444;
             color: #fff;
             border: 1px solid #777;
-            border-radius: 4px;
-            padding: 8px 12px;
+            border-radius: var(--border-radius-sm);
+            padding: 6px 10px;
             font-size: 16px;
             font-family: monospace;
             letter-spacing: 2px;
             text-transform: uppercase;
-            width: 8ch;
+            text-align: center;
+            /* box-sizing is border-box page-wide: leave room for six
+               spaced characters plus the padding and border. */
+            width: 12ch;
         }
 
         #netplay-join,
@@ -684,7 +708,7 @@
             background-color: var(--color-button);
             color: var(--color-text-on-primary);
             border: none;
-            border-radius: 5px;
+            border-radius: var(--border-radius-md);
             padding: 8px 15px;
             font-size: 14px;
             cursor: pointer;
@@ -699,12 +723,6 @@
         #netplay-copy:disabled {
             opacity: 0.6;
             cursor: not-allowed;
-        }
-
-        #netplay-status {
-            color: var(--color-text-secondary);
-            font-size: 14px;
-            margin: 8px 0 0;
         }
         
         button:focus-visible, select:focus-visible {
@@ -1279,6 +1297,30 @@
         <button type="button" id="start-button">Start Emulator</button>
         </div>
 
+    <!-- Netplay: pair with a friend over the internet -->
+    <button id="netplay-button">Play with a Friend</button>
+    <fieldset id="netplay">
+        <legend>Play with a Friend</legend>
+        <div class="netplay-row">
+            <span id="netplay-indicator" aria-hidden="true"></span>
+            <span id="netplay-state" aria-live="polite">Connecting…</span>
+        </div>
+        <div class="netplay-row">
+            <span>Your friend code:</span>
+            <span id="netplay-code">······</span>
+            <button id="netplay-copy" type="button" title="Copy your friend code" disabled>Copy</button>
+        </div>
+        <div class="netplay-row" id="netplay-join-row">
+            <label for="friend-code">Friend's code:</label>
+            <input type="text" id="friend-code" maxlength="6" placeholder="ABC123"
+                   autocapitalize="characters" autocomplete="off" spellcheck="false">
+            <button id="netplay-join" type="button">Join</button>
+        </div>
+        <div class="netplay-row" id="netplay-leave-row" style="display:none;">
+            <button id="netplay-leave" type="button">Leave</button>
+        </div>
+    </fieldset>
+
     <!-- Add a status notification area -->
     <div id="status-notification" class="notification" role="status" aria-live="polite"></div>
 
@@ -1320,27 +1362,6 @@
 
     <!-- Add a reset button -->
     <button id="reset-button" class="btn btn-danger" style="display:none;">Reset Emulator</button>
-
-    <!-- Netplay: pair with a friend over the internet -->
-    <button id="netplay-button">Play with a Friend</button>
-    <fieldset id="netplay">
-        <legend>Play with a Friend</legend>
-        <div class="netplay-row">
-            <span>Your friend code:</span>
-            <span id="netplay-code">······</span>
-            <button id="netplay-copy" type="button" title="Copy your friend code" disabled>Copy</button>
-        </div>
-        <div class="netplay-row" id="netplay-join-row">
-            <label for="friend-code">Friend's code:</label>
-            <input type="text" id="friend-code" maxlength="6" placeholder="ABC123"
-                   autocapitalize="characters" autocomplete="off" spellcheck="false">
-            <button id="netplay-join" type="button">Join</button>
-        </div>
-        <div class="netplay-row" id="netplay-leave-row" style="display:none;">
-            <button id="netplay-leave" type="button">Leave</button>
-        </div>
-        <p id="netplay-status" aria-live="polite">Connecting…</p>
-    </fieldset>
 
     <!-- Add a global loading overlay -->
     <div id="loading-overlay" class="loading-overlay">

@@ -302,10 +302,13 @@ pub fn ir_paired() -> bool {
     with_ir_state(|state| state.borrow().paired()).unwrap_or(false)
 }
 
-/// A short human-readable connection status line.
+/// Removes and returns the next user-facing netplay event (a pairing
+/// change or an error to show the player), or "" when there is none.
+/// Connection *state* is not an event: derive it from `ir_connected`
+/// and `ir_paired`.
 #[wasm_bindgen]
-pub fn ir_status() -> String {
-    with_ir_state(|state| state.borrow().status()).unwrap_or_else(|_| "no device loaded".into())
+pub fn ir_take_notice() -> String {
+    with_ir_state(|state| state.borrow_mut().take_notice().unwrap_or_default()).unwrap_or_default()
 }
 
 #[wasm_bindgen]

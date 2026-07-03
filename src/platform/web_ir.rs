@@ -29,7 +29,9 @@ pub struct WebIrState {
     connected: bool,
     paired: bool,
     code: Option<FriendCode>,
-    status: String,
+    /// User-facing events (pairing changes, errors) awaiting display,
+    /// oldest first.
+    notices: VecDeque<String>,
     /// Received edges: (sender time in ns, carrier level).
     incoming: VecDeque<(u64, bool)>,
 }
@@ -44,7 +46,7 @@ impl WebIrState {
             connected: false,
             paired: false,
             code: None,
-            status: "not connected".into(),
+            notices: VecDeque::new(),
             incoming: VecDeque::new(),
         }))
     }
@@ -61,8 +63,17 @@ impl WebIrState {
         self.code
     }
 
-    pub fn status(&self) -> String {
-        self.status.clone()
+    /// The next user-facing event to show, if any.
+    pub fn take_notice(&mut self) -> Option<String> {
+        self.notices.pop_front()
+    }
+
+    fn notify(&mut self, notice: impl Into<String>) {
+        // A UI that stops draining should not make us grow without bound.
+        if self.notices.len() >= 8 {
+            self.notices.pop_front();
+        }
+        self.notices.push_back(notice.into());
     }
 
     fn send(&self, message: &Message) {
@@ -118,17 +129,19 @@ pub fn connect(state: &SharedWebIr, url: &str) -> Result<(), JsValue> {
     let onclose_state = state.clone();
     let onclose = Closure::wrap(Box::new(move |_event: web_sys::Event| {
         let mut state = onclose_state.borrow_mut();
+        // Failed reconnect attempts also land here; only an established
+        // connection dying is worth telling the player about.
+        if state.connected {
+            state.notify("Lost the connection; reconnecting\u{2026}");
+        }
         state.connected = false;
         state.set_paired(false);
         state.code = None;
-        state.status = "connection lost".into();
     }) as Box<dyn FnMut(web_sys::Event)>);
     socket.set_onclose(Some(onclose.as_ref().unchecked_ref()));
     onclose.forget();
 
-    let mut state = state.borrow_mut();
-    state.status = "connecting...".into();
-    state.socket = Some(socket);
+    state.borrow_mut().socket = Some(socket);
     Ok(())
 }
 
@@ -143,7 +156,6 @@ pub fn disconnect(state: &SharedWebIr) {
     state.connected = false;
     state.set_paired(false);
     state.code = None;
-    state.status = "not connected".into();
 }
 
 pub fn join(state: &SharedWebIr, code: FriendCode) {
@@ -159,15 +171,14 @@ fn handle_message(state: &mut WebIrState, message: Message) {
         Message::Welcome { code, .. } => {
             state.connected = true;
             state.code = Some(code);
-            state.status = format!("connected; your code is {code}");
         }
         Message::Paired => {
             state.set_paired(true);
-            state.status = "paired with a peer".into();
+            state.notify("Paired with your friend");
         }
         Message::PeerLeft => {
             state.set_paired(false);
-            state.status = "the peer left".into();
+            state.notify("Your friend left");
         }
         Message::IrData { records } => {
             if state.paired {
@@ -186,7 +197,7 @@ fn handle_message(state: &mut WebIrState, message: Message) {
         Message::Ping => state.send(&Message::Pong),
         Message::Pong => {}
         Message::Error { message, .. } => {
-            state.status = message;
+            state.notify(message);
         }
         Message::Hello { .. } | Message::Join { .. } | Message::Leave => {}
     }
