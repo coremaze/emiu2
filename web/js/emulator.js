@@ -913,61 +913,78 @@ function initializeFileInputs() {
 // Ensure this is called appropriately
 initializeFileInputs(); 
 // ---------------------------------------------------------------------------
-// Netplay: IR over the internet through an emiu2 relay server.
+// Netplay: IR over the internet, relayed through the site's server.
+
+// The relay endpoint is deployment configuration, not something players
+// see. It defaults to a same-origin WebSocket at /relay (put the relay
+// behind the site's reverse proxy); a ?relay=ws://host:port query
+// parameter overrides it for development and self-hosting.
+function resolveRelayUrl() {
+    const override = new URLSearchParams(location.search).get('relay');
+    if (override) return override;
+    if (!location.host) return 'ws://localhost:5885'; // file:// development
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${scheme}://${location.host}/relay`;
+}
 
 function initializeNetplayUI() {
+    const toggle = document.getElementById('netplay-button');
     const panel = document.getElementById('netplay');
-    const urlInput = document.getElementById('relay-url');
-    const connectButton = document.getElementById('netplay-connect');
-    const pairingRow = document.getElementById('netplay-pairing');
+    const statusLine = document.getElementById('netplay-status');
     const codeSpan = document.getElementById('netplay-code');
+    const copyButton = document.getElementById('netplay-copy');
+    const joinRow = document.getElementById('netplay-join-row');
+    const leaveRow = document.getElementById('netplay-leave-row');
     const friendInput = document.getElementById('friend-code');
     const joinButton = document.getElementById('netplay-join');
     const leaveButton = document.getElementById('netplay-leave');
-    const statusLine = document.getElementById('netplay-status');
 
-    // A sensible default: same host as the page, the relay's default
-    // port, wss when the page itself is secure (required by browsers).
-    if (!urlInput.value) {
-        const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-        const host = location.hostname || 'localhost';
-        urlInput.value = `${scheme}://${host}:5885`;
-    }
-
-    connectButton.addEventListener('click', () => {
+    const report = (action) => {
         try {
-            ir_connect(urlInput.value.trim());
+            action();
         } catch (e) {
             statusLine.textContent = String(e);
         }
-    });
+    };
+
+    // Connect lazily (nothing touches the network until the player opens
+    // the panel) and thereafter keep the connection alive automatically.
+    let lastAttempt = 0;
+    const ensureConnected = () => {
+        if (ir_connected() || Date.now() - lastAttempt < 5000) return;
+        lastAttempt = Date.now();
+        report(() => ir_connect(resolveRelayUrl()));
+    };
+
+    toggle.addEventListener('click', () => {
+        toggle.style.display = 'none';
+        panel.style.display = 'block';
+        ensureConnected();
+
+        setInterval(() => {
+            ensureConnected();
+            statusLine.textContent = ir_status();
+            const code = ir_code();
+            codeSpan.textContent = code || '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7';
+            copyButton.disabled = !code;
+            const paired = ir_paired();
+            joinRow.style.display = paired ? 'none' : 'flex';
+            leaveRow.style.display = paired ? 'flex' : 'none';
+        }, 500);
+    }, { once: true });
 
     joinButton.addEventListener('click', () => {
-        try {
-            ir_join(friendInput.value.trim());
-        } catch (e) {
-            statusLine.textContent = String(e);
-        }
+        report(() => ir_join(friendInput.value.trim()));
     });
-
+    friendInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') joinButton.click();
+    });
     leaveButton.addEventListener('click', () => {
-        try {
-            ir_leave();
-        } catch (e) {
-            statusLine.textContent = String(e);
-        }
+        report(() => ir_leave());
+    });
+    copyButton.addEventListener('click', () => {
+        navigator.clipboard?.writeText(ir_code()).catch(() => {});
     });
 
-    setInterval(() => {
-        statusLine.textContent = ir_status();
-        const connected = ir_connected();
-        const paired = ir_paired();
-        pairingRow.style.display = connected ? 'flex' : 'none';
-        codeSpan.textContent = ir_code();
-        joinButton.style.display = paired ? 'none' : '';
-        friendInput.style.display = paired ? 'none' : '';
-        leaveButton.style.display = paired ? '' : 'none';
-    }, 500);
-
-    panel.style.display = 'block';
+    toggle.style.display = 'block';
 }

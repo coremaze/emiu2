@@ -612,6 +612,100 @@
         #reset-button:hover {
             background-color: var(--color-danger-hover);
         }
+
+        /* Netplay: friend-code pairing, shown once the emulator runs */
+        #netplay-button {
+            position: relative;
+            margin: 10px auto;
+            width: min(50em, 90vw, calc(50em * 98/67));
+            max-width: 90vw;
+            padding: 10px 15px;
+            font-size: 14px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            display: none;
+            background-color: var(--color-button);
+            color: var(--color-text-on-primary);
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #netplay-button:hover {
+            background-color: var(--color-button-hover);
+        }
+
+        #netplay {
+            display: none;
+            margin: 10px auto;
+            width: min(50em, 90vw, calc(50em * 98/67));
+            max-width: 90vw;
+            box-sizing: border-box;
+            background: var(--color-surface);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+            text-align: left;
+        }
+
+        #netplay .netplay-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin: 10px 0;
+        }
+
+        #netplay label {
+            display: inline;
+            margin: 0;
+        }
+
+        #netplay-code {
+            font-family: monospace;
+            font-size: 22px;
+            letter-spacing: 4px;
+            font-weight: 700;
+        }
+
+        #netplay input[type="text"] {
+            background-color: #444;
+            color: #fff;
+            border: 1px solid #777;
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 16px;
+            font-family: monospace;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            width: 8ch;
+        }
+
+        #netplay-join,
+        #netplay-leave,
+        #netplay-copy {
+            background-color: var(--color-button);
+            color: var(--color-text-on-primary);
+            border: none;
+            border-radius: 5px;
+            padding: 8px 15px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #netplay-join:hover,
+        #netplay-leave:hover,
+        #netplay-copy:hover {
+            background-color: var(--color-button-hover);
+        }
+
+        #netplay-copy:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #netplay-status {
+            color: var(--color-text-secondary);
+            font-size: 14px;
+            margin: 8px 0 0;
+        }
         
         button:focus-visible, select:focus-visible {
             outline: 2px solid var(--color-primary);
@@ -1121,74 +1215,6 @@
         <button id="mute" style="grid-area: mute;" aria-label="Mute Button">Mute</button>
     </div>
 
-    <style>
-        #netplay {
-            max-width: 480px;
-            margin: 12px auto;
-            padding: 10px 14px;
-            border-radius: 8px;
-            background-color: rgba(0, 0, 0, 0.35);
-            color: #e5e7eb;
-            font-size: 14px;
-        }
-        #netplay summary {
-            cursor: pointer;
-            font-weight: 600;
-        }
-        #netplay .netplay-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-top: 8px;
-            flex-wrap: wrap;
-        }
-        #netplay input {
-            flex: 1;
-            min-width: 120px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: 1px solid #4b5563;
-            background-color: #1f2937;
-            color: #e5e7eb;
-        }
-        #netplay button {
-            padding: 4px 12px;
-            border-radius: 4px;
-            border: none;
-            background-color: var(--color-button);
-            color: white;
-            cursor: pointer;
-        }
-        #netplay button:hover {
-            background-color: var(--color-button-hover);
-        }
-        #netplay-code {
-            font-family: monospace;
-            font-size: 18px;
-            letter-spacing: 2px;
-            font-weight: 700;
-        }
-        #netplay-status {
-            margin-top: 6px;
-            opacity: 0.85;
-        }
-    </style>
-    <details id="netplay" style="display: none;">
-        <summary>Play with a friend (IR over the internet)</summary>
-        <div class="netplay-row">
-            <label for="relay-url">Relay:</label>
-            <input type="text" id="relay-url" placeholder="ws://host:5885">
-            <button id="netplay-connect">Connect</button>
-        </div>
-        <div class="netplay-row" id="netplay-pairing" style="display: none;">
-            <span>Your code: <span id="netplay-code"></span></span>
-            <input type="text" id="friend-code" placeholder="friend's code" maxlength="6"
-                   autocapitalize="characters" autocomplete="off" spellcheck="false">
-            <button id="netplay-join">Join</button>
-            <button id="netplay-leave" style="display: none;">Leave</button>
-        </div>
-        <div id="netplay-status" aria-live="polite">not connected</div>
-    </details>
 
     <div id="upload-container">
         <fieldset id="otp-options" class="source-section">
@@ -1294,6 +1320,27 @@
 
     <!-- Add a reset button -->
     <button id="reset-button" class="btn btn-danger" style="display:none;">Reset Emulator</button>
+
+    <!-- Netplay: pair with a friend over the internet -->
+    <button id="netplay-button">Play with a Friend</button>
+    <fieldset id="netplay">
+        <legend>Play with a Friend</legend>
+        <div class="netplay-row">
+            <span>Your friend code:</span>
+            <span id="netplay-code">······</span>
+            <button id="netplay-copy" type="button" title="Copy your friend code" disabled>Copy</button>
+        </div>
+        <div class="netplay-row" id="netplay-join-row">
+            <label for="friend-code">Friend's code:</label>
+            <input type="text" id="friend-code" maxlength="6" placeholder="ABC123"
+                   autocapitalize="characters" autocomplete="off" spellcheck="false">
+            <button id="netplay-join" type="button">Join</button>
+        </div>
+        <div class="netplay-row" id="netplay-leave-row" style="display:none;">
+            <button id="netplay-leave" type="button">Leave</button>
+        </div>
+        <p id="netplay-status" aria-live="polite">Connecting…</p>
+    </fieldset>
 
     <!-- Add a global loading overlay -->
     <div id="loading-overlay" class="loading-overlay">

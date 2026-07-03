@@ -61,12 +61,11 @@ code. Share it with the other player out of band; either of you types
 `status` shows the connection). Pairings can be formed and broken
 freely while the games run.
 
-**In the browser**, the web version has a "Play with a friend" panel:
-enter the relay's WebSocket address (`ws://host:5885`, or `wss://...`
-behind a TLS proxy — required when the page itself is served over
-HTTPS), connect, and exchange friend codes the same way. Native and
-browser players can pair with each other. Keep the tab visible while
-playing: browsers throttle background tabs, which stalls the emulator.
+**In the browser**, click "Play with a Friend" beneath the emulator:
+the page connects to its site's relay automatically and shows your
+friend code; exchange and join codes the same way. Native and browser
+players can pair with each other. Keep the tab visible while playing:
+browsers throttle background tabs, which stalls the emulator.
 
 High network latency is handled automatically. The Miuchiz firmware
 only listens for an IR reply for about 98ms, so on slow links the
@@ -75,9 +74,12 @@ invisibly rewinds to that point when a late reply arrives — the
 firmware perceives an in-time reply. Each exchange still takes at
 least one network round trip of real time.
 
-For deployments behind HTTPS, terminate TLS in a reverse proxy (nginx,
-caddy) that forwards to the relay's port; the relay itself speaks
-plain TCP and WebSocket on a single port.
+Hosting the web version's relay is one reverse-proxy rule: the browser
+client connects to `wss://<site>/relay` (`ws://` on plain-HTTP sites),
+so route that path's WebSocket upgrade to the relay's port. The relay
+speaks plain TCP and WebSocket on a single port and leaves TLS to the
+proxy. For development and self-hosting, a `?relay=ws://host:port`
+query parameter overrides the endpoint.
 
 ## Features
 
