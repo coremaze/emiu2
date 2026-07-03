@@ -21,19 +21,11 @@ To start the emulator, run `emiu2 <OTP_FILE> <FLASH_FILE>`. Run `emiu2 --help` f
 
 ### Savestates
 
-On desktop, F5 saves the complete machine state and F9 restores it. The
-savestate file defaults to the flash image path with `.state` appended;
-override it with `--savestate-file`. A savestate is fully
-self-contained — it includes the OTP and flash contents — so it stays
-loadable even if the original image files change or go missing. Since
-the firmware only writes to flash when the device goes to sleep,
-making a savestate is the reliable way to stop playing without losing
-progress.
+On desktop, F5 saves the complete machine state and F9 restores it. The savestate file defaults to the flash image path with `.state` appended; override it with `--savestate-file`.
 
 ### Playing together
 
-Miuchiz devices play and trade with each other over IR, and emiu2 can
-carry that link between two emulators in several ways.
+Miuchiz devices play and trade with each other over IR, and emiu2 can carry that link between two emulators in several ways.
 
 **On one machine or LAN**, connect two emulators directly:
 
@@ -42,8 +34,7 @@ emiu2 OTP.dat flash1.dat --ir listen:5885
 emiu2 OTP.dat flash2.dat --ir connect:127.0.0.1:5885
 ```
 
-**Over the internet**, use the relay server and friend codes. Someone
-runs the relay (a small dependency-free binary) on a reachable host:
+**Over the internet**, use the relay server and friend codes. Someone runs the relay on a reachable host:
 
 ```sh
 cargo run -r -p emiu2-relay          # listens on port 5885
@@ -55,31 +46,13 @@ Each player then starts their emulator pointed at the relay:
 emiu2 OTP.dat flash.dat --ir relay:relay.example.com:5885
 ```
 
-On connecting, the terminal prints an ephemeral six-character friend
-code. Share it with the other player out of band; either of you types
-`join <code>` into the emulator's terminal to pair (`leave` unpairs,
-`status` shows the connection). Pairings can be formed and broken
-freely while the games run.
+On connecting, the terminal prints an ephemeral six-character friend code. Share it with the other player out of band; either of you types `join <code>` into the emulator's terminal to pair (`leave` unpairs, `status` shows the connection).
 
-**In the browser**, click "Play with a Friend" beneath the emulator:
-the page connects to its site's relay automatically and shows your
-friend code; exchange and join codes the same way. Native and browser
-players can pair with each other. Keep the tab visible while playing:
-browsers throttle background tabs, which stalls the emulator.
+**In the browser**, click "Play with a Friend" beneath the emulator: the page connects to its site's relay automatically and shows your friend code; exchange and join codes the same way. Native and browser players can pair with each other.
 
-High network latency is handled automatically. The Miuchiz firmware
-only listens for an IR reply for about 98ms, so on slow links the
-emulator snapshots itself whenever the firmware starts listening and
-invisibly rewinds to that point when a late reply arrives — the
-firmware perceives an in-time reply. Each exchange still takes at
-least one network round trip of real time.
+High network latency is handled automatically. The Miuchiz firmware only listens for an IR reply for about 98ms, so on slow links the emulator snapshots itself whenever the firmware starts listening and invisibly rewinds to that point when a late reply arrives.
 
-Hosting the web version's relay is one reverse-proxy rule: the browser
-client connects to `wss://<site>/relay` (`ws://` on plain-HTTP sites),
-so route that path's WebSocket upgrade to the relay's port. The relay
-speaks plain TCP and WebSocket on a single port and leaves TLS to the
-proxy. For development and self-hosting, a `?relay=ws://host:port`
-query parameter overrides the endpoint.
+Hosting the web version's relay is one reverse-proxy rule: the browser client connects to `wss://<site>/relay` (`ws://` on plain-HTTP sites), so route that path's WebSocket upgrade to the relay's port. The relay speaks plain TCP and WebSocket on a single port and leaves TLS to the proxy. For development and self-hosting, a `?relay=ws://host:port` query parameter overrides the endpoint.
 
 ## Features
 
@@ -96,7 +69,6 @@ At a high level, the emulator supports the following:
  - RTC interrupts (Used for the alarm clock ingame)
  - IR communication (Used to play or trade with other Miuchiz devices),
    including between emulators over the network with latency hiding
- - Savestates (F5/F9 on desktop)
 
  It is possibly more useful to list the features which the Miuchiz firmware uses but which are not yet finished:
  - USB communication (Used to communicate with a PC)
