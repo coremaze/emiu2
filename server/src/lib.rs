@@ -428,7 +428,7 @@ fn handle_message(
             if let Some(last) = session.last_join {
                 if now.duration_since(last) < JOIN_INTERVAL {
                     log!("{}: join throttled", session.code);
-                    send_error(sender, error_code::THROTTLED, "joining too fast");
+                    send_error(sender, error_code::THROTTLED, "Joining too fast");
                     return;
                 }
             }
@@ -443,7 +443,7 @@ fn handle_message(
                 JoinOutcome::Paired => {}
                 JoinOutcome::UnknownCode => {
                     log!("{}: join {code}: unknown code", session.code);
-                    send_error(sender, error_code::UNKNOWN_CODE, "no such friend code")
+                    send_error(sender, error_code::UNKNOWN_CODE, "No such friend code")
                 }
                 JoinOutcome::PeerBusy => {
                     log!("{}: join {code}: peer busy", session.code);
@@ -455,14 +455,14 @@ fn handle_message(
                 }
                 JoinOutcome::SelfJoin => {
                     log!("{}: join {code}: own code", session.code);
-                    send_error(sender, error_code::SELF_JOIN, "that is your own code")
+                    send_error(sender, error_code::SELF_JOIN, "That is your own code")
                 }
                 JoinOutcome::AlreadyPaired => {
                     log!("{}: join {code}: already paired", session.code);
                     send_error(
                         sender,
                         error_code::ALREADY_PAIRED,
-                        "leave your current pairing first",
+                        "Leave your current pairing first",
                     )
                 }
             }
