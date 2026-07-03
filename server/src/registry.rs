@@ -73,8 +73,14 @@ impl Registry {
             None => return JoinOutcome::UnknownCode,
         }
 
-        self.clients.get_mut(&joiner).unwrap().paired_with = Some(target);
-        self.clients.get_mut(&target).unwrap().paired_with = Some(joiner);
+        self.clients
+            .get_mut(&joiner)
+            .expect("joiner presence checked above")
+            .paired_with = Some(target);
+        self.clients
+            .get_mut(&target)
+            .expect("target presence checked above")
+            .paired_with = Some(joiner);
         self.send(joiner, Message::Paired);
         self.send(target, Message::Paired);
         JoinOutcome::Paired

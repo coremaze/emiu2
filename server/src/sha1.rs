@@ -19,7 +19,7 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
     for chunk in message.chunks_exact(64) {
         let mut w = [0u32; 80];
         for (i, word) in chunk.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes(word.try_into().unwrap());
+            w[i] = u32::from_be_bytes(word.try_into().expect("slice length is checked"));
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);

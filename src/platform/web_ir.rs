@@ -173,7 +173,9 @@ fn handle_message(state: &mut WebIrState, message: Message) {
         Message::IrData { records } => {
             if state.paired {
                 for record in records.chunks_exact(RECORD_LEN) {
-                    let ns = u64::from_le_bytes(record[..8].try_into().unwrap());
+                    let ns = u64::from_le_bytes(
+                        record[..8].try_into().expect("slice length is checked"),
+                    );
                     let level = record[8] != 0;
                     if state.incoming.len() >= MAX_QUEUED_EDGES {
                         state.incoming.pop_front();

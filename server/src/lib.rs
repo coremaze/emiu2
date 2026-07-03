@@ -60,7 +60,7 @@ impl RelayServer {
         loop {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
-                    if self.registry.lock().unwrap().len() >= MAX_CLIENTS {
+                    if self.registry.lock().expect("registry mutex poisoned").len() >= MAX_CLIENTS {
                         eprintln!("relay: refusing {peer}: server full");
                         drop(stream);
                         continue;
@@ -325,7 +325,10 @@ fn reader_session(
         return Ok(());
     }
 
-    let code = registry.lock().unwrap().register(sender.clone());
+    let code = registry
+        .lock()
+        .expect("registry mutex poisoned")
+        .register(sender.clone());
     let _ = sender.send(Outgoing::Protocol(
         Message::Welcome {
             version: PROTOCOL_VERSION,
@@ -347,7 +350,10 @@ fn reader_session(
         &mut pending,
         &mut session,
     );
-    registry.lock().unwrap().unregister(session.code);
+    registry
+        .lock()
+        .expect("registry mutex poisoned")
+        .unregister(session.code);
     result
 }
 
@@ -401,7 +407,10 @@ fn handle_message(
             }
             session.last_join = Some(now);
 
-            let outcome = registry.lock().unwrap().join(session.code, code);
+            let outcome = registry
+                .lock()
+                .expect("registry mutex poisoned")
+                .join(session.code, code);
             match outcome {
                 JoinOutcome::Paired => {}
                 JoinOutcome::UnknownCode => {
@@ -423,12 +432,15 @@ fn handle_message(
             }
         }
         Message::Leave => {
-            registry.lock().unwrap().unpair(session.code);
+            registry
+                .lock()
+                .expect("registry mutex poisoned")
+                .unpair(session.code);
         }
         Message::IrData { records } => {
             registry
                 .lock()
-                .unwrap()
+                .expect("registry mutex poisoned")
                 .relay(session.code, Message::IrData { records });
         }
         Message::Ping => {

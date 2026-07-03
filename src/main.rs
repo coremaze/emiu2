@@ -46,39 +46,70 @@ struct Args {
     ir: String,
 }
 
+/// A validated `--ir` argument. The transports themselves are not
+/// `Send` (their engine is single-threaded by construction), so they
+/// are created by `start` on the emulator thread; the plan carries only
+/// what can cross threads. Binding the listener here, on the main
+/// thread, lets address errors surface before the window opens.
+enum IrPlan {
+    Disconnected,
+    Listen(std::net::TcpListener),
+    Connect(String),
+    Relay(String),
+}
+
 type IrSetup = (
-    Box<dyn ir::IrInterface + Send>,
-    Option<Box<dyn ir::IrRollbackControl + Send>>,
+    Box<dyn ir::IrInterface>,
+    Option<Box<dyn ir::IrRollbackControl>>,
     Option<platform::relay_ir::RelayCommander>,
 );
 
-fn build_ir(spec: &str) -> Result<IrSetup, String> {
+fn prepare_ir(spec: &str) -> Result<IrPlan, String> {
     if spec == "none" {
-        return Ok((Box::new(ir::DisconnectedIr), None, None));
+        return Ok(IrPlan::Disconnected);
     }
     if let Some(port) = spec.strip_prefix("listen:") {
         let port: u16 = port
             .parse()
             .map_err(|_| format!("Invalid IR listen port: {port}"))?;
-        let socket = platform::socket_ir::SocketIr::listen(("0.0.0.0", port))
+        let listener = std::net::TcpListener::bind(("0.0.0.0", port))
             .map_err(|why| format!("Could not listen for IR peers on port {port}: {why}"))?;
         eprintln!("IR: listening on port {port}");
-        let rollback = socket.rollback_handle();
-        Ok((Box::new(socket), Some(Box::new(rollback)), None))
+        Ok(IrPlan::Listen(listener))
     } else if let Some(addr) = spec.strip_prefix("connect:") {
-        let socket = platform::socket_ir::SocketIr::connect(addr);
-        let rollback = socket.rollback_handle();
-        Ok((Box::new(socket), Some(Box::new(rollback)), None))
+        Ok(IrPlan::Connect(addr.to_string()))
     } else if let Some(addr) = spec.strip_prefix("relay:") {
-        let relay = platform::relay_ir::RelayIr::connect(addr);
-        let rollback = relay.rollback_handle();
-        let commander = relay.commander();
-        Ok((Box::new(relay), Some(Box::new(rollback)), Some(commander)))
+        Ok(IrPlan::Relay(addr.to_string()))
     } else {
         Err(format!(
             "Invalid --ir value {spec:?} (expected none, listen:<port>, \
              connect:<host:port>, or relay:<host:port>)"
         ))
+    }
+}
+
+impl IrPlan {
+    /// Creates the transport on the calling (emulator) thread.
+    fn start(self) -> IrSetup {
+        match self {
+            IrPlan::Disconnected => (Box::new(ir::DisconnectedIr), None, None),
+            IrPlan::Listen(listener) => {
+                let socket = platform::socket_ir::SocketIr::from_listener(listener);
+                let rollback = socket.rollback_handle();
+                (Box::new(socket), Some(Box::new(rollback)), None)
+            }
+            IrPlan::Connect(addr) => {
+                let socket = platform::socket_ir::SocketIr::connect(addr);
+                let rollback = socket.rollback_handle();
+                (Box::new(socket), Some(Box::new(rollback)), None)
+            }
+            IrPlan::Relay(addr) => {
+                let relay = platform::relay_ir::RelayIr::connect(addr);
+                let rollback = relay.rollback_handle();
+                let commander = relay.commander();
+                (Box::new(relay), Some(Box::new(rollback)), Some(commander))
+            }
+        }
     }
 }
 
@@ -145,17 +176,13 @@ fn main() {
         .savestate_file
         .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
 
-    let (ir_transceiver, ir_rollback, ir_commander) = match build_ir(&args.ir) {
-        Ok(setup) => setup,
+    let ir_plan = match prepare_ir(&args.ir) {
+        Ok(plan) => plan,
         Err(why) => {
             eprintln!("{why}");
             return;
         }
     };
-
-    if let Some(commander) = ir_commander {
-        std::thread::spawn(move || relay_console(commander));
-    }
 
     let (screen, minifb_gpio, screen_tx, worker) =
         platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
@@ -173,8 +200,7 @@ fn main() {
             screen,
             save_file,
             savestate_file,
-            ir_transceiver,
-            ir_rollback,
+            ir_plan,
         );
     });
 
@@ -195,8 +221,7 @@ fn run_emulator(
     mut screen: platform::minifb_screen_gpio::MiniFbScreen,
     save_file: Option<PathBuf>,
     savestate_file: PathBuf,
-    ir_transceiver: Box<dyn ir::IrInterface + Send>,
-    ir_rollback: Option<Box<dyn ir::IrRollbackControl + Send>>,
+    ir_plan: IrPlan,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's
     // `Stream` is `!Send`, so it must be created and dropped on the same thread.
@@ -211,6 +236,13 @@ fn run_emulator(
     if let Err(why) = stream.play() {
         eprintln!("Could not play audio stream: {why}");
         return;
+    }
+
+    // The IR transports live on this thread; only the commander (used
+    // by the stdin console) may leave it.
+    let (ir_transceiver, ir_rollback, ir_commander) = ir_plan.start();
+    if let Some(commander) = ir_commander {
+        std::thread::spawn(move || relay_console(commander));
     }
 
     let mut handheld = match miuchiz::Handheld::new(
@@ -229,9 +261,7 @@ fn run_emulator(
     };
     // std::thread::sleep(std::time::Duration::from_secs(3));
 
-    let mut rollback_driver = ir_rollback
-        .map(|control| -> Box<dyn ir::IrRollbackControl> { control })
-        .map(rollback::RollbackDriver::new);
+    let mut rollback_driver = ir_rollback.map(rollback::RollbackDriver::new);
 
     // Wall-clock pacing anchor. Re-anchored whenever the emulated cycle
     // counter jumps (savestate load or IR rollback), so the machine

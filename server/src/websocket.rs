@@ -221,7 +221,10 @@ impl FrameAssembler {
                 if buffer.len() < 10 {
                     return Ok(None);
                 }
-                (u64::from_be_bytes(buffer[2..10].try_into().unwrap()), 10)
+                (
+                    u64::from_be_bytes(buffer[2..10].try_into().expect("slice length is checked")),
+                    10,
+                )
             }
             short => (u64::from(short), 2),
         };
@@ -233,7 +236,9 @@ impl FrameAssembler {
         if buffer.len() < offset + 4 + length {
             return Ok(None);
         }
-        let mask: [u8; 4] = buffer[offset..offset + 4].try_into().unwrap();
+        let mask: [u8; 4] = buffer[offset..offset + 4]
+            .try_into()
+            .expect("slice length is checked");
         offset += 4;
 
         let mut payload = buffer[offset..offset + length].to_vec();
