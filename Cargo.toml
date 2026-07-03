@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "netplay", "server"]
+
 [package]
 name = "emiu2"
 version = "0.1.0"
@@ -5,6 +8,12 @@ edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emiu2-netplay = { path = "netplay" }
+
+[dev-dependencies]
+emiu2-relay = { path = "server" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.15.3"
@@ -32,6 +41,11 @@ web-sys = { version = "0.3", features = [
     "AudioProcessingEvent",
     "GainNode",
     "AudioParam",
+    "WebSocket",
+    "BinaryType",
+    "MessageEvent",
+    "Event",
+    "CloseEvent",
 ] }
 wasm-bindgen-futures = "0.4"
 

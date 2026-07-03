@@ -5,56 +5,53 @@
 //! `(u64 LE sender time in emulated nanoseconds, u8 carrier level)`,
 //! after an 8-byte magic handshake in each direction.
 //!
-//! Network jitter would corrupt a frame if edges were replayed as they
-//! arrived: within a frame the firmware free-runs on its 8192Hz tick and
-//! tolerates only a fraction of a bit time (~1ms) of skew. Edges are
-//! therefore replayed per burst: the first edge after a gap anchors the
-//! burst at `now + REPLAY_LATENCY_NS` on the local timeline, and the rest
-//! of the burst keeps its exact sender-relative spacing. Only the idle
-//! gaps between frames stretch, which the protocol does not care about.
+//! Burst replay, jitter handling and the rollback decision logic all
+//! live in [`ReplayEngine`]; this file is the socket shell: a background
+//! connection thread, the channels between it and the emulator thread,
+//! and reconnect handling.
+//!
+//! # Threading
+//!
+//! Everything except the connection thread runs on the emulator thread:
+//! the transport (called from inside the machine) and the rollback
+//! handle (called by the run loop) share the engine through
+//! `Rc<RefCell<..>>`, which also means a [`SocketIr`] must be created on
+//! the thread that will use it. The connection thread communicates only
+//! through channels and atomics.
 
-use crate::ir::IrInterface;
-use std::collections::VecDeque;
+use crate::ir::{IrInterface, IrRollbackControl, RollbackDirective};
+use crate::ir_replay::ReplayEngine;
+use emiu2_netplay::{decode_edges, encode_edge, EDGE_RECORD_LEN};
+use std::cell::RefCell;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 const MAGIC: [u8; 8] = *b"EMIU2IR\x01";
-const RECORD_LEN: usize = 9;
-
-/// A gap this long in the sender's timeline separates bursts (frames).
-/// The longest in-frame carrier-off run is one bit time, ~1ms.
-const BURST_GAP_NS: u64 = 3_000_000;
-
-/// How far into the local future the start of a burst is scheduled. This
-/// is the jitter budget: edges arriving up to this much later than the
-/// burst's first edge still replay with exact relative timing.
-///
-/// It also delays every frame, and the firmware is impatient: after
-/// transmitting, it listens for a reply for only ~98ms before retrying
-/// (during which it cannot hear). A reply spends this budget twice (once
-/// per direction) plus ~44ms on the air and in processing, so much beyond
-/// ~25ms here makes handshakes miss the window forever.
-const REPLAY_LATENCY_NS: u64 = 10_000_000;
-
-/// Placeholder until `set_clock_rate` is called.
-const DEFAULT_CLOCK_RATE: u64 = 16_000_000;
 
 /// How long a reconnect waits after a failed attempt or lost connection.
 const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Backstop against unbounded growth if the emulator stops polling.
+/// Backstop against unbounded growth if the emulator stops polling;
+/// edges beyond this are dropped (such a link is long dead anyway).
 const MAX_QUEUED_EDGES: usize = 100_000;
 
 struct Shared {
-    /// Received edges: (sender time in ns, carrier level).
-    edges: Mutex<VecDeque<(u64, bool)>>,
-    /// Bumped on every new connection so replay state can be reset.
+    /// Bumped on every new connection so edges from a dead connection
+    /// can be recognized and discarded.
     generation: AtomicU64,
     connected: AtomicBool,
+}
+
+/// One received edge, tagged with the connection it arrived on.
+struct TaggedEdge {
+    generation: u64,
+    sender_ns: u64,
+    level: bool,
 }
 
 enum Endpoint {
@@ -63,28 +60,28 @@ enum Endpoint {
 }
 
 pub struct SocketIr {
-    clock_rate: u64,
     outgoing: mpsc::Sender<(u64, bool)>,
+    incoming: mpsc::Receiver<TaggedEdge>,
     shared: Arc<Shared>,
     local_addr: Option<SocketAddr>,
-
-    // Replay state, touched only from the emulator thread.
+    engine: Rc<RefCell<ReplayEngine>>,
+    /// The generation the engine's state belongs to.
     seen_generation: u64,
-    level: bool,
-    play_queue: VecDeque<(u64, bool)>,
-    last_sender_ns: Option<u64>,
-    /// (sender ns, local cycle) correspondence for the current burst.
-    anchor: Option<(u64, u64)>,
-    last_scheduled_cycle: u64,
 }
 
 impl SocketIr {
     /// Binds immediately (so address errors surface here) and accepts
     /// peers in the background, one at a time.
     pub fn listen(addr: impl ToSocketAddrs) -> std::io::Result<Self> {
-        let listener = TcpListener::bind(addr)?;
+        Ok(Self::from_listener(TcpListener::bind(addr)?))
+    }
+
+    /// Accepts peers on an already-bound listener; useful when the
+    /// listener is bound on a different thread than the emulator runs on
+    /// (a `SocketIr` itself must live on the emulator thread).
+    pub fn from_listener(listener: TcpListener) -> Self {
         let local_addr = listener.local_addr().ok();
-        Ok(Self::start(Endpoint::Listen(listener), local_addr))
+        Self::start(Endpoint::Listen(listener), local_addr)
     }
 
     /// Connects to a listening peer, retrying in the background until it
@@ -101,79 +98,43 @@ impl SocketIr {
         self.shared.connected.load(Ordering::Relaxed)
     }
 
+    /// The run loop's handle for rollback coordination. High-latency
+    /// links only work when the platform drives this.
+    pub fn rollback_handle(&self) -> SocketIrRollback {
+        SocketIrRollback {
+            engine: self.engine.clone(),
+            outgoing: self.outgoing.clone(),
+            shared: self.shared.clone(),
+        }
+    }
+
     fn start(endpoint: Endpoint, local_addr: Option<SocketAddr>) -> Self {
         let (outgoing, outgoing_rx) = mpsc::channel();
+        let (incoming_tx, incoming) = mpsc::sync_channel(MAX_QUEUED_EDGES);
         let shared = Arc::new(Shared {
-            edges: Mutex::new(VecDeque::new()),
             generation: AtomicU64::new(0),
             connected: AtomicBool::new(false),
         });
 
         let thread_shared = shared.clone();
-        std::thread::spawn(move || connection_loop(endpoint, outgoing_rx, thread_shared));
+        std::thread::spawn(move || {
+            connection_loop(endpoint, outgoing_rx, incoming_tx, thread_shared)
+        });
 
         Self {
-            clock_rate: DEFAULT_CLOCK_RATE,
             outgoing,
+            incoming,
             shared,
             local_addr,
+            engine: Rc::new(RefCell::new(ReplayEngine::new())),
             seen_generation: 0,
-            level: false,
-            play_queue: VecDeque::new(),
-            last_sender_ns: None,
-            anchor: None,
-            last_scheduled_cycle: 0,
-        }
-    }
-
-    fn cycles_to_ns(&self, cycles: u64) -> u64 {
-        (cycles as u128 * 1_000_000_000 / self.clock_rate as u128) as u64
-    }
-
-    fn ns_to_cycles(&self, ns: u64) -> u64 {
-        (ns as u128 * self.clock_rate as u128 / 1_000_000_000) as u64
-    }
-
-    /// Moves received edges onto the local replay queue, anchoring each
-    /// burst `REPLAY_LATENCY_NS` into the local future.
-    fn drain_incoming(&mut self, cycle: u64) {
-        let generation = self.shared.generation.load(Ordering::Relaxed);
-        if generation != self.seen_generation {
-            self.seen_generation = generation;
-            self.play_queue.clear();
-            self.level = false;
-            self.last_sender_ns = None;
-            self.anchor = None;
-        }
-
-        let mut edges = self.shared.edges.lock().unwrap();
-        while let Some((ns, level)) = edges.pop_front() {
-            let new_burst = match self.last_sender_ns {
-                None => true,
-                Some(previous) => ns.saturating_sub(previous) > BURST_GAP_NS,
-            };
-            self.last_sender_ns = Some(ns);
-
-            if new_burst {
-                self.anchor = Some((ns, cycle + self.ns_to_cycles(REPLAY_LATENCY_NS)));
-            }
-            let (anchor_ns, anchor_cycle) = self.anchor.unwrap();
-
-            let mut at = anchor_cycle + self.ns_to_cycles(ns.saturating_sub(anchor_ns));
-            if at <= self.last_scheduled_cycle {
-                at = self.last_scheduled_cycle + 1;
-            }
-            self.last_scheduled_cycle = at;
-            self.play_queue.push_back((at, level));
         }
     }
 }
 
 impl IrInterface for SocketIr {
     fn set_clock_rate(&mut self, emulated_clock_rate: u64) {
-        if emulated_clock_rate > 0 {
-            self.clock_rate = emulated_clock_rate;
-        }
+        self.engine.borrow_mut().set_clock_rate(emulated_clock_rate);
     }
 
     fn set_carrier(&mut self, cycle: u64, carrier: bool) {
@@ -182,19 +143,65 @@ impl IrInterface for SocketIr {
         if !self.connected() {
             return;
         }
-        let _ = self.outgoing.send((self.cycles_to_ns(cycle), carrier));
+        let wire_ns = self.engine.borrow_mut().outgoing_wire_ns(cycle, carrier);
+        let _ = self.outgoing.send((wire_ns, carrier));
     }
 
     fn carrier_detected(&mut self, cycle: u64) -> bool {
-        self.drain_incoming(cycle);
-        while let Some(&(at, level)) = self.play_queue.front() {
-            if at > cycle {
-                break;
-            }
-            self.level = level;
-            self.play_queue.pop_front();
+        let mut engine = self.engine.borrow_mut();
+
+        // A new connection invalidates all link state, whether or not it
+        // has produced edges yet.
+        let current = self.shared.generation.load(Ordering::Relaxed);
+        if self.seen_generation != current {
+            self.seen_generation = current;
+            engine.reset();
         }
-        self.level
+
+        while let Ok(edge) = self.incoming.try_recv() {
+            if edge.generation != current {
+                continue; // leftover from a dead connection
+            }
+            engine.push_incoming(cycle, edge.sender_ns, edge.level);
+        }
+        engine.current_level(cycle)
+    }
+
+    fn set_receiver_power(&mut self, cycle: u64, powered: bool) {
+        let connected = self.connected();
+        self.engine
+            .borrow_mut()
+            .receiver_power_changed(cycle, powered, connected);
+    }
+}
+
+/// The [`IrRollbackControl`] endpoint of a [`SocketIr`], held by the
+/// platform's run loop (same thread as the emulator).
+pub struct SocketIrRollback {
+    engine: Rc<RefCell<ReplayEngine>>,
+    outgoing: mpsc::Sender<(u64, bool)>,
+    shared: Arc<Shared>,
+}
+
+impl IrRollbackControl for SocketIrRollback {
+    fn poll(&mut self, now_cycle: u64) -> RollbackDirective {
+        self.engine.borrow_mut().poll(now_cycle)
+    }
+
+    fn snapshot_taken(&mut self, cycle: u64) {
+        self.engine.borrow_mut().snapshot_taken(cycle);
+    }
+
+    fn rolled_back(&mut self, restored_cycle: u64, abandoned_cycle: u64) {
+        let close = self
+            .engine
+            .borrow_mut()
+            .rolled_back(restored_cycle, abandoned_cycle);
+        if let Some(close_ns) = close {
+            if self.shared.connected.load(Ordering::Relaxed) {
+                let _ = self.outgoing.send((close_ns, false));
+            }
+        }
     }
 }
 
@@ -205,7 +212,12 @@ enum After {
     Shutdown,
 }
 
-fn connection_loop(endpoint: Endpoint, outgoing: mpsc::Receiver<(u64, bool)>, shared: Arc<Shared>) {
+fn connection_loop(
+    endpoint: Endpoint,
+    outgoing: mpsc::Receiver<(u64, bool)>,
+    incoming: mpsc::SyncSender<TaggedEdge>,
+    shared: Arc<Shared>,
+) {
     loop {
         let stream = match &endpoint {
             Endpoint::Listen(listener) => match listener.accept() {
@@ -232,7 +244,7 @@ fn connection_loop(endpoint: Endpoint, outgoing: mpsc::Receiver<(u64, bool)>, sh
             },
         };
 
-        let after = match run_connection(stream, &outgoing, &shared) {
+        let after = match run_connection(stream, &outgoing, &incoming, &shared) {
             Ok(after) => after,
             Err(why) => {
                 eprintln!("IR: connection lost: {why}");
@@ -251,6 +263,7 @@ fn connection_loop(endpoint: Endpoint, outgoing: mpsc::Receiver<(u64, bool)>, sh
 fn run_connection(
     mut stream: TcpStream,
     outgoing: &mpsc::Receiver<(u64, bool)>,
+    incoming: &mpsc::SyncSender<TaggedEdge>,
     shared: &Shared,
 ) -> std::io::Result<After> {
     stream.set_nodelay(true).ok();
@@ -271,8 +284,9 @@ fn run_connection(
     // Edges transmitted while unconnected belong to frames that are
     // already lost; replaying them late would only produce garbage.
     while outgoing.try_recv().is_ok() {}
-    shared.edges.lock().unwrap().clear();
-    shared.generation.fetch_add(1, Ordering::Relaxed);
+
+    // The new generation marks anything already queued as stale.
+    let generation = shared.generation.fetch_add(1, Ordering::Relaxed) + 1;
     shared.connected.store(true, Ordering::Relaxed);
 
     // The 1ms read timeout paces the loop: sending waits at most 1ms,
@@ -284,12 +298,7 @@ fn run_connection(
     loop {
         loop {
             match outgoing.try_recv() {
-                Ok((ns, level)) => {
-                    let mut record = [0u8; RECORD_LEN];
-                    record[..8].copy_from_slice(&ns.to_le_bytes());
-                    record[8] = level as u8;
-                    stream.write_all(&record)?;
-                }
+                Ok((ns, level)) => stream.write_all(&encode_edge(ns, level))?,
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => return Ok(After::Shutdown),
             }
@@ -304,28 +313,25 @@ fn run_connection(
             }
             Ok(n) => {
                 inbuf.extend_from_slice(&chunk[..n]);
-                let mut edges = shared.edges.lock().unwrap();
-                let mut consumed = 0;
-                while inbuf.len() - consumed >= RECORD_LEN {
-                    let record = &inbuf[consumed..consumed + RECORD_LEN];
-                    let ns = u64::from_le_bytes(record[..8].try_into().unwrap());
-                    let level = match record[8] {
-                        0 => false,
-                        1 => true,
-                        _ => {
-                            return Err(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "malformed IR record",
-                            ))
-                        }
-                    };
-                    if edges.len() >= MAX_QUEUED_EDGES {
-                        edges.pop_front();
+                // Decode the complete records; a partial one stays
+                // buffered until the rest of it arrives.
+                let complete = inbuf.len() - inbuf.len() % EDGE_RECORD_LEN;
+                let edges = decode_edges(&inbuf[..complete])
+                    .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?;
+                inbuf.drain(..complete);
+                for (sender_ns, level) in edges {
+                    match incoming.try_send(TaggedEdge {
+                        generation,
+                        sender_ns,
+                        level,
+                    }) {
+                        Ok(()) => {}
+                        // The emulator has stopped draining; drop edges
+                        // rather than block the network thread.
+                        Err(mpsc::TrySendError::Full(_)) => {}
+                        Err(mpsc::TrySendError::Disconnected(_)) => return Ok(After::Shutdown),
                     }
-                    edges.push_back((ns, level));
-                    consumed += RECORD_LEN;
                 }
-                inbuf.drain(..consumed);
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
             Err(e) => return Err(e),

@@ -1,6 +1,7 @@
 use crate::{
     memory::AddressSpace,
     screen::{Pixel, Screen},
+    snapshot::{SnapshotError, SnapshotReader, SnapshotWriter},
 };
 
 const COMMAND_REG: usize = 0;
@@ -90,7 +91,7 @@ impl Voltage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Command {
     ExtOn,
     ExtOff,
@@ -139,7 +140,66 @@ enum Command {
     InternalInitializePreparation,
 }
 
+/// Every command, in a fixed order that defines the savestate encoding
+/// of `Command` (its index in this list).
+const ALL_COMMANDS: &[Command] = &[
+    Command::ExtOn,
+    Command::ExtOff,
+    Command::DisplayOn,
+    Command::DisplayOff,
+    Command::NormalDisplay,
+    Command::InverseDisplay,
+    Command::ComScanDirection,
+    Command::DisplayControl,
+    Command::SleepInOutPreparation,
+    Command::SleepIn,
+    Command::SleepOut,
+    Command::PageAddressSet,
+    Command::ColumnAddressSet,
+    Command::DataScanDirection,
+    Command::WritingToMemory,
+    Command::ReadingFromMemory,
+    Command::PartialDisplayIn,
+    Command::PartialDisplayOut,
+    Command::ReadModifyWriteIn,
+    Command::ReadModifyWriteOut,
+    Command::AreaScrollSet,
+    Command::ScrollStartSet,
+    Command::InternalOscOn,
+    Command::InternalOscOff,
+    Command::PowerControl,
+    Command::EcControl,
+    Command::EcIncrease1,
+    Command::EcDecrease1,
+    Command::ReadRegister1,
+    Command::ReadRegister2,
+    Command::NoOperation,
+    Command::EepromFunctionStart,
+    Command::Frame1PwmSet,
+    Command::Frame2PwmSet,
+    Command::Frame3PwmSet,
+    Command::Frame4PwmSet,
+    Command::AnalogSet,
+    Command::ControlEeprom,
+    Command::CancelEeprom,
+    Command::WriteToEeprom,
+    Command::ReadFromEeprom,
+    Command::DisplayPerformanceAdjustment,
+    Command::InternalInitializePreparation,
+];
+
 impl Command {
+    fn to_id(self) -> u8 {
+        ALL_COMMANDS
+            .iter()
+            .position(|command| *command == self)
+            .expect("every command is in ALL_COMMANDS") as u8
+    }
+
+    fn from_id(id: u8) -> Option<Self> {
+        ALL_COMMANDS.get(id as usize).copied()
+    }
+
     pub fn from_val(ext: bool, val: u8) -> Option<Self> {
         let command = match (ext, val) {
             (false, 0xAF) => Self::DisplayOn,
@@ -409,5 +469,48 @@ impl AddressSpace for Lcd {
             }
             Register::Data => self.handle_data(value),
         }
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_bool(self.ext);
+        match self.active_command {
+            None => writer.put_u8(0xFF),
+            Some(command) => writer.put_u8(command.to_id()),
+        }
+        writer.put_u64(self.byte_since_command as u64);
+        writer.put_bytes(&self.ddram);
+        writer.put_u64(self.ddram_ptr as u64);
+        writer.put_u8(self.start_page);
+        writer.put_u8(self.end_page);
+        writer.put_u8(self.start_column);
+        writer.put_u8(self.end_column);
+        writer.put_bool(self.display_on);
+        writer.put_u16(self.voltage.get());
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.ext = reader.take_bool()?;
+        self.active_command = match reader.take_u8()? {
+            0xFF => None,
+            id => Some(Command::from_id(id).ok_or(SnapshotError::Corrupt("LCD command"))?),
+        };
+        self.byte_since_command = reader.take_u64()? as usize;
+        reader.take_into(&mut self.ddram)?;
+        let ddram_ptr = reader.take_u64()? as usize;
+        if ddram_ptr > self.ddram.len() {
+            return Err(SnapshotError::Corrupt("LCD DDRAM pointer"));
+        }
+        self.ddram_ptr = ddram_ptr;
+        self.start_page = reader.take_u8()?;
+        self.end_page = reader.take_u8()?;
+        self.start_column = reader.take_u8()?;
+        self.end_column = reader.take_u8()?;
+        self.display_on = reader.take_bool()?;
+        let voltage = reader.take_u16()?;
+        self.voltage.set(voltage);
+
+        // Repaint the restored framebuffer so the host display matches.
+        self.update_display();
+        Ok(())
     }
 }
