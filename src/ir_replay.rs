@@ -17,6 +17,15 @@
 //! in the restored listen window instead. Outgoing edges always stream;
 //! a rollback only grows `wire_offset_ns` so that outgoing timestamps
 //! stay monotonic, and optionally closes a dangling carrier-on.
+//!
+//! A rollback may only rewind what is still recallable. Any *completed*
+//! burst since the snapshot — outgoing (the peer will consume that
+//! frame) or fully delivered incoming (the local firmware consumed it)
+//! — vetoes the rollback, because rewinding would fork history the
+//! other side already acted on. Partial bursts are fine: a mid-frame
+//! outgoing burst is truncated by the closing edge and rejected by the
+//! peer's checksum, and a partially delivered incoming burst is
+//! retained and replayed whole.
 
 use crate::ir::RollbackDirective;
 use std::collections::VecDeque;
@@ -73,10 +82,33 @@ pub struct ReplayEngine {
     armed_snapshot_cycle: Option<u64>,
     rollback_requested: bool,
 
+    /// Cycle at which the most recent incoming edge was delivered.
+    last_delivery_cycle: Option<u64>,
+    /// Delivery cycle of the final edge of the most recent incoming
+    /// burst known to have been delivered in full: a frame the firmware
+    /// consumed, which a rollback must not rewind past.
+    last_consumed_cycle: Option<u64>,
+
+    /// Cycle of the most recent outgoing edge.
+    last_outgoing_cycle: Option<u64>,
+    /// Cycle of the final edge of the most recent completed outgoing
+    /// burst: a frame the peer will consume, which a rollback must not
+    /// rewind past.
+    outgoing_completed_cycle: Option<u64>,
+
     /// Added to outgoing timestamps; grows by the rewound span on each
     /// rollback so wire time never runs backwards.
     wire_offset_ns: u64,
     last_sent_level: bool,
+}
+
+/// Whether a requested rollback may proceed. Denial is final for the
+/// armed snapshot; deferral means the answer hinges on whether the
+/// outgoing burst in flight turns out to be mid-frame or complete.
+enum Admissibility {
+    Grant,
+    Deny,
+    Defer,
 }
 
 impl Default for ReplayEngine {
@@ -102,6 +134,10 @@ impl ReplayEngine {
             want_snapshot: false,
             armed_snapshot_cycle: None,
             rollback_requested: false,
+            last_delivery_cycle: None,
+            last_consumed_cycle: None,
+            last_outgoing_cycle: None,
+            outgoing_completed_cycle: None,
             wire_offset_ns: 0,
             last_sent_level: false,
         }
@@ -127,6 +163,10 @@ impl ReplayEngine {
         self.rollback_requested = false;
         self.armed_snapshot_cycle = None;
         self.want_snapshot = false;
+        self.last_delivery_cycle = None;
+        self.last_consumed_cycle = None;
+        self.last_outgoing_cycle = None;
+        self.outgoing_completed_cycle = None;
         self.last_sent_level = false;
     }
 
@@ -155,6 +195,12 @@ impl ReplayEngine {
         self.last_sender_ns = Some(sender_ns);
 
         if new_burst && !self.holding {
+            // The previous burst is over; if every edge of it was
+            // delivered, the firmware consumed a frame, and no rollback
+            // may rewind past that delivery.
+            if self.play_queue.is_empty() && !self.delivered_burst.is_empty() {
+                self.last_consumed_cycle = self.last_delivery_cycle;
+            }
             self.delivered_burst.clear();
             if !self.rx_powered && self.snapshot_is_fresh(cycle) {
                 // The receiver cannot hear this frame; hold it and ask
@@ -192,6 +238,7 @@ impl ReplayEngine {
                 break;
             }
             self.level = level;
+            self.last_delivery_cycle = Some(at);
             if self.delivered_burst.len() < MAX_TRACKED_EDGES {
                 self.delivered_burst.push((ns, level));
             }
@@ -236,21 +283,68 @@ impl ReplayEngine {
         }
     }
 
+    /// Decides whether a requested rollback may rewind to the armed
+    /// snapshot. Only recallable spans may be rewound: a completed burst
+    /// since the snapshot, in either direction, was already consumed (by
+    /// the peer, or by the local firmware) and rewinding past it would
+    /// fork history. A still-open outgoing burst is recallable — the
+    /// closing edge truncates it mid-frame and the peer's checksum
+    /// rejects it — but with the carrier momentarily off, "between bits"
+    /// and "frame just ended" look the same, so the decision is deferred
+    /// until another edge or the burst gap settles it.
+    fn rollback_admissibility(&mut self, now_cycle: u64) -> Admissibility {
+        let Some(snapshot_cycle) = self.armed_snapshot_cycle else {
+            return Admissibility::Deny;
+        };
+        if !self.snapshot_is_fresh(now_cycle) {
+            return Admissibility::Deny;
+        }
+        if matches!(self.last_consumed_cycle, Some(at) if at > snapshot_cycle) {
+            return Admissibility::Deny;
+        }
+        if matches!(self.outgoing_completed_cycle, Some(at) if at > snapshot_cycle) {
+            return Admissibility::Deny;
+        }
+        match self.last_outgoing_cycle {
+            Some(at) if at > snapshot_cycle => {
+                if self.last_sent_level {
+                    // Mid-frame: truncation invalidates it for the peer.
+                    Admissibility::Grant
+                } else if now_cycle.saturating_sub(at) > self.ns_to_cycles(BURST_GAP_NS) {
+                    // Nothing followed the carrier-off: that frame was
+                    // complete, and the peer keeps it.
+                    self.outgoing_completed_cycle = Some(at);
+                    Admissibility::Deny
+                } else {
+                    Admissibility::Defer
+                }
+            }
+            _ => Admissibility::Grant,
+        }
+    }
+
     /// The run loop's regular poll; see `crate::ir::IrRollbackControl`.
     pub fn poll(&mut self, now_cycle: u64) -> RollbackDirective {
         if self.rollback_requested {
-            if self.snapshot_is_fresh(now_cycle) {
-                // One rollback per snapshot: re-arming requires a new
-                // receiver-on snapshot. `holding` stays set so edges of
-                // the held burst that are still arriving keep
-                // accumulating until `rolled_back` schedules them.
-                self.armed_snapshot_cycle = None;
-                self.rollback_requested = false;
-                return RollbackDirective::RollBack;
+            match self.rollback_admissibility(now_cycle) {
+                Admissibility::Grant => {
+                    // One rollback per snapshot: re-arming requires a new
+                    // receiver-on snapshot. `holding` stays set so edges
+                    // of the held burst that are still arriving keep
+                    // accumulating until `rolled_back` schedules them.
+                    self.armed_snapshot_cycle = None;
+                    self.rollback_requested = false;
+                    return RollbackDirective::RollBack;
+                }
+                Admissibility::Deny => {
+                    // Too stale to rewind, or the span holds a consumed
+                    // frame; let the held frame play (unheard) and rely
+                    // on the peer's retransmissions.
+                    self.armed_snapshot_cycle = None;
+                    self.deliver_held(now_cycle);
+                }
+                Admissibility::Defer => {}
             }
-            // Too stale to rewind; let the frame play (unheard) and rely
-            // on the peer's retransmissions.
-            self.deliver_held(now_cycle);
         }
 
         if self.want_snapshot {
@@ -286,12 +380,26 @@ impl ReplayEngine {
 
         // Snapshots are only taken while the receiver is on.
         self.rx_powered = true;
+        // The abandoned timeline's traffic bookkeeping is meaningless on
+        // the restored one (its cycles postdate everything to come).
+        self.last_delivery_cycle = None;
+        self.last_consumed_cycle = None;
+        self.last_outgoing_cycle = None;
+        self.outgoing_completed_cycle = None;
         self.deliver_held(restored_cycle);
         close
     }
 
     /// Timestamps an outgoing edge, applying the rollback offset.
     pub fn outgoing_wire_ns(&mut self, cycle: u64, level: bool) -> u64 {
+        // A burst-gap of carrier silence between edges means the earlier
+        // burst completed: the peer consumed that frame.
+        if let Some(previous) = self.last_outgoing_cycle {
+            if cycle.saturating_sub(previous) > self.ns_to_cycles(BURST_GAP_NS) {
+                self.outgoing_completed_cycle = Some(previous);
+            }
+        }
+        self.last_outgoing_cycle = Some(cycle);
         self.last_sent_level = level;
         self.cycles_to_ns(cycle) + self.wire_offset_ns
     }
@@ -331,6 +439,7 @@ mod tests {
     // 16MHz: 16_000 cycles per millisecond.
     const MS: u64 = 16_000;
     const LATENCY: u64 = (REPLAY_LATENCY_NS / 1_000_000) * MS;
+    const GAP: u64 = (BURST_GAP_NS / 1_000_000) * MS;
 
     fn engine() -> ReplayEngine {
         let mut engine = ReplayEngine::new();
@@ -481,6 +590,126 @@ mod tests {
             RollbackDirective::TakeSnapshot
         ));
         assert!(engine.current_level(1_610_000 + LATENCY));
+    }
+
+    #[test]
+    fn completed_transmission_since_snapshot_blocks_rollback() {
+        let mut engine = engine();
+        arm_snapshot(&mut engine, 2_000);
+        engine.receiver_power_changed(3_000, false, true);
+
+        // A whole frame went out after the snapshot: the peer keeps it,
+        // so its transmission must not be rewound.
+        engine.outgoing_wire_ns(4_000, true);
+        engine.outgoing_wire_ns(4_000 + MS, false);
+
+        // The peer's frame arrives 100ms later, well past the burst gap.
+        engine.push_incoming(1_600_000, 0, true);
+        engine.push_incoming(1_600_000, 1_000_000, false);
+        assert!(matches!(
+            engine.poll(1_600_100),
+            RollbackDirective::Continue
+        ));
+
+        // The held frame plays live (unheard) instead of rolling back.
+        assert!(engine.current_level(1_600_100 + LATENCY));
+        assert!(!engine.current_level(1_600_100 + LATENCY + MS));
+    }
+
+    #[test]
+    fn transmission_in_progress_still_rolls_back() {
+        let mut engine = engine();
+        arm_snapshot(&mut engine, 2_000);
+        engine.receiver_power_changed(3_000, false, true);
+
+        // A frame is mid-transmission (carrier currently on) when the
+        // peer's frame arrives: truncation recalls it.
+        engine.outgoing_wire_ns(4_000, true);
+        engine.outgoing_wire_ns(4_000 + MS / 2, false);
+        engine.outgoing_wire_ns(4_000 + MS, true);
+
+        engine.push_incoming(20_000, 0, true);
+        engine.push_incoming(20_000, 1_000_000, false);
+        assert!(matches!(engine.poll(20_100), RollbackDirective::RollBack));
+
+        // The dangling carrier is closed for the peer, and the held
+        // frame replays in the restored window.
+        assert!(engine.rolled_back(2_000, 20_100).is_some());
+        assert!(engine.current_level(2_000 + LATENCY));
+    }
+
+    #[test]
+    fn carrier_off_defers_until_the_burst_gap_denies() {
+        let mut engine = engine();
+        arm_snapshot(&mut engine, 2_000);
+        engine.receiver_power_changed(3_000, false, true);
+
+        engine.outgoing_wire_ns(4_000, true);
+        engine.outgoing_wire_ns(4_000 + MS, false);
+
+        // The peer's frame arrives 1ms after our last edge: it is not
+        // yet knowable whether our frame ended or is between bits.
+        engine.push_incoming(4_000 + 2 * MS, 0, true);
+        assert!(matches!(
+            engine.poll(4_000 + 2 * MS),
+            RollbackDirective::Continue
+        ));
+        // Deferred: the held frame is not scheduled yet.
+        assert!(!engine.current_level(4_000 + 3 * MS));
+
+        // The burst gap elapses with no further edges: the frame was
+        // complete, so the rollback is denied and the frame plays live.
+        let later = 4_000 + MS + GAP + 1;
+        assert!(matches!(engine.poll(later), RollbackDirective::Continue));
+        assert!(engine.current_level(later + LATENCY));
+    }
+
+    #[test]
+    fn carrier_off_defers_until_the_frame_continues_and_grants() {
+        let mut engine = engine();
+        arm_snapshot(&mut engine, 2_000);
+        engine.receiver_power_changed(3_000, false, true);
+
+        engine.outgoing_wire_ns(4_000, true);
+        engine.outgoing_wire_ns(4_000 + MS, false);
+
+        engine.push_incoming(4_000 + 2 * MS, 0, true);
+        assert!(matches!(
+            engine.poll(4_000 + 2 * MS),
+            RollbackDirective::Continue
+        ));
+
+        // The transmission resumes within the gap: it was mid-frame all
+        // along, so the deferred rollback is granted.
+        engine.outgoing_wire_ns(4_000 + 3 * MS, true);
+        assert!(matches!(
+            engine.poll(4_000 + 3 * MS + 100),
+            RollbackDirective::RollBack
+        ));
+    }
+
+    #[test]
+    fn heard_frame_since_snapshot_blocks_rollback() {
+        let mut engine = engine();
+        arm_snapshot(&mut engine, 2_000);
+
+        // A whole frame is heard live in the window: the firmware
+        // consumed it, so it must not be un-heard.
+        engine.push_incoming(10_000, 0, true);
+        engine.push_incoming(10_000, 1_000_000, false);
+        assert!(engine.current_level(10_000 + LATENCY));
+        assert!(!engine.current_level(10_000 + LATENCY + MS));
+
+        // The window closes, and a second frame arrives too late.
+        engine.receiver_power_changed(10_000 + LATENCY + 2 * MS, false, true);
+        engine.push_incoming(1_600_000, 100_000_000, true);
+        assert!(matches!(
+            engine.poll(1_600_100),
+            RollbackDirective::Continue
+        ));
+
+        // It plays live instead of rewinding past the heard frame.
+        assert!(engine.current_level(1_600_100 + LATENCY));
     }
 
     #[test]
