@@ -13,6 +13,7 @@
 
 use super::st2205u::{GpioConnections, GpioInterfaceInternal, GpioPort, GpioState};
 use crate::ir::IrInterface;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 /// How often to poll the receive side of the transceiver, in oscillator
 /// cycles. The firmware samples the line from its 8192Hz base timer ISR
@@ -75,8 +76,30 @@ impl GpioInterfaceInternal for IrCircuit {
             self.carrier_out = state.tco0;
             self.transceiver.set_carrier(cycle, state.tco0);
         }
-        self.rx_powered = state.pb & PB_RX_POWER != 0;
+        let rx_powered = state.pb & PB_RX_POWER != 0;
+        if rx_powered != self.rx_powered {
+            self.rx_powered = rx_powered;
+            self.transceiver.set_receiver_power(cycle, rx_powered);
+        }
         self.io.set_outputs(state, cycle);
+    }
+
+    // The circuit's own latches are board-level emulation state; the
+    // transceiver and inner io are host connections and stay live.
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_bool(self.carrier_out);
+        writer.put_bool(self.rx_powered);
+        writer.put_bool(self.carrier_seen);
+        writer.put_u64(self.next_rx_poll);
+        self.io.snapshot(writer);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.carrier_out = reader.take_bool()?;
+        self.rx_powered = reader.take_bool()?;
+        self.carrier_seen = reader.take_bool()?;
+        self.next_rx_poll = reader.take_u64()?;
+        self.io.restore(reader)
     }
 }
 

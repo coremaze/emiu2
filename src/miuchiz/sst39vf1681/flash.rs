@@ -1,6 +1,7 @@
 use std::cmp::PartialEq;
 
 use crate::memory::AddressSpace;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 const CHIP_CAPACITY: usize = 0x200000;
 const SECTOR_SIZE: usize = 0x1000;
@@ -149,6 +150,55 @@ impl AddressSpace for Flash {
             self.read_mode = ReadMode::Status { address };
             self.command_writes.clear();
         }
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_bytes(self.data.as_ref());
+        match self.read_mode {
+            ReadMode::Data => writer.put_u8(0),
+            ReadMode::Status { address } => {
+                writer.put_u8(1);
+                writer.put_u64(address as u64);
+            }
+        }
+        writer.put_u8(self.command_writes.index as u8);
+        for slot in &self.command_writes.data {
+            match slot {
+                None => writer.put_bool(false),
+                Some(write) => {
+                    writer.put_bool(true);
+                    writer.put_u64(write.address as u64);
+                    writer.put_u8(write.value);
+                }
+            }
+        }
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        reader.take_into(self.data.as_mut())?;
+        self.read_mode = match reader.take_u8()? {
+            0 => ReadMode::Data,
+            1 => ReadMode::Status {
+                address: reader.take_u64()? as usize,
+            },
+            _ => return Err(SnapshotError::Corrupt("flash read mode")),
+        };
+        let index = reader.take_u8()? as usize;
+        if index >= self.command_writes.size() {
+            return Err(SnapshotError::Corrupt("flash command ring index"));
+        }
+        self.command_writes.index = index;
+        for slot in &mut self.command_writes.data {
+            *slot = if reader.take_bool()? {
+                Some(CommandWrite {
+                    address: reader.take_u64()? as usize,
+                    value: reader.take_u8()?,
+                })
+            } else {
+                None
+            };
+        }
+        Ok(())
     }
 }
 

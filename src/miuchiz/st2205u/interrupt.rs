@@ -1,5 +1,6 @@
 use super::reg::U16Register;
 use super::wdc_65c02::HandlesInterrupt;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 #[derive(Debug)]
 pub struct State {
@@ -119,6 +120,21 @@ impl State {
         let mask = 1u16 << bit;
 
         self.shadow_ireq.set_u16(self.shadow_ireq.u16() & !mask);
+    }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.ireq.snapshot(writer);
+        self.shadow_ireq.snapshot(writer);
+        self.iena.snapshot(writer);
+        writer.put_bool(self.interrupted);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.ireq.restore(reader)?;
+        self.shadow_ireq.restore(reader)?;
+        self.iena.restore(reader)?;
+        self.interrupted = reader.take_bool()?;
+        Ok(())
     }
 }
 

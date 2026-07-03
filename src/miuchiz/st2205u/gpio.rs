@@ -1,3 +1,5 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
+
 #[derive(Debug, Clone)]
 pub struct GpioConnections {
     pub pa: u8,
@@ -80,6 +82,15 @@ pub struct GpioState {
 pub trait GpioInterfaceInternal {
     fn get_inputs(&mut self, cycle: u64) -> GpioConnections;
     fn set_outputs(&mut self, state: GpioState, cycle: u64);
+
+    /// Board circuitry between the chip and the outside world may hold
+    /// emulation state of its own; host-side endpoints have none and can
+    /// leave these defaults.
+    fn snapshot(&self, _writer: &mut SnapshotWriter) {}
+
+    fn restore(&mut self, _reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        Ok(())
+    }
 }
 
 /// Pin activity detected during a GPIO update that may raise interrupts.
@@ -121,6 +132,21 @@ impl Default for PortRegister {
             output: 0xFF,
             pull_mask: 0xFF,
         }
+    }
+}
+
+impl PortRegister {
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u8(self.input);
+        writer.put_u8(self.output);
+        writer.put_u8(self.pull_mask);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.input = reader.take_u8()?;
+        self.output = reader.take_u8()?;
+        self.pull_mask = reader.take_u8()?;
+        Ok(())
     }
 }
 
@@ -308,6 +334,62 @@ impl State {
             }
         }
         intx
+    }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        for port in [
+            &self.pa, &self.pb, &self.pc, &self.pd, &self.pe, &self.pf, &self.pl,
+        ] {
+            port.snapshot(writer);
+        }
+        writer.put_u8(self.psc);
+        writer.put_u8(self.pse);
+        for control in [
+            self.pca, self.pcb, self.pcc, self.pcd, self.pce, self.pcf, self.pcl,
+        ] {
+            writer.put_u8(control);
+        }
+        writer.put_u8(self.pfc);
+        writer.put_u8(self.pfd);
+        writer.put_u8(self.pmcr);
+        writer.put_u8(self.xreq);
+        writer.put_u8(self.last_pe_input);
+        writer.put_bool(self.tco0_active);
+        self.io.snapshot(writer);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        for port in [
+            &mut self.pa,
+            &mut self.pb,
+            &mut self.pc,
+            &mut self.pd,
+            &mut self.pe,
+            &mut self.pf,
+            &mut self.pl,
+        ] {
+            port.restore(reader)?;
+        }
+        self.psc = reader.take_u8()?;
+        self.pse = reader.take_u8()?;
+        for control in [
+            &mut self.pca,
+            &mut self.pcb,
+            &mut self.pcc,
+            &mut self.pcd,
+            &mut self.pce,
+            &mut self.pcf,
+            &mut self.pcl,
+        ] {
+            *control = reader.take_u8()?;
+        }
+        self.pfc = reader.take_u8()?;
+        self.pfd = reader.take_u8()?;
+        self.pmcr = reader.take_u8()?;
+        self.xreq = reader.take_u8()?;
+        self.last_pe_input = reader.take_u8()?;
+        self.tco0_active = reader.take_bool()?;
+        self.io.restore(reader)
     }
 
     fn update_port_gpio(&mut self, port: GpioPort, inputs: &GpioConnections) {
