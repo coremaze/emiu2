@@ -35,6 +35,5 @@ fn main() {
             std::process::exit(1);
         }
     };
-    println!("emiu2 relay listening on port {port}");
     server.run();
 }

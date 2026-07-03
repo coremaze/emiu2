@@ -1,5 +1,6 @@
 //! Who is connected, what their codes are, and who is paired with whom.
 
+use crate::logging::log;
 use crate::ClientSender;
 use emiu2_netplay::{FriendCode, Message};
 use std::collections::HashMap;
@@ -81,6 +82,7 @@ impl Registry {
             .get_mut(&target)
             .expect("target presence checked above")
             .paired_with = Some(joiner);
+        log!("paired: {joiner} <-> {target}");
         self.send(joiner, Message::Paired);
         self.send(target, Message::Paired);
         JoinOutcome::Paired
@@ -98,6 +100,7 @@ impl Registry {
         if let Some(peer_client) = self.clients.get_mut(&peer) {
             peer_client.paired_with = None;
         }
+        log!("unpaired: {code} <-> {peer}");
         self.send(peer, Message::PeerLeft);
         self.send(code, Message::PeerLeft);
     }

@@ -13,11 +13,13 @@
 //! WebSocket binary frame.
 
 mod base64;
+mod logging;
 mod registry;
 mod sha1;
 pub mod websocket;
 
 use emiu2_netplay::{error_code, Decoder, FriendCode, Message, CLIENT_MAGIC, PROTOCOL_VERSION};
+use logging::log;
 use registry::{JoinOutcome, Registry};
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
@@ -57,23 +59,28 @@ impl RelayServer {
 
     /// Accepts and serves clients until the listener fails.
     pub fn run(self) {
+        if let Ok(addr) = self.local_addr() {
+            log!("listening on {addr}");
+        }
         loop {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
                     if self.registry.lock().expect("registry mutex poisoned").len() >= MAX_CLIENTS {
-                        eprintln!("relay: refusing {peer}: server full");
+                        log!("{peer}: refused, server full");
                         drop(stream);
                         continue;
                     }
                     let registry = self.registry.clone();
                     std::thread::spawn(move || {
-                        if let Err(why) = serve_client(stream, &registry) {
-                            eprintln!("relay: {peer}: {why}");
+                        // Sessions log their own end; an error here means
+                        // the connection never became one.
+                        if let Err(why) = serve_client(stream, peer, &registry) {
+                            log!("{peer}: {why}");
                         }
                     });
                 }
                 Err(why) => {
-                    eprintln!("relay: accept failed: {why}");
+                    log!("accept failed: {why}");
                     std::thread::sleep(Duration::from_millis(100));
                 }
             }
@@ -154,7 +161,11 @@ impl Dialect {
     }
 }
 
-fn serve_client(mut stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::io::Result<()> {
+fn serve_client(
+    mut stream: TcpStream,
+    peer: SocketAddr,
+    registry: &Arc<Mutex<Registry>>,
+) -> std::io::Result<()> {
     stream.set_nodelay(true).ok();
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -164,7 +175,7 @@ fn serve_client(mut stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::
     let mut first = [0u8; 1];
     stream.read_exact(&mut first)?;
     if first[0] == b'G' {
-        return serve_websocket_client(stream, registry, first[0]);
+        return serve_websocket_client(stream, peer, registry, first[0]);
     }
 
     let mut magic_rest = [0u8; CLIENT_MAGIC.len() - 1];
@@ -178,6 +189,7 @@ fn serve_client(mut stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::
 
     serve_session(
         stream,
+        peer,
         registry,
         Framing::Native,
         Dialect::Native(Decoder::new()),
@@ -187,6 +199,7 @@ fn serve_client(mut stream: TcpStream, registry: &Arc<Mutex<Registry>>) -> std::
 
 fn serve_websocket_client(
     mut stream: TcpStream,
+    peer: SocketAddr,
     registry: &Arc<Mutex<Registry>>,
     first: u8,
 ) -> std::io::Result<()> {
@@ -217,6 +230,7 @@ fn serve_websocket_client(
     match websocket::upgrade_response(&request[..header_end]) {
         Ok(response) => stream.write_all(&response)?,
         Err(response) => {
+            log!("{peer}: answered a plain HTTP request");
             stream.write_all(&response).ok();
             return Ok(());
         }
@@ -226,6 +240,7 @@ fn serve_websocket_client(
     let leftover = request[header_end..].to_vec();
     serve_session(
         stream,
+        peer,
         registry,
         Framing::WebSocket,
         Dialect::WebSocket(FrameAssembler::new()),
@@ -242,6 +257,7 @@ fn find_header_end(request: &[u8]) -> Option<usize> {
 
 fn serve_session(
     stream: TcpStream,
+    peer: SocketAddr,
     registry: &Arc<Mutex<Registry>>,
     framing: Framing,
     mut dialect: Dialect,
@@ -251,7 +267,7 @@ fn serve_session(
     let (sender, outbox) = mpsc::channel::<Outgoing>();
     let writer = std::thread::spawn(move || writer_loop(writer_stream, outbox, framing));
 
-    let result = reader_session(stream, registry, &sender, &mut dialect, initial);
+    let result = reader_session(stream, peer, registry, &sender, &mut dialect, initial);
 
     // Closing the channel ends the writer; the writer shuts the socket
     // down when it exits, which also unblocks any pending read.
@@ -298,6 +314,7 @@ struct Session {
 
 fn reader_session(
     mut stream: TcpStream,
+    peer: SocketAddr,
     registry: &Arc<Mutex<Registry>>,
     sender: &ClientSender,
     dialect: &mut Dialect,
@@ -315,6 +332,7 @@ fn reader_session(
         ));
     };
     if version != PROTOCOL_VERSION {
+        log!("{peer}: rejected, speaks protocol version {version}");
         let _ = sender.send(Outgoing::Protocol(
             Message::Error {
                 code: error_code::BAD_VERSION,
@@ -329,6 +347,11 @@ fn reader_session(
         .lock()
         .expect("registry mutex poisoned")
         .register(sender.clone());
+    let dialect_name = match dialect {
+        Dialect::Native(_) => "native",
+        Dialect::WebSocket(_) => "websocket",
+    };
+    log!("{peer}: {dialect_name} client online as {code}");
     let _ = sender.send(Outgoing::Protocol(
         Message::Welcome {
             version: PROTOCOL_VERSION,
@@ -342,19 +365,22 @@ fn reader_session(
         last_join: None,
     };
 
-    let result = session_loop(
+    match session_loop(
         &mut stream,
         registry,
         sender,
         dialect,
         &mut pending,
         &mut session,
-    );
+    ) {
+        Ok(()) => log!("{peer} ({code}): disconnected"),
+        Err(why) => log!("{peer} ({code}): disconnected: {why}"),
+    }
     registry
         .lock()
         .expect("registry mutex poisoned")
         .unregister(session.code);
-    result
+    Ok(())
 }
 
 fn session_loop(
@@ -401,6 +427,7 @@ fn handle_message(
             let now = Instant::now();
             if let Some(last) = session.last_join {
                 if now.duration_since(last) < JOIN_INTERVAL {
+                    log!("{}: join throttled", session.code);
                     send_error(sender, error_code::THROTTLED, "joining too fast");
                     return;
                 }
@@ -412,23 +439,32 @@ fn handle_message(
                 .expect("registry mutex poisoned")
                 .join(session.code, code);
             match outcome {
+                // Successful pairings are logged by the registry.
                 JoinOutcome::Paired => {}
                 JoinOutcome::UnknownCode => {
+                    log!("{}: join {code}: unknown code", session.code);
                     send_error(sender, error_code::UNKNOWN_CODE, "no such friend code")
                 }
-                JoinOutcome::PeerBusy => send_error(
-                    sender,
-                    error_code::PEER_BUSY,
-                    "that player is already paired",
-                ),
+                JoinOutcome::PeerBusy => {
+                    log!("{}: join {code}: peer busy", session.code);
+                    send_error(
+                        sender,
+                        error_code::PEER_BUSY,
+                        "that player is already paired",
+                    )
+                }
                 JoinOutcome::SelfJoin => {
+                    log!("{}: join {code}: own code", session.code);
                     send_error(sender, error_code::SELF_JOIN, "that is your own code")
                 }
-                JoinOutcome::AlreadyPaired => send_error(
-                    sender,
-                    error_code::ALREADY_PAIRED,
-                    "leave your current pairing first",
-                ),
+                JoinOutcome::AlreadyPaired => {
+                    log!("{}: join {code}: already paired", session.code);
+                    send_error(
+                        sender,
+                        error_code::ALREADY_PAIRED,
+                        "leave your current pairing first",
+                    )
+                }
             }
         }
         Message::Leave => {
