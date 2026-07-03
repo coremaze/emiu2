@@ -13,12 +13,34 @@ const ACCEPT_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /// protocol's own payload cap.
 const MAX_MESSAGE: usize = 128 * 1024;
 
-const OPCODE_CONTINUATION: u8 = 0x0;
-const OPCODE_TEXT: u8 = 0x1;
-const OPCODE_BINARY: u8 = 0x2;
-const OPCODE_CLOSE: u8 = 0x8;
-const OPCODE_PING: u8 = 0x9;
-const OPCODE_PONG: u8 = 0xA;
+/// The frame opcodes the protocol uses (RFC 6455 §5.2). Unknown bytes
+/// are rejected once, in `TryFrom`; everything downstream matches
+/// exhaustively.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WsOpcode {
+    Continuation = 0x0,
+    Text = 0x1,
+    Binary = 0x2,
+    Close = 0x8,
+    Ping = 0x9,
+    Pong = 0xA,
+}
+
+impl TryFrom<u8> for WsOpcode {
+    type Error = std::io::Error;
+
+    fn try_from(byte: u8) -> std::io::Result<Self> {
+        Ok(match byte {
+            0x0 => Self::Continuation,
+            0x1 => Self::Text,
+            0x2 => Self::Binary,
+            0x8 => Self::Close,
+            0x9 => Self::Ping,
+            0xA => Self::Pong,
+            other => return Err(protocol_error(&format!("unknown opcode {other}"))),
+        })
+    }
+}
 
 /// The `Sec-WebSocket-Accept` value for a client key.
 pub fn accept_key(client_key: &str) -> String {
@@ -93,22 +115,22 @@ fn simple_response(status: &str, body: &str) -> Vec<u8> {
 
 /// Wraps a payload in one unmasked binary frame (server to client).
 pub fn frame_binary(payload: &[u8]) -> Vec<u8> {
-    frame(OPCODE_BINARY, payload)
+    frame(WsOpcode::Binary, payload)
 }
 
 /// Wraps a payload in one unmasked pong frame.
 pub fn frame_pong(payload: &[u8]) -> Vec<u8> {
-    frame(OPCODE_PONG, payload)
+    frame(WsOpcode::Pong, payload)
 }
 
 /// Wraps a payload in one unmasked close frame.
 pub fn frame_close() -> Vec<u8> {
-    frame(OPCODE_CLOSE, &[])
+    frame(WsOpcode::Close, &[])
 }
 
-fn frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
+fn frame(opcode: WsOpcode, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.len() + 10);
-    out.push(0x80 | opcode); // FIN set, no fragmentation on our side
+    out.push(0x80 | opcode as u8); // FIN set, no fragmentation on our side
     if payload.len() < 126 {
         out.push(payload.len() as u8);
     } else if payload.len() <= u16::MAX as usize {
@@ -152,7 +174,7 @@ impl FrameAssembler {
 
     /// Takes the next event off the stream, or `None` if more bytes are
     /// needed. Errors are fatal to the connection.
-    pub fn next(&mut self) -> std::io::Result<Option<WsEvent>> {
+    pub fn try_next(&mut self) -> std::io::Result<Option<WsEvent>> {
         loop {
             let Some((fin, opcode, payload, consumed)) = self.parse_frame()? else {
                 return Ok(None);
@@ -160,8 +182,8 @@ impl FrameAssembler {
             self.buffer.drain(..consumed);
 
             match opcode {
-                OPCODE_BINARY | OPCODE_CONTINUATION => {
-                    if opcode == OPCODE_BINARY {
+                WsOpcode::Binary | WsOpcode::Continuation => {
+                    if opcode == WsOpcode::Binary {
                         if self.fragments.is_some() {
                             return Err(protocol_error("interleaved fragmented messages"));
                         }
@@ -180,80 +202,104 @@ impl FrameAssembler {
                         return Ok(Some(WsEvent::Message(message)));
                     }
                 }
-                OPCODE_PING => return Ok(Some(WsEvent::Ping(payload))),
-                OPCODE_PONG => continue,
-                OPCODE_CLOSE => return Ok(Some(WsEvent::Close)),
-                OPCODE_TEXT => {
+                WsOpcode::Ping => return Ok(Some(WsEvent::Ping(payload))),
+                WsOpcode::Pong => continue,
+                WsOpcode::Close => return Ok(Some(WsEvent::Close)),
+                WsOpcode::Text => {
                     return Err(protocol_error("text frames are not part of the protocol"))
                 }
-                other => return Err(protocol_error_owned(format!("unknown opcode {other}"))),
             }
         }
     }
 
     /// Parses one frame if completely buffered:
-    /// (fin, opcode, unmasked payload, bytes consumed).
+    /// (fin, opcode, unmasked payload, bytes consumed). Every read pulls
+    /// from the front of a cursor, so an incomplete frame surfaces as a
+    /// failed take (-> wait for more bytes), never as an index panic.
     #[allow(clippy::type_complexity)]
-    fn parse_frame(&self) -> std::io::Result<Option<(bool, u8, Vec<u8>, usize)>> {
-        let buffer = &self.buffer;
-        if buffer.len() < 2 {
+    fn parse_frame(&self) -> std::io::Result<Option<(bool, WsOpcode, Vec<u8>, usize)>> {
+        let mut cursor = Cursor::new(&self.buffer);
+
+        let Some(first) = cursor.take_u8() else {
             return Ok(None);
-        }
-        let fin = buffer[0] & 0x80 != 0;
-        if buffer[0] & 0x70 != 0 {
+        };
+        let fin = first & 0x80 != 0;
+        if first & 0x70 != 0 {
             return Err(protocol_error("reserved bits set"));
         }
-        let opcode = buffer[0] & 0x0F;
-        let masked = buffer[1] & 0x80 != 0;
-        if !masked {
+        let opcode = WsOpcode::try_from(first & 0x0F)?;
+
+        let Some(second) = cursor.take_u8() else {
+            return Ok(None);
+        };
+        if second & 0x80 == 0 {
             // Clients MUST mask (RFC 6455 §5.1).
             return Err(protocol_error("unmasked client frame"));
         }
-
-        let (length, mut offset) = match buffer[1] & 0x7F {
-            126 => {
-                if buffer.len() < 4 {
-                    return Ok(None);
-                }
-                (u64::from(u16::from_be_bytes([buffer[2], buffer[3]])), 4)
-            }
-            127 => {
-                if buffer.len() < 10 {
-                    return Ok(None);
-                }
-                (
-                    u64::from_be_bytes(buffer[2..10].try_into().expect("slice length is checked")),
-                    10,
-                )
-            }
-            short => (u64::from(short), 2),
+        let length = match second & 0x7F {
+            126 => match cursor.take_array::<2>() {
+                Some(bytes) => u64::from(u16::from_be_bytes(bytes)),
+                None => return Ok(None),
+            },
+            127 => match cursor.take_array::<8>() {
+                Some(bytes) => u64::from_be_bytes(bytes),
+                None => return Ok(None),
+            },
+            short => u64::from(short),
         };
         if length > MAX_MESSAGE as u64 {
             return Err(protocol_error("oversized frame"));
         }
-        let length = length as usize;
 
-        if buffer.len() < offset + 4 + length {
+        let Some(mask) = cursor.take_array::<4>() else {
             return Ok(None);
-        }
-        let mask: [u8; 4] = buffer[offset..offset + 4]
-            .try_into()
-            .expect("slice length is checked");
-        offset += 4;
+        };
+        let Some(masked_payload) = cursor.take(length as usize) else {
+            return Ok(None);
+        };
+        let payload = masked_payload
+            .iter()
+            .zip(mask.iter().cycle())
+            .map(|(byte, mask_byte)| byte ^ mask_byte)
+            .collect();
+        Ok(Some((fin, opcode, payload, cursor.position())))
+    }
+}
 
-        let mut payload = buffer[offset..offset + length].to_vec();
-        for (i, byte) in payload.iter_mut().enumerate() {
-            *byte ^= mask[i % 4];
-        }
-        Ok(Some((fin, opcode, payload, offset + length)))
+/// Structural reads from the front of a buffer; a failed take means the
+/// data has not fully arrived yet.
+struct Cursor<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(len)?;
+        let bytes = self.data.get(self.pos..end)?;
+        self.pos = end;
+        Some(bytes)
+    }
+
+    fn take_u8(&mut self) -> Option<u8> {
+        Some(self.take_array::<1>()?[0])
+    }
+
+    fn take_array<const N: usize>(&mut self) -> Option<[u8; N]> {
+        self.take(N)
+            .map(|bytes| bytes.try_into().expect("take yielded N bytes"))
+    }
+
+    fn position(&self) -> usize {
+        self.pos
     }
 }
 
 fn protocol_error(what: &str) -> std::io::Error {
-    std::io::Error::new(ErrorKind::InvalidData, format!("websocket: {what}"))
-}
-
-fn protocol_error_owned(what: String) -> std::io::Error {
     std::io::Error::new(ErrorKind::InvalidData, format!("websocket: {what}"))
 }
 
@@ -262,9 +308,13 @@ mod tests {
     use super::*;
 
     /// Builds a masked client frame, the way a browser would.
-    fn client_frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
+    fn client_frame(fin: bool, opcode: WsOpcode, payload: &[u8]) -> Vec<u8> {
         let mask = [0x12u8, 0x34, 0x56, 0x78];
-        let mut out = vec![if fin { 0x80 | opcode } else { opcode }];
+        let mut out = vec![if fin {
+            0x80 | opcode as u8
+        } else {
+            opcode as u8
+        }];
         if payload.len() < 126 {
             out.push(0x80 | payload.len() as u8);
         } else {
@@ -303,26 +353,26 @@ mod tests {
     #[test]
     fn masked_binary_frames_round_trip() {
         let mut assembler = FrameAssembler::new();
-        assembler.push(&client_frame(true, OPCODE_BINARY, b"hello"));
-        match assembler.next().unwrap() {
+        assembler.push(&client_frame(true, WsOpcode::Binary, b"hello"));
+        match assembler.try_next().unwrap() {
             Some(WsEvent::Message(payload)) => assert_eq!(payload, b"hello"),
             _ => panic!("expected a message"),
         }
-        assert!(assembler.next().unwrap().is_none());
+        assert!(assembler.try_next().unwrap().is_none());
     }
 
     #[test]
     fn split_delivery_and_fragmentation_reassemble() {
         let mut assembler = FrameAssembler::new();
         let mut stream = Vec::new();
-        stream.extend_from_slice(&client_frame(false, OPCODE_BINARY, b"hel"));
-        stream.extend_from_slice(&client_frame(true, OPCODE_CONTINUATION, b"lo"));
+        stream.extend_from_slice(&client_frame(false, WsOpcode::Binary, b"hel"));
+        stream.extend_from_slice(&client_frame(true, WsOpcode::Continuation, b"lo"));
 
         // Feed byte by byte.
         let mut messages = Vec::new();
         for &byte in &stream {
             assembler.push(&[byte]);
-            while let Some(event) = assembler.next().unwrap() {
+            while let Some(event) = assembler.try_next().unwrap() {
                 match event {
                     WsEvent::Message(payload) => messages.push(payload),
                     _ => panic!("unexpected event"),
@@ -335,20 +385,23 @@ mod tests {
     #[test]
     fn ping_and_close_surface_as_events() {
         let mut assembler = FrameAssembler::new();
-        assembler.push(&client_frame(true, OPCODE_PING, b"hi"));
+        assembler.push(&client_frame(true, WsOpcode::Ping, b"hi"));
         assert!(matches!(
-            assembler.next().unwrap(),
+            assembler.try_next().unwrap(),
             Some(WsEvent::Ping(payload)) if payload == b"hi"
         ));
 
-        assembler.push(&client_frame(true, OPCODE_CLOSE, &[]));
-        assert!(matches!(assembler.next().unwrap(), Some(WsEvent::Close)));
+        assembler.push(&client_frame(true, WsOpcode::Close, &[]));
+        assert!(matches!(
+            assembler.try_next().unwrap(),
+            Some(WsEvent::Close)
+        ));
     }
 
     #[test]
     fn unmasked_client_frames_are_rejected() {
         let mut assembler = FrameAssembler::new();
         assembler.push(&frame_binary(b"nope")); // server framing = unmasked
-        assert!(assembler.next().is_err());
+        assert!(assembler.try_next().is_err());
     }
 }

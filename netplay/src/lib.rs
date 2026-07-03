@@ -22,4 +22,5 @@ pub mod protocol;
 
 pub use code::FriendCode;
 pub use protocol::error_code;
+pub use protocol::{decode_edges, encode_edge, EDGE_RECORD_LEN};
 pub use protocol::{Decoder, Message, ProtocolError, CLIENT_MAGIC, PROTOCOL_VERSION};

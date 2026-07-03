@@ -54,7 +54,7 @@ impl TestClient {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut chunk = [0u8; 1024];
         loop {
-            if let Some(message) = self.decoder.next().unwrap() {
+            if let Some(message) = self.decoder.try_next().unwrap() {
                 match message {
                     Message::Ping => {
                         self.send(Message::Pong);
@@ -225,7 +225,7 @@ fn version_mismatch_is_rejected() {
     let mut buffer = Vec::new();
     stream.read_to_end(&mut buffer).unwrap(); // server closes after erroring
     decoder.push(&buffer);
-    match decoder.next().unwrap() {
+    match decoder.try_next().unwrap() {
         Some(Message::Error { code, .. }) => assert_eq!(code, error_code::BAD_VERSION),
         other => panic!("expected version error, got {other:?}"),
     }

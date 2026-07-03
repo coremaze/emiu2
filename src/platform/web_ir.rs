@@ -13,7 +13,7 @@
 
 use crate::ir::{IrInterface, IrRollbackControl, RollbackDirective};
 use crate::ir_replay::ReplayEngine;
-use emiu2_netplay::{FriendCode, Message, PROTOCOL_VERSION};
+use emiu2_netplay::{decode_edges, encode_edge, FriendCode, Message, PROTOCOL_VERSION};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -21,7 +21,6 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{BinaryType, MessageEvent, WebSocket};
 
-const RECORD_LEN: usize = 9;
 const MAX_QUEUED_EDGES: usize = 100_000;
 
 pub struct WebIrState {
@@ -172,15 +171,15 @@ fn handle_message(state: &mut WebIrState, message: Message) {
         }
         Message::IrData { records } => {
             if state.paired {
-                for record in records.chunks_exact(RECORD_LEN) {
-                    let ns = u64::from_le_bytes(
-                        record[..8].try_into().expect("slice length is checked"),
-                    );
-                    let level = record[8] != 0;
+                let Ok(edges) = decode_edges(&records) else {
+                    web_sys::console::warn_1(&"IR relay: malformed edge records".into());
+                    return;
+                };
+                for edge in edges {
                     if state.incoming.len() >= MAX_QUEUED_EDGES {
                         state.incoming.pop_front();
                     }
-                    state.incoming.push_back((ns, level));
+                    state.incoming.push_back(edge);
                 }
             }
         }
@@ -218,9 +217,7 @@ impl IrInterface for WebIr {
             return;
         }
         let wire_ns = state.engine.outgoing_wire_ns(cycle, carrier);
-        let mut records = Vec::with_capacity(RECORD_LEN);
-        records.extend_from_slice(&wire_ns.to_le_bytes());
-        records.push(carrier as u8);
+        let records = encode_edge(wire_ns, carrier).to_vec();
         state.send(&Message::IrData { records });
     }
 
@@ -264,9 +261,7 @@ impl IrRollbackControl for WebIrControl {
         let close = state.engine.rolled_back(restored_cycle, abandoned_cycle);
         if let Some(close_ns) = close {
             if state.paired {
-                let mut records = Vec::with_capacity(RECORD_LEN);
-                records.extend_from_slice(&close_ns.to_le_bytes());
-                records.push(0);
+                let records = encode_edge(close_ns, false).to_vec();
                 state.send(&Message::IrData { records });
             }
         }

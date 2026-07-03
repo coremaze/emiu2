@@ -211,7 +211,7 @@ impl NativeClient {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut chunk = [0u8; 1024];
         loop {
-            if let Some(message) = self.decoder.next().unwrap() {
+            if let Some(message) = self.decoder.try_next().unwrap() {
                 match message {
                     Message::Ping => {
                         self.send(Message::Pong);

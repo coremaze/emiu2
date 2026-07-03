@@ -19,7 +19,9 @@
 
 use crate::ir::{IrInterface, IrRollbackControl, RollbackDirective};
 use crate::ir_replay::ReplayEngine;
-use emiu2_netplay::{Decoder, FriendCode, Message, CLIENT_MAGIC, PROTOCOL_VERSION};
+use emiu2_netplay::{
+    decode_edges, encode_edge, Decoder, FriendCode, Message, CLIENT_MAGIC, PROTOCOL_VERSION,
+};
 use std::cell::RefCell;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
@@ -29,7 +31,6 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-const RECORD_LEN: usize = 9;
 const RETRY_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Backstop against unbounded growth if the emulator stops polling;
@@ -311,9 +312,7 @@ fn run_connection(
                     if !shared.paired.load(Ordering::Relaxed) {
                         continue;
                     }
-                    let mut records = Vec::with_capacity(RECORD_LEN);
-                    records.extend_from_slice(&ns.to_le_bytes());
-                    records.push(level as u8);
+                    let records = encode_edge(ns, level).to_vec();
                     stream.write_all(&Message::IrData { records }.encode())?;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -346,7 +345,7 @@ fn run_connection(
             Ok(n) => {
                 decoder.push(&chunk[..n]);
                 while let Some(message) = decoder
-                    .next()
+                    .try_next()
                     .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?
                 {
                     handle_message(message, &mut stream, incoming, shared)?;
@@ -382,14 +381,13 @@ fn handle_message(
         Message::IrData { records } => {
             if shared.paired.load(Ordering::Relaxed) {
                 let generation = shared.generation.load(Ordering::Relaxed);
-                for record in records.chunks_exact(RECORD_LEN) {
-                    let ns = u64::from_le_bytes(
-                        record[..8].try_into().expect("record header is 8 bytes"),
-                    );
+                let edges = decode_edges(&records)
+                    .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?;
+                for (sender_ns, level) in edges {
                     match incoming.try_send(TaggedEdge {
                         generation,
-                        sender_ns: ns,
-                        level: record[8] != 0,
+                        sender_ns,
+                        level,
                     }) {
                         Ok(()) => {}
                         // The emulator has stopped draining; drop edges

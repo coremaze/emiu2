@@ -21,6 +21,7 @@
 
 use crate::ir::{IrInterface, IrRollbackControl, RollbackDirective};
 use crate::ir_replay::ReplayEngine;
+use emiu2_netplay::{decode_edges, encode_edge, EDGE_RECORD_LEN};
 use std::cell::RefCell;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -31,7 +32,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const MAGIC: [u8; 8] = *b"EMIU2IR\x01";
-const RECORD_LEN: usize = 9;
 
 /// How long a reconnect waits after a failed attempt or lost connection.
 const RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -298,12 +298,7 @@ fn run_connection(
     loop {
         loop {
             match outgoing.try_recv() {
-                Ok((ns, level)) => {
-                    let mut record = [0u8; RECORD_LEN];
-                    record[..8].copy_from_slice(&ns.to_le_bytes());
-                    record[8] = level as u8;
-                    stream.write_all(&record)?;
-                }
+                Ok((ns, level)) => stream.write_all(&encode_edge(ns, level))?,
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => return Ok(After::Shutdown),
             }
@@ -318,25 +313,16 @@ fn run_connection(
             }
             Ok(n) => {
                 inbuf.extend_from_slice(&chunk[..n]);
-                let mut consumed = 0;
-                while inbuf.len() - consumed >= RECORD_LEN {
-                    let record = &inbuf[consumed..consumed + RECORD_LEN];
-                    let ns = u64::from_le_bytes(
-                        record[..8].try_into().expect("record header is 8 bytes"),
-                    );
-                    let level = match record[8] {
-                        0 => false,
-                        1 => true,
-                        _ => {
-                            return Err(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "malformed IR record",
-                            ))
-                        }
-                    };
+                // Decode the complete records; a partial one stays
+                // buffered until the rest of it arrives.
+                let complete = inbuf.len() - inbuf.len() % EDGE_RECORD_LEN;
+                let edges = decode_edges(&inbuf[..complete])
+                    .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?;
+                inbuf.drain(..complete);
+                for (sender_ns, level) in edges {
                     match incoming.try_send(TaggedEdge {
                         generation,
-                        sender_ns: ns,
+                        sender_ns,
                         level,
                     }) {
                         Ok(()) => {}
@@ -345,9 +331,7 @@ fn run_connection(
                         Err(mpsc::TrySendError::Full(_)) => {}
                         Err(mpsc::TrySendError::Disconnected(_)) => return Ok(After::Shutdown),
                     }
-                    consumed += RECORD_LEN;
                 }
-                inbuf.drain(..consumed);
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
             Err(e) => return Err(e),

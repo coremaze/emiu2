@@ -122,7 +122,7 @@ impl Dialect {
             Dialect::Native(decoder) => {
                 decoder.push(bytes);
                 while let Some(message) = decoder
-                    .next()
+                    .try_next()
                     .map_err(|why| std::io::Error::new(ErrorKind::InvalidData, why))?
                 {
                     messages.push_back(message);
@@ -130,7 +130,7 @@ impl Dialect {
             }
             Dialect::WebSocket(assembler) => {
                 assembler.push(bytes);
-                while let Some(event) = assembler.next()? {
+                while let Some(event) = assembler.try_next()? {
                     match event {
                         WsEvent::Message(frame) => {
                             let message = Message::decode_frame(&frame)
