@@ -657,26 +657,8 @@
             align-self: center;
         }
 
-        /* Connection state, as a colored dot plus a short label.
-           Amber while connecting, blue online, green paired. */
-        #netplay-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: var(--color-warning);
-        }
-
-        #netplay-indicator.online {
-            background-color: var(--color-info);
-        }
-
-        #netplay-indicator.paired {
-            background-color: var(--color-success);
-        }
-
-        #netplay-state {
-            color: var(--color-text-secondary);
-            font-size: 14px;
+        #netplay .loading-spinner {
+            margin: 0;
         }
 
         #netplay-code {
@@ -1302,12 +1284,10 @@
     <fieldset id="netplay">
         <legend>Play with a Friend</legend>
         <div class="netplay-row">
-            <span id="netplay-indicator" aria-hidden="true"></span>
-            <span id="netplay-state" aria-live="polite">Connecting…</span>
-        </div>
-        <div class="netplay-row">
             <span>Your friend code:</span>
-            <span id="netplay-code">······</span>
+            <span id="netplay-code" style="display:none;" aria-live="polite"></span>
+            <span id="netplay-code-spinner" class="loading-spinner" role="status"
+                  aria-label="Waiting for a friend code"></span>
             <button id="netplay-copy" type="button" title="Copy your friend code" disabled>Copy</button>
         </div>
         <div class="netplay-row" id="netplay-join-row">

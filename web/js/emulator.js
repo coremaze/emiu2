@@ -930,9 +930,8 @@ function resolveRelayUrl() {
 function initializeNetplayUI() {
     const toggle = document.getElementById('netplay-button');
     const panel = document.getElementById('netplay');
-    const indicator = document.getElementById('netplay-indicator');
-    const stateText = document.getElementById('netplay-state');
     const codeSpan = document.getElementById('netplay-code');
+    const codeSpinner = document.getElementById('netplay-code-spinner');
     const copyButton = document.getElementById('netplay-copy');
     const joinRow = document.getElementById('netplay-join-row');
     const leaveRow = document.getElementById('netplay-leave-row');
@@ -948,40 +947,51 @@ function initializeNetplayUI() {
         }
     };
 
-    // Connect lazily (nothing touches the network until the player opens
-    // the panel) and thereafter keep the connection alive automatically.
+    // Connect as soon as the emulator is running and keep the
+    // connection alive from then on. The relay assigns a fresh code on
+    // every (re)connect, so the display simply tracks ir_code(): a
+    // spinner while there is none, the current code otherwise.
     let lastAttempt = 0;
     const ensureConnected = () => {
         if (ir_connected() || Date.now() - lastAttempt < 5000) return;
         lastAttempt = Date.now();
-        report(() => ir_connect(resolveRelayUrl()));
+        try {
+            ir_connect(resolveRelayUrl());
+        } catch (e) {
+            // Retried on the next tick; nothing useful to tell the user.
+            console.warn('relay connect failed:', e);
+        }
     };
 
+    let panelOpened = false;
+    let lastCode = '';
     let wasPaired = false;
     const refresh = () => {
         ensureConnected();
 
-        // Events (pairing changes, errors) surface as page notifications;
-        // the panel itself only reflects the current state.
+        // Events (pairing changes, errors) surface as page
+        // notifications — but nobody is watching for netplay events
+        // until the panel has been opened at least once.
         for (;;) {
             const notice = ir_take_notice();
             if (!notice) break;
-            showNotification(notice, 4000);
+            if (panelOpened) showNotification(notice, 4000);
         }
 
-        const connected = ir_connected();
-        const paired = ir_paired();
-        indicator.className = paired ? 'paired' : connected ? 'online' : '';
-        stateText.textContent = paired
-            ? 'Paired \u2014 your infrared link is live'
-            : connected
-                ? 'Online \u2014 trade codes with a friend to play together'
-                : 'Connecting\u2026';
-
         const code = ir_code();
-        codeSpan.textContent = code || '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7';
+        codeSpan.style.display = code ? '' : 'none';
+        codeSpinner.style.display = code ? 'none' : '';
+        codeSpan.textContent = code;
         copyButton.disabled = !code;
+        // A reconnect (network loss, tab suspended in the background)
+        // means a new identity; warn if the old code may have been
+        // shared already.
+        if (code && lastCode && code !== lastCode && panelOpened) {
+            showNotification('Reconnected \u2014 your friend code changed', 5000);
+        }
+        if (code) lastCode = code;
 
+        const paired = ir_paired();
         joinRow.style.display = paired ? 'none' : 'flex';
         leaveRow.style.display = paired ? 'flex' : 'none';
         if (paired && !wasPaired) {
@@ -993,9 +1003,19 @@ function initializeNetplayUI() {
     toggle.addEventListener('click', () => {
         toggle.style.display = 'none';
         panel.style.display = 'block';
+        panelOpened = true;
         refresh();
-        setInterval(refresh, 500);
     }, { once: true });
+
+    // A tab returning from the background may find its connection dead
+    // (browsers throttle and discard background work); retry right away
+    // instead of waiting out the backoff.
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            lastAttempt = 0;
+            refresh();
+        }
+    });
 
     joinButton.addEventListener('click', () => {
         report(() => ir_join(friendInput.value.trim()));
@@ -1011,4 +1031,6 @@ function initializeNetplayUI() {
     });
 
     toggle.style.display = 'block';
+    refresh();
+    setInterval(refresh, 500);
 }
