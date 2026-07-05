@@ -609,6 +609,7 @@ impl UsbState {
 
     pub fn write_usbcon(&mut self, value: u8) {
         let old_usben = self.usbcon.usben;
+        let was_connected = self.usbcon.usben && self.usbcon.pull;
         self.usbcon.write_u8(value);
         println!(
             "usbcon: {:02x} ({:08b})",
@@ -623,10 +624,13 @@ impl UsbState {
             println!("USBEN enabled, automatically enabling BRIEN");
         }
 
-        // Enabling USB with the D+ pull-up asserted draws the host's bus reset.
-        // (Firmware that gates on the connect-status bit only does this with a
-        // cable present; the button-combo path enables USB unconditionally.)
-        if self.usbcon.usben && self.usbcon.pull {
+        // Connecting the D+ pull-up while enabled draws the host's bus reset.
+        // This is the connect *edge* (USBEN && PULL going from false to true),
+        // not a level: firing on every write where both bits happen to be set
+        // meant a read-modify-write of USBCON (e.g. rmb/smb of an unrelated bit
+        // while enabled) re-triggered a reset each time, storming the firmware.
+        let now_connected = self.usbcon.usben && self.usbcon.pull;
+        if !was_connected && now_connected {
             self.usbirq.trigger_bus_reset();
         }
     }
