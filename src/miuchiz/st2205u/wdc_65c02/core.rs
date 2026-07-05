@@ -1,5 +1,6 @@
 use super::{instr, opcode::Opcode, DecodedInstruction, HandlesInterrupt};
 use crate::memory::AddressSpace;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 // This core should tick every 2 oscillations
 const CYCLE_FREQUENCY_DIVISOR: u64 = 2;
@@ -144,6 +145,30 @@ impl<A: AddressSpace + HandlesInterrupt> Core<A> {
 
     pub fn decode_next_instruction(&mut self) -> DecodedInstruction {
         DecodedInstruction::decode(&mut self.address_space, self.registers.pc.into())
+    }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u64(self.cycles);
+        writer.put_u8(self.registers.sp);
+        writer.put_u16(self.registers.pc);
+        writer.put_u8(self.registers.a);
+        writer.put_u8(self.registers.x);
+        writer.put_u8(self.registers.y);
+        writer.put_u8(self.flags.to_u8());
+        writer.put_bool(self.waiting_for_interrupt);
+        self.address_space.snapshot(writer);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.cycles = reader.take_u64()?;
+        self.registers.sp = reader.take_u8()?;
+        self.registers.pc = reader.take_u16()?;
+        self.registers.a = reader.take_u8()?;
+        self.registers.x = reader.take_u8()?;
+        self.registers.y = reader.take_u8()?;
+        self.flags = Flags::from_u8(reader.take_u8()?);
+        self.waiting_for_interrupt = reader.take_bool()?;
+        self.address_space.restore(reader)
     }
 
     pub fn step(&mut self) {

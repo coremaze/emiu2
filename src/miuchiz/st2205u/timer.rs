@@ -1,3 +1,5 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
+
 pub struct TimerState {
     counter: u16, // 12-bit counter
     reload_value: u16,
@@ -155,6 +157,23 @@ impl TimerBlocksState {
         self.t3.enabled = (value & 0b00001000) != 0;
         // todo: T4 is not implemented
     }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        for timer in [&self.t0, &self.t1, &self.t2, &self.t3] {
+            timer.snapshot(writer);
+        }
+        writer.put_u64(self.elapsed_ticks);
+        writer.put_u64(self.previous_elapsed_ticks);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        for timer in [&mut self.t0, &mut self.t1, &mut self.t2, &mut self.t3] {
+            timer.restore(reader)?;
+        }
+        self.elapsed_ticks = reader.take_u64()?;
+        self.previous_elapsed_ticks = reader.take_u64()?;
+        Ok(())
+    }
 }
 
 impl TimerState {
@@ -166,5 +185,22 @@ impl TimerState {
             enabled: false,
             auto_reload: false,
         }
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u16(self.counter);
+        writer.put_u16(self.reload_value);
+        writer.put_u8(self.clock_select);
+        writer.put_bool(self.enabled);
+        writer.put_bool(self.auto_reload);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.counter = reader.take_u16()?;
+        self.reload_value = reader.take_u16()?;
+        self.clock_select = reader.take_u8()?;
+        self.enabled = reader.take_bool()?;
+        self.auto_reload = reader.take_bool()?;
+        Ok(())
     }
 }
