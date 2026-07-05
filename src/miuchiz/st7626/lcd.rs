@@ -403,8 +403,11 @@ impl Lcd {
         let voltage_percent = self.get_voltage_percent();
 
         if self.display_on {
-            for page in (self.start_page..=self.end_page) {
-                for column in (self.start_column..=self.end_column) {
+            // The panel continuously scans the whole DDRAM; PASET/CASET scope
+            // WRITES only. Rendering just the current write window painted
+            // partial-window updates at the top-left of the screen.
+            for page in 0..LCD_HEIGHT as u8 {
+                for column in 0..LCD_WIDTH as u8 {
                     let addr = Self::column_and_page_ptr(column, page);
                     let pix_1 = self.ddram[addr];
                     let pix_2 = self.ddram[addr + 1];
