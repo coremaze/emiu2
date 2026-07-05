@@ -796,6 +796,15 @@ mod tests {
         }
 
         fn write_u8(&mut self, address: usize, value: u8) {}
+
+        fn snapshot(&self, _writer: &mut crate::snapshot::SnapshotWriter) {}
+
+        fn restore(
+            &mut self,
+            _reader: &mut crate::snapshot::SnapshotReader,
+        ) -> Result<(), crate::snapshot::SnapshotError> {
+            Ok(())
+        }
     }
 
     impl HandlesInterrupt for MockAddressSpace {

@@ -1,4 +1,5 @@
 use super::reg::U8Register;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 const TIMER_FREQUENCY: u64 = 8192;
 
@@ -90,11 +91,12 @@ impl State {
         let btreq5 = clock % (TIMER_FREQUENCY / 512) == 0;
         // 2048 Hz
         let btreq6 = clock % (TIMER_FREQUENCY / 2048) == 0;
-        // 8192 Hz or BTC
-        let btreq7 = if self.btc.get() == 0 {
-            clock % (TIMER_FREQUENCY / 8192) == 0
-        } else {
-            clock % (TIMER_FREQUENCY / self.btc.get() as u64) == 0
+        // 8192 Hz / BTC: BTC divides the 8192 Hz rate (BTC of 0 or 1 both
+        // give the full 8192 Hz). The counter itself ticks at 8192 Hz, so
+        // the period in ticks is simply the BTC value.
+        let btreq7 = match self.btc.get() as u64 {
+            0 | 1 => true,
+            period => clock % period == 0,
         };
 
         // Put the new bits in place
@@ -119,6 +121,24 @@ impl State {
         self.btreq.set(btreq);
 
         assert_new_interrupt
+    }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u64(self.elapsed_ticks);
+        writer.put_u64(self.counter);
+        writer.put_u64(self.next_counter_tick);
+        self.btc.snapshot(writer);
+        self.bten.snapshot(writer);
+        self.btreq.snapshot(writer);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.elapsed_ticks = reader.take_u64()?;
+        self.counter = reader.take_u64()?;
+        self.next_counter_tick = reader.take_u64()?;
+        self.btc.restore(reader)?;
+        self.bten.restore(reader)?;
+        self.btreq.restore(reader)
     }
 }
 

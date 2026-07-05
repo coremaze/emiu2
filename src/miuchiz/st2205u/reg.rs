@@ -1,3 +1,5 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
+
 #[derive(Default, Clone, Debug)]
 pub struct U8Register {
     val: u8,
@@ -33,6 +35,16 @@ impl U8Register {
 
     fn apply_mask(&mut self) {
         self.val &= self.mask;
+    }
+
+    /// The mask is fixed configuration; only the value is state.
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u8(self.val);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.set(reader.take_u8()?);
+        Ok(())
     }
 }
 
@@ -95,5 +107,15 @@ impl U16Register {
 
     pub fn h_mask(&self) -> u8 {
         self.h.mask()
+    }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.l.snapshot(writer);
+        self.h.snapshot(writer);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.l.restore(reader)?;
+        self.h.restore(reader)
     }
 }

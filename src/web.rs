@@ -2,10 +2,13 @@ use console_error_panic_hook;
 use wasm_bindgen::prelude::*;
 use web_sys;
 
+use crate::ir::IrRollbackControl;
 use crate::miuchiz::{Handheld, MiuchizButtonStates, MiuchizGpio};
 use crate::platform::web_audio::WebAudio;
 use crate::platform::web_gpio::WasmGpioInterface;
+use crate::platform::web_ir::{self, SharedWebIr, WebIr, WebIrControl, WebIrState};
 use crate::platform::web_screen::{WasmScreen, WasmScreenInterface};
+use crate::rollback::RollbackDriver;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,6 +18,7 @@ use wasm_bindgen::JsCast;
 thread_local! {
     static GLOBAL_GPIO_STATE: RefCell<Rc<RefCell<MiuchizButtonStates>>> = RefCell::new(Rc::new(RefCell::new(MiuchizButtonStates::default())));
     static GLOBAL_EMULATOR_STATE: RefCell<Option<Rc<RefCell<(Handheld, WasmScreen)>>>> = RefCell::new(None);
+    static GLOBAL_IR_STATE: RefCell<Option<SharedWebIr>> = RefCell::new(None);
 }
 
 #[wasm_bindgen]
@@ -43,6 +47,14 @@ pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<()
         .play()
         .map_err(|e| JsValue::from_str(&e))?;
 
+    // The IR relay state exists from the start so a relay connection
+    // can be opened and closed while the emulator runs; until then it
+    // behaves as a disconnected transceiver.
+    let ir_state = WebIrState::shared();
+    GLOBAL_IR_STATE.with(|global| {
+        *global.borrow_mut() = Some(ir_state.clone());
+    });
+
     // Initialize the handheld emulator using the provided interfaces. No USB host
     // is attached yet (an unplugged cable); a browser-driven USB interface could
     // supply the internal half here.
@@ -52,6 +64,7 @@ pub fn create_emulator_with_files(otp: Box<[u8]>, flash: Box<[u8]>) -> Result<()
         Box::new(screen_interface),
         Box::new(wasm_gpio),
         Box::new(wasm_audio_interface),
+        Box::new(WebIr::new(ir_state)),
         Box::new(crate::usb_interface::NullUsbInterface),
     )
     .map_err(|e| JsValue::from_str(&format!("Failed to initialize handheld: {}", e)))?;
@@ -84,8 +97,21 @@ pub fn start_driving_emulator() -> Result<(), JsValue> {
         .ok_or_else(|| JsValue::from_str("Performance API not available"))?
         .now();
 
-    // Set up simulation interval (1ms)
+    // The rollback driver keeps high-latency IR links working; see
+    // crate::rollback. It idles for free while no peer is paired.
+    let mut rollback_driver = GLOBAL_IR_STATE.with(|global| {
+        global.borrow().as_ref().map(|ir_state| {
+            let control: Box<dyn IrRollbackControl> = Box::new(WebIrControl::new(ir_state.clone()));
+            RollbackDriver::new(control)
+        })
+    });
+
+    // Set up simulation interval (1ms). The wall-clock pacing anchor is
+    // reset whenever the cycle counter jumps (an IR rollback), so the
+    // machine resumes at 1x from the restored point instead of
+    // fast-forwarding past edges still arriving from the network.
     let sim_state = emulator_state.clone();
+    let mut anchor: Option<(f64, u64)> = None;
     let sim_closure = Closure::wrap(Box::new(move || {
         let mut state = sim_state.borrow_mut();
         let now = web_sys::window()
@@ -93,12 +119,19 @@ pub fn start_driving_emulator() -> Result<(), JsValue> {
             .map(|p| p.now())
             .unwrap_or(beginning);
 
-        let elapsed_ms = now - beginning;
-        let nanoseconds = (elapsed_ms * 1_000_000.0) as u128;
+        let (anchor_ms, anchor_cycles) = *anchor.get_or_insert((now, state.0.mcu.core.cycles));
+        let nanoseconds = ((now - anchor_ms).max(0.0) * 1_000_000.0) as u128;
         let cycles_per_second = state.0.mcu.core.cycles_per_second() as u128;
-        let cycles_required_so_far = (nanoseconds * cycles_per_second) / 1_000_000_000;
+        let cycles_required_so_far =
+            anchor_cycles as u128 + (nanoseconds * cycles_per_second) / 1_000_000_000;
         while (state.0.mcu.core.cycles as u128) < cycles_required_so_far {
             state.0.mcu.step();
+        }
+
+        if let Some(driver) = rollback_driver.as_mut() {
+            if driver.run(&mut state.0) {
+                anchor = Some((now, state.0.mcu.core.cycles));
+            }
         }
     }) as Box<dyn FnMut()>);
 
@@ -210,6 +243,75 @@ pub fn get_button_state(button: &str) -> bool {
             _ => false,
         }
     })
+}
+
+fn with_ir_state<T>(action: impl FnOnce(&SharedWebIr) -> T) -> Result<T, JsValue> {
+    GLOBAL_IR_STATE.with(|global| {
+        global
+            .borrow()
+            .as_ref()
+            .map(action)
+            .ok_or_else(|| JsValue::from_str("Load a device first"))
+    })
+}
+
+/// Connects to an emiu2 relay server. `url` is a full ws:// or wss://
+/// endpoint. Replaces any existing connection.
+#[wasm_bindgen]
+pub fn ir_connect(url: String) -> Result<(), JsValue> {
+    with_ir_state(|state| web_ir::connect(state, &url))?
+}
+
+/// Pairs with the peer owning `code` (as shown to them by the relay).
+#[wasm_bindgen]
+pub fn ir_join(code: String) -> Result<(), JsValue> {
+    let code = emiu2_netplay::FriendCode::parse(&code)
+        .ok_or_else(|| JsValue::from_str("That is not a valid friend code"))?;
+    with_ir_state(|state| web_ir::join(state, code))
+}
+
+/// Dissolves the current pairing; both sides stay on the relay.
+#[wasm_bindgen]
+pub fn ir_leave() -> Result<(), JsValue> {
+    with_ir_state(web_ir::leave)
+}
+
+/// Disconnects from the relay entirely.
+#[wasm_bindgen]
+pub fn ir_disconnect() -> Result<(), JsValue> {
+    with_ir_state(web_ir::disconnect)
+}
+
+/// This client's friend code, or "" when not connected.
+#[wasm_bindgen]
+pub fn ir_code() -> String {
+    with_ir_state(|state| {
+        state
+            .borrow()
+            .code()
+            .map(|code| code.to_string())
+            .unwrap_or_default()
+    })
+    .unwrap_or_default()
+}
+
+#[wasm_bindgen]
+pub fn ir_connected() -> bool {
+    with_ir_state(|state| state.borrow().connected()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn ir_paired() -> bool {
+    with_ir_state(|state| state.borrow().paired()).unwrap_or(false)
+}
+
+/// Removes and returns the next user-facing netplay event (a pairing
+/// change or an error to show the player), or "" when there is none.
+/// Connection *state* is not an event: derive it from `ir_connected`
+/// and `ir_paired`.
+#[wasm_bindgen]
+pub fn ir_take_notice() -> String {
+    with_ir_state(|state| state.borrow_mut().take_notice().unwrap_or_default()).unwrap_or_default()
 }
 
 #[wasm_bindgen]

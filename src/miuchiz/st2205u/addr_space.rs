@@ -12,6 +12,7 @@ use super::timer::TimerIndex;
 use super::usb;
 use super::wdc_65c02::HandlesInterrupt;
 use crate::memory::AddressSpace;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 pub const OTP_SIZE: usize = 0x4000;
 pub type Otp = [u8; OTP_SIZE];
@@ -112,6 +113,7 @@ const BRRL: u16 = 0x0036;
 const BRRH: u16 = 0x0037;
 
 const PMCR: u16 = 0x003A;
+const XREQ: u16 = 0x003B;
 
 const IREQL: u16 = 0x003C;
 const IREQH: u16 = 0x003D;
@@ -185,6 +187,13 @@ impl St2205uAddressSpace {
         }
     }
 
+    /// Updates the GPIO block, including the pin activity that can raise
+    /// interrupts. The TCO0 clocking output follows Timer0's enable bit.
+    pub fn update_gpio(&mut self, cycle: u64) -> gpio::PortActivity {
+        let timer0_enabled = self.timer.read_tien() & 0b0000_0001 != 0;
+        self.gpio.update(cycle, timer0_enabled)
+    }
+
     fn read_register(&mut self, address: u16) -> u8 {
         // println!("Read from register {address:X}");
         match address {
@@ -240,6 +249,7 @@ impl St2205uAddressSpace {
             T3CH => self.timer.read_txch(TimerIndex::T3),
             TIEN => self.timer.read_tien(),
             PMCR => gpio::read_pmcr(&self.gpio),
+            XREQ => gpio::read_xreq(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
             PCL => gpio::read_pcl(&self.gpio),
             BTEN => base_timer::read_bten(&self.base_timer),
@@ -327,6 +337,7 @@ impl St2205uAddressSpace {
             T3CH => self.timer.write_txch(TimerIndex::T3, value),
             TIEN => self.timer.write_tien(value),
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
+            XREQ => gpio::write_xreq(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
             PCL => gpio::write_pcl(&mut self.gpio, value),
             BTEN => base_timer::write_bten(&mut self.base_timer, value),
@@ -472,5 +483,31 @@ impl AddressSpace for St2205uAddressSpace {
                 }
             }
         }
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_bytes(&self.ram);
+        self.banks.snapshot(writer);
+        self.dma.snapshot(writer);
+        self.gpio.snapshot(writer);
+        self.base_timer.snapshot(writer);
+        self.timer.snapshot(writer);
+        self.psg.snapshot(writer);
+        self.interrupt.snapshot(writer);
+        self.rtc.snapshot(writer);
+        self.machine_addr_space.snapshot(writer);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        reader.take_into(&mut self.ram)?;
+        self.banks.restore(reader)?;
+        self.dma.restore(reader)?;
+        self.gpio.restore(reader)?;
+        self.base_timer.restore(reader)?;
+        self.timer.restore(reader)?;
+        self.psg.restore(reader)?;
+        self.interrupt.restore(reader)?;
+        self.rtc.restore(reader)?;
+        self.machine_addr_space.restore(reader)
     }
 }

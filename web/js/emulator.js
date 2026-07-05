@@ -4,7 +4,14 @@ import init, {
     set_button_state, 
     get_button_state, 
     get_flash_dump, 
-    start_driving_emulator 
+    start_driving_emulator, 
+    ir_connect, 
+    ir_join, 
+    ir_leave, 
+    ir_code, 
+    ir_connected, 
+    ir_paired, 
+    ir_take_notice 
 } from '/pkg/emiu2.js';
 
 // Database utility for IndexedDB operations
@@ -450,6 +457,9 @@ async function run() {
             // Trigger reflow to ensure the transition works
             void controlsElement.offsetWidth;
             controlsElement.classList.add('visible');
+
+            // Show the netplay panel now that an emulator exists.
+            initializeNetplayUI();
             
             // Show reset button
             showResetButton();
@@ -902,3 +912,125 @@ function initializeFileInputs() {
 
 // Ensure this is called appropriately
 initializeFileInputs(); 
+// ---------------------------------------------------------------------------
+// Netplay: IR over the internet, relayed through the site's server.
+
+// The relay endpoint is deployment configuration, not something players
+// see. It defaults to a same-origin WebSocket at /relay (put the relay
+// behind the site's reverse proxy); a ?relay=ws://host:port query
+// parameter overrides it for development and self-hosting.
+function resolveRelayUrl() {
+    const override = new URLSearchParams(location.search).get('relay');
+    if (override) return override;
+    if (!location.host) return 'ws://localhost:5885'; // file:// development
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${scheme}://${location.host}/relay`;
+}
+
+function initializeNetplayUI() {
+    const toggle = document.getElementById('netplay-button');
+    const panel = document.getElementById('netplay');
+    const codeSpan = document.getElementById('netplay-code');
+    const codeSpinner = document.getElementById('netplay-code-spinner');
+    const copyButton = document.getElementById('netplay-copy');
+    const joinRow = document.getElementById('netplay-join-row');
+    const leaveRow = document.getElementById('netplay-leave-row');
+    const friendInput = document.getElementById('friend-code');
+    const joinButton = document.getElementById('netplay-join');
+    const leaveButton = document.getElementById('netplay-leave');
+
+    const report = (action) => {
+        try {
+            action();
+        } catch (e) {
+            showNotification(String(e), 5000);
+        }
+    };
+
+    // Connect as soon as the emulator is running and keep the
+    // connection alive from then on. The relay assigns a fresh code on
+    // every (re)connect, so the display simply tracks ir_code(): a
+    // spinner while there is none, the current code otherwise.
+    let lastAttempt = 0;
+    const ensureConnected = () => {
+        if (ir_connected() || Date.now() - lastAttempt < 5000) return;
+        lastAttempt = Date.now();
+        try {
+            ir_connect(resolveRelayUrl());
+        } catch (e) {
+            // Retried on the next tick; nothing useful to tell the user.
+            console.warn('relay connect failed:', e);
+        }
+    };
+
+    let panelOpened = false;
+    let lastCode = '';
+    let wasPaired = false;
+    const refresh = () => {
+        ensureConnected();
+
+        // Events (pairing changes, errors) surface as page
+        // notifications — but nobody is watching for netplay events
+        // until the panel has been opened at least once.
+        for (;;) {
+            const notice = ir_take_notice();
+            if (!notice) break;
+            if (panelOpened) showNotification(notice, 4000);
+        }
+
+        const code = ir_code();
+        codeSpan.style.display = code ? '' : 'none';
+        codeSpinner.style.display = code ? 'none' : '';
+        codeSpan.textContent = code;
+        copyButton.disabled = !code;
+        // A reconnect (network loss, tab suspended in the background)
+        // means a new identity; warn if the old code may have been
+        // shared already.
+        if (code && lastCode && code !== lastCode && panelOpened) {
+            showNotification('Reconnected \u2014 your friend code changed', 5000);
+        }
+        if (code) lastCode = code;
+
+        const paired = ir_paired();
+        joinRow.style.display = paired ? 'none' : 'flex';
+        leaveRow.style.display = paired ? 'flex' : 'none';
+        if (paired && !wasPaired) {
+            friendInput.value = '';
+        }
+        wasPaired = paired;
+    };
+
+    toggle.addEventListener('click', () => {
+        toggle.style.display = 'none';
+        panel.style.display = 'block';
+        panelOpened = true;
+        refresh();
+    }, { once: true });
+
+    // A tab returning from the background may find its connection dead
+    // (browsers throttle and discard background work); retry right away
+    // instead of waiting out the backoff.
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            lastAttempt = 0;
+            refresh();
+        }
+    });
+
+    joinButton.addEventListener('click', () => {
+        report(() => ir_join(friendInput.value.trim()));
+    });
+    friendInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') joinButton.click();
+    });
+    leaveButton.addEventListener('click', () => {
+        report(() => ir_leave());
+    });
+    copyButton.addEventListener('click', () => {
+        navigator.clipboard?.writeText(ir_code()).catch(() => {});
+    });
+
+    toggle.style.display = 'block';
+    refresh();
+    setInterval(refresh, 500);
+}

@@ -1,3 +1,4 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 use std::collections::VecDeque;
 
 /// Programmable Sound Generator
@@ -54,6 +55,25 @@ impl Multiplicator {
 
     pub fn read_mulh(&self) -> u8 {
         self.external_mulh
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u8(self.external_mull);
+        writer.put_u8(self.external_mulh);
+        writer.put_bool(self.last_mulh_was_1);
+        writer.put_u8(self.internal_mulh0);
+        writer.put_u8(self.internal_mulh1);
+        writer.put_u8(self.internal_mull);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.external_mull = reader.take_u8()?;
+        self.external_mulh = reader.take_u8()?;
+        self.last_mulh_was_1 = reader.take_bool()?;
+        self.internal_mulh0 = reader.take_u8()?;
+        self.internal_mulh1 = reader.take_u8()?;
+        self.internal_mull = reader.take_u8()?;
+        Ok(())
     }
 }
 
@@ -282,6 +302,28 @@ impl State {
 
         result
     }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u8(self.psgc.read_psgc());
+        for state in &self.psg_states {
+            state.snapshot(writer);
+        }
+        for volume in &self.volumes {
+            writer.put_u8(volume.get_u8());
+        }
+        self.multiplicator.snapshot(writer);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.psgc.write_psgc(reader.take_u8()?);
+        for state in &mut self.psg_states {
+            state.restore(reader)?;
+        }
+        for volume in &mut self.volumes {
+            volume.set_u8(reader.take_u8()?);
+        }
+        self.multiplicator.restore(reader)
+    }
 }
 
 #[derive(Debug)]
@@ -316,6 +358,65 @@ impl PsgModeState {
             fifo: VecDeque::with_capacity(16),
             current_sample: 0,
         }
+    }
+
+    // Tags follow the PSGM register encoding: 00 PCM, 01 tone, 11 ADPCM.
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        match self {
+            PsgModeState::PcmDac {
+                fifo,
+                current_sample,
+            } => {
+                writer.put_u8(0b00);
+                writer.put_u32(fifo.len() as u32);
+                for &sample in fifo {
+                    writer.put_u8(sample);
+                }
+                writer.put_u8(*current_sample);
+            }
+            PsgModeState::Tone => writer.put_u8(0b01),
+            PsgModeState::AdpcmDac {
+                fifo,
+                current_sample,
+            } => {
+                writer.put_u8(0b11);
+                writer.put_u32(fifo.len() as u32);
+                for &sample in fifo {
+                    writer.put_i16(sample);
+                }
+                writer.put_i16(*current_sample);
+            }
+        }
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        *self = match reader.take_u8()? {
+            0b00 => {
+                let len = reader.take_u32()? as usize;
+                let mut fifo = VecDeque::with_capacity(len.max(16));
+                for _ in 0..len {
+                    fifo.push_back(reader.take_u8()?);
+                }
+                PsgModeState::PcmDac {
+                    fifo,
+                    current_sample: reader.take_u8()?,
+                }
+            }
+            0b01 => PsgModeState::Tone,
+            0b11 => {
+                let len = reader.take_u32()? as usize;
+                let mut fifo = VecDeque::with_capacity(len.max(16));
+                for _ in 0..len {
+                    fifo.push_back(reader.take_i16()?);
+                }
+                PsgModeState::AdpcmDac {
+                    fifo,
+                    current_sample: reader.take_i16()?,
+                }
+            }
+            _ => return Err(SnapshotError::Corrupt("PSG channel mode")),
+        };
+        Ok(())
     }
 }
 
