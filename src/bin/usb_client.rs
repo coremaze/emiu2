@@ -66,7 +66,13 @@ impl Bus {
             UsbToken::In => "IN",
             UsbToken::Out => "OUT",
         };
-        print!("[{:>4}] -> EP{} {:<5} {:>3}B", self.seq, txn.endpoint, tok, txn.data.len());
+        print!(
+            "[{:>4}] -> EP{} {:<5} {:>3}B",
+            self.seq,
+            txn.endpoint,
+            tok,
+            txn.data.len()
+        );
         if !txn.data.is_empty() {
             print!("  {}", hex_inline(&txn.data));
         }
@@ -123,7 +129,10 @@ impl Bus {
             length as u8,
             (length >> 8) as u8,
         ];
-        expect_ack(self.transact(&txn(EP_CONTROL, UsbToken::Setup, setup))?, "control SETUP")?;
+        expect_ack(
+            self.transact(&txn(EP_CONTROL, UsbToken::Setup, setup))?,
+            "control SETUP",
+        )?;
 
         let mut data = Vec::new();
         while data.len() < length as usize {
@@ -139,7 +148,10 @@ impl Bus {
             }
         }
         // Status stage: zero-length OUT.
-        expect_ack(self.transact(&txn(EP_CONTROL, UsbToken::Out, vec![]))?, "control status")?;
+        expect_ack(
+            self.transact(&txn(EP_CONTROL, UsbToken::Out, vec![]))?,
+            "control status",
+        )?;
         Ok(data)
     }
 
@@ -147,7 +159,10 @@ impl Bus {
 
     fn bulk_out(&mut self, data: &[u8]) -> R<()> {
         for chunk in data.chunks(BULK_MAX) {
-            expect_ack(self.transact(&txn(EP_BULK, UsbToken::Out, chunk.to_vec()))?, "bulk OUT")?;
+            expect_ack(
+                self.transact(&txn(EP_BULK, UsbToken::Out, chunk.to_vec()))?,
+                "bulk OUT",
+            )?;
         }
         Ok(())
     }
@@ -290,15 +305,23 @@ fn main() {
     let dev = match RemoteUsbDevice::connect(&addr) {
         Ok(dev) => dev,
         Err(why) => {
-            eprintln!("Could not connect: {why}\nIs the emulator running with --usb-socket {addr}?");
+            eprintln!(
+                "Could not connect: {why}\nIs the emulator running with --usb-socket {addr}?"
+            );
             std::process::exit(1);
         }
     };
     let mut bus = Bus::new(dev);
 
-    run_step("ENUMERATE: device descriptor", || enumerate_device(&mut bus));
-    run_step("ENUMERATE: configuration descriptor", || enumerate_config(&mut bus));
-    run_step("ENUMERATE: string descriptors", || enumerate_strings(&mut bus));
+    run_step("ENUMERATE: device descriptor", || {
+        enumerate_device(&mut bus)
+    });
+    run_step("ENUMERATE: configuration descriptor", || {
+        enumerate_config(&mut bus)
+    });
+    run_step("ENUMERATE: string descriptors", || {
+        enumerate_strings(&mut bus)
+    });
     run_step("MASS STORAGE: GET MAX LUN", || get_max_lun(&mut bus));
     run_step("SCSI: INQUIRY", || scsi_inquiry(&mut bus));
     run_step("SCSI: TEST UNIT READY", || {
@@ -318,7 +341,10 @@ fn main() {
     });
     run_step("FLASH: tunneled page read", || {
         let data = bus.read_page(flash_page)?;
-        println!("  page {flash_page:#06x} = {} bytes (first 128 shown):", data.len());
+        println!(
+            "  page {flash_page:#06x} = {} bytes (first 128 shown):",
+            data.len()
+        );
         hexdump(&data[..data.len().min(128)]);
         Ok(())
     });
@@ -336,7 +362,11 @@ fn main() {
             if back == pattern {
                 println!("  WRITE VERIFIED: full {PAGE_SIZE}-byte page matches");
             } else {
-                let diff = pattern.iter().zip(back.iter()).filter(|(a, b)| a != b).count()
+                let diff = pattern
+                    .iter()
+                    .zip(back.iter())
+                    .filter(|(a, b)| a != b)
+                    .count()
                     + pattern.len().abs_diff(back.len());
                 println!("  WRITE NOT VERIFIED: {diff} differing/missing bytes");
                 println!("  read back (first 64 shown):");
@@ -524,7 +554,10 @@ fn parse_u32(s: &str) -> R<u32> {
 }
 
 fn hex_inline(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+    data.iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn hexdump(data: &[u8]) {
@@ -532,7 +565,13 @@ fn hexdump(data: &[u8]) {
         let hex: Vec<String> = row.iter().map(|b| format!("{b:02x}")).collect();
         let ascii: String = row
             .iter()
-            .map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' })
+            .map(|&b| {
+                if (0x20..0x7f).contains(&b) {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         println!("  {:04x}  {:<47}  {}", i * 16, hex.join(" "), ascii);
     }
