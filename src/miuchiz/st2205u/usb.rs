@@ -855,8 +855,15 @@ impl UsbState {
         if setup.len() != EP0_MAX_PACKET {
             return UsbResponse::Stall;
         }
-        // A new control transfer clears any prior EP0 stall condition.
+        // A new control transfer clears any prior EP0 stall condition and
+        // flushes the IN buffer. A SETUP token aborts whatever came before, so
+        // any IN packet the firmware armed but the host never collected (e.g. a
+        // terminating ZLP left over when the host stopped at wLength) must not
+        // survive into this transfer's data stage.
         self.ep0con.stall = false;
+        self.ep0_in_armed = false;
+        self.ep0_in_zlp = false;
+        self.buffers.reset_ep0_in_buffer();
 
         match classify_setup(setup) {
             SetupDisposition::AutoAck => {
