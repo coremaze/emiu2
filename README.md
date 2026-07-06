@@ -25,9 +25,11 @@ On desktop, F5 saves the complete machine state and F9 restores it. The savestat
 
 ### USB
 
-The emulated device has a working USB port. Host tools discover running emulators the way they discover real handhelds: each desktop instance publishes an endpoint in a runtime directory (`$XDG_RUNTIME_DIR/emiu2-usb`; override with `EMIU2_USB_DIR`), and [Native-Miuchiz-Handheld-USB-Utilities](https://github.com/ChrisMiuchiz/Native-Miuchiz-Handheld-USB-Utilities) built with the emulator backend lists them alongside physical devices, so `miuchiz dump-flash`, `load-flash`, and friends work on an emulator unchanged.
+The emulated device has a working USB port, and the cable is its own piece of state: press **U** to plug it in or unplug it (or start with `--usb-plugged`). Firmware sees the cable through the USBCON connect-status bit the moment it's plugged - stable, whether or not any host software is talking - just like a real cable left in the socket.
 
-Like a real Miuchiz, the device only answers USB in its "Please Connect to PC" mode; start the emulator with `--connect-mode` to boot straight into it. `--usb-socket ADDR` additionally exposes the same transaction protocol on TCP for remote or custom tooling, and `cargo run -r --bin usb_client` is a diagnostic host that exercises the whole stack.
+Host tools discover running emulators the way they discover real handhelds: each desktop instance publishes an endpoint in a runtime directory (`$XDG_RUNTIME_DIR/emiu2-usb`; override with `EMIU2_USB_DIR`), and [Native-Miuchiz-Handheld-USB-Utilities](https://github.com/ChrisMiuchiz/Native-Miuchiz-Handheld-USB-Utilities) built with the emulator backend lists them alongside physical devices, so `miuchiz dump-flash`, `load-flash`, and friends work on an emulator unchanged. Tools can only reach the device while the cable is plugged.
+
+Like a real Miuchiz, the device only answers USB in its "Please Connect to PC" mode; start the emulator with `--connect-mode` to boot straight into it (this implies a plugged cable). `--usb-socket ADDR` additionally exposes the same transaction protocol on TCP for remote or custom tooling, and `cargo run -r --bin usb_client` is a diagnostic host that exercises the whole stack.
 
 ### Playing together
 

@@ -7,12 +7,12 @@
 //! flash read/write protocol - logging each transaction and response.
 //!
 //! Usage:
-//!   1. Run the emulator with the bridge enabled (device must be in its USB
-//!      mass-storage mode - a normal boot from a real flash image, or the boot
-//!      ROM's connect mode with the D-pad held):
-//!        emiu2 OTP.dat flash.bin --usb-socket 127.0.0.1:3240
-//!   2. Run this client:
-//!        cargo run --bin usb_client -- 127.0.0.1:3240 [page_hex] [--write]
+//!   1. Run the emulator with the cable plugged and the device in its USB
+//!      mass-storage mode (the boot ROM's "Please Connect to PC" screen):
+//!        emiu2 OTP.dat flash.bin --connect-mode
+//!   2. Run this client (it discovers the emulator's endpoint; pass an
+//!      explicit host:port only for a --usb-socket TCP bridge):
+//!        cargo run --bin usb_client -- [host:port] [page_hex] [--write]
 //!      `--write` additionally exercises the (destructive) flash write+verify
 //!      path at the given page (default 0); without it the run is read-only.
 //!
@@ -330,6 +330,13 @@ fn main() {
                 endpoint.identity,
                 endpoint.path.display()
             );
+            if !endpoint.plugged {
+                eprintln!(
+                    "The emulator's USB cable is unplugged. Press U in the emulator \
+                     window (or start it with --usb-plugged / --connect-mode)."
+                );
+                std::process::exit(1);
+            }
             match RemoteUsbDevice::connect_endpoint(&endpoint.path) {
                 Ok(dev) => dev,
                 Err(why) => {
@@ -339,6 +346,14 @@ fn main() {
             }
         }
     };
+    if !dev.plugged() {
+        eprintln!(
+            "Connected to \"{}\", but its USB cable is unplugged. Press U in the \
+             emulator window (or start it with --usb-plugged / --connect-mode).",
+            dev.identity()
+        );
+        std::process::exit(1);
+    }
     println!("Connected to \"{}\"", dev.identity());
     let mut bus = Bus::new(dev);
 

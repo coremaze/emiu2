@@ -47,9 +47,15 @@ struct Args {
     usb_socket: Option<String>,
 
     /// Hold the D-pad through early boot so the device starts in its
-    /// "Please Connect to PC" (USB) mode.
+    /// "Please Connect to PC" (USB) mode. Implies --usb-plugged.
     #[arg(long, default_value_t = false)]
     connect_mode: bool,
+
+    /// Start with the USB cable plugged in. The U key plugs/unplugs it at
+    /// any time; firmware sees the cable through its connect-status bit
+    /// whether or not host software is talking.
+    #[arg(long, default_value_t = false)]
+    usb_plugged: bool,
 
     /// IR transceiver: none, listen:<port>, connect:<host:port>, or
     /// relay:<host:port> (an emiu2 relay server; pair with friend codes
@@ -240,6 +246,13 @@ fn main() {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "emiu2".to_string());
     let usb_cable = usb_socket::UsbCable::new(usb_host_port, usb_identity);
+    // The cable's plugged state is the emulator's own, independent of any
+    // client: firmware watches the connect-status bit and needs it stable.
+    // Connect mode exists to talk to a host, so it implies a plugged cable.
+    if args.usb_plugged || args.connect_mode {
+        usb_cable.set_plugged(true);
+        println!("USB cable plugged in (U unplugs it)");
+    }
     // Held for the process lifetime; dropping it removes the endpoint file.
     let _usb_endpoint = match usb_socket::create_discovery_endpoint(usb_cable.clone()) {
         Ok(guard) => Some(guard),
@@ -257,6 +270,8 @@ fn main() {
             }
         });
     }
+
+    let usb_cable_for_emulator = usb_cable.clone();
 
     let (screen, minifb_gpio, screen_tx, worker) =
         platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
@@ -276,6 +291,7 @@ fn main() {
             savestate_file,
             ir_plan,
             usb_internal,
+            usb_cable_for_emulator,
             connect_mode,
         );
     });
@@ -299,6 +315,7 @@ fn run_emulator(
     savestate_file: PathBuf,
     ir_plan: IrPlan,
     usb_internal: usb_interface::ChannelUsbInterface,
+    usb_cable: std::sync::Arc<usb_socket::UsbCable>,
     connect_mode: bool,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's
@@ -397,6 +414,15 @@ fn run_emulator(
                 },
                 Err(why) => eprintln!("Failed to read state file: {why}"),
             }
+        }
+
+        if screen.take_usb_plug_request() {
+            let plugged = !usb_cable.plugged();
+            usb_cable.set_plugged(plugged);
+            println!(
+                "USB cable {}",
+                if plugged { "plugged in" } else { "unplugged" }
+            );
         }
 
         std::thread::sleep(std::time::Duration::from_nanos(1));
