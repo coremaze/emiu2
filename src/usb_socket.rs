@@ -17,19 +17,28 @@
 //! - An optional **TCP endpoint** (`--usb-socket ADDR`) for explicit/remote use.
 //!
 //! Both feed the same [`UsbCable`], which admits one client at a time - a
-//! device has one USB port. The connected client is the "plugged cable": the
-//! device's USBCON connect-status bit follows the connection.
+//! device has one USB port.
+//!
+//! Whether the cable is **plugged** is the emulator's own state (the player
+//! plugs it in - the U key, or `--usb-plugged`/`--connect-mode`), not a side
+//! effect of a tool being connected: firmware reacts to bare attachment
+//! through the USBCON connect-status bit and needs it stable, exactly like a
+//! real cable that stays in whether or not host software is talking. Tools
+//! can only exchange transactions while the cable is plugged; an unplugged
+//! emulator still answers the hello (so tools can say "plug in the cable")
+//! but then closes - nothing is on the bus.
 //!
 //! Wire format (one outstanding transaction at a time):
-//! - on connect, server sends a hello: `"EMIU2USB"  version:u16le
-//!   identity_len:u32le  identity[..]` (identity is UTF-8, e.g. the flash
-//!   image name)
+//! - on connect, server sends a hello: `"EMIU2USB"  version:u16le  flags:u8
+//!   (bit 0 = cable plugged)  identity_len:u32le  identity[..]` (identity is
+//!   UTF-8, e.g. the flash image name)
 //! - request : `endpoint:u8  token:u8(0=Setup,1=In,2=Out)  len:u32le  data[len]`
 //! - response: `kind:u8(0=Ack,1=Nak,2=Stall,3=Data)` then, for Data, `len:u32le data[len]`
 
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::miuchiz::{UsbResponse, UsbToken, UsbTransaction};
@@ -38,7 +47,10 @@ use crate::usb_interface::UsbHostPort;
 /// First bytes the server sends on every accepted connection.
 pub const HELLO_MAGIC: &[u8; 8] = b"EMIU2USB";
 /// Bumped on any incompatible change to the framing below.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
+
+/// Hello flags bit: the emulator's USB cable is currently plugged in.
+const HELLO_FLAG_PLUGGED: u8 = 1;
 
 fn token_to_u8(token: UsbToken) -> u8 {
     match token {
@@ -116,13 +128,20 @@ fn read_response(stream: &mut impl Read) -> io::Result<UsbResponse> {
     }
 }
 
-fn write_hello(stream: &mut impl Write, identity: &str) -> io::Result<()> {
+fn write_hello(stream: &mut impl Write, identity: &str, plugged: bool) -> io::Result<()> {
     stream.write_all(HELLO_MAGIC)?;
     stream.write_all(&PROTOCOL_VERSION.to_le_bytes())?;
+    stream.write_all(&[if plugged { HELLO_FLAG_PLUGGED } else { 0 }])?;
     write_blob(stream, identity.as_bytes())
 }
 
-fn read_hello(stream: &mut impl Read) -> io::Result<String> {
+/// The identity and cable state an endpoint reports on connect.
+struct Hello {
+    identity: String,
+    plugged: bool,
+}
+
+fn read_hello(stream: &mut impl Read) -> io::Result<Hello> {
     let mut magic = [0u8; 8];
     stream.read_exact(&mut magic)?;
     if &magic != HELLO_MAGIC {
@@ -140,33 +159,62 @@ fn read_hello(stream: &mut impl Read) -> io::Result<String> {
             format!("unsupported USB endpoint protocol version {version}"),
         ));
     }
-    String::from_utf8(read_blob(stream)?)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "hello identity is not UTF-8"))
+    let mut flags = [0u8; 1];
+    stream.read_exact(&mut flags)?;
+    let identity = String::from_utf8(read_blob(stream)?)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "hello identity is not UTF-8"))?;
+    Ok(Hello {
+        identity,
+        plugged: flags[0] & HELLO_FLAG_PLUGGED != 0,
+    })
 }
 
 /// The device's single USB port, shared by every listener. Admits one client
-/// at a time; a second connection attempt while the cable is held is refused
-/// (closed without a hello), the same way a physical port can't take two plugs.
+/// at a time; a second connection attempt while a session is running is
+/// refused (closed without a hello), the same way a physical port can't take
+/// two plugs.
+///
+/// The cable's plugged state belongs to the emulator (toggled by the player),
+/// and the device sees it directly through the USBCON connect-status bit,
+/// client or no client. Clients can only exchange transactions while it is
+/// plugged.
 pub struct UsbCable {
     port: Mutex<UsbHostPort>,
     identity: String,
+    /// The cable-presence flag shared with the device (see
+    /// `UsbHostPort::connected_flag`) - stored here so it can be driven while
+    /// the port itself is locked inside a client session.
+    plugged: Arc<AtomicBool>,
 }
 
 impl UsbCable {
     /// Wraps the external half of a `channel_pair`. `identity` is reported to
-    /// every client in the hello (e.g. the flash image name).
+    /// every client in the hello (e.g. the flash image name). The cable
+    /// starts unplugged.
     pub fn new(port: UsbHostPort, identity: String) -> Arc<Self> {
-        // Listening with no client attached: the device should see an unplugged
-        // cable (USBCON connect bit clear) until a client actually connects.
-        port.set_connected(false);
+        let plugged = port.connected_flag();
+        plugged.store(false, Ordering::Relaxed);
         Arc::new(Self {
             port: Mutex::new(port),
             identity,
+            plugged,
         })
     }
 
+    /// Plugs or unplugs the cable. The device notices through the USBCON
+    /// connect-status bit; unplugging also ends any running client session
+    /// (at its next transaction).
+    pub fn set_plugged(&self, plugged: bool) {
+        self.plugged.store(plugged, Ordering::Relaxed);
+    }
+
+    pub fn plugged(&self) -> bool {
+        self.plugged.load(Ordering::Relaxed)
+    }
+
     /// Serve one client stream until it disconnects. Returns immediately (with
-    /// no hello sent) if another client currently holds the cable.
+    /// no hello sent) if another client currently holds the cable, and right
+    /// after the hello when the cable is unplugged (nothing is on the bus).
     pub fn attach(&self, mut stream: impl Read + Write) -> io::Result<()> {
         let Ok(port) = self.port.try_lock() else {
             return Err(io::Error::new(
@@ -174,27 +222,32 @@ impl UsbCable {
                 "another client holds the USB cable",
             ));
         };
-        write_hello(&mut stream, &self.identity)?;
-        // A client is attached for the duration of this connection - the
-        // device's connect-status bit goes high, which is how firmware
-        // detects USB. It drops again when the client disconnects.
-        port.set_connected(true);
-        let result = serve_client(stream, &port);
-        port.set_connected(false);
-        result
+        let plugged = self.plugged();
+        write_hello(&mut stream, &self.identity, plugged)?;
+        if !plugged {
+            return Ok(());
+        }
+        self.serve_client(stream, &port)
     }
-}
 
-fn serve_client(mut stream: impl Read + Write, port: &UsbHostPort) -> io::Result<()> {
-    loop {
-        // Blocks until the client sends a transaction (or disconnects).
-        let txn = read_transaction(&mut stream)?;
-        port.submit(txn);
-        // Blocks until the emulator's main loop services it and responds.
-        let response = port
-            .response_blocking()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "device interface gone"))?;
-        write_response(&mut stream, &response)?;
+    fn serve_client(&self, mut stream: impl Read + Write, port: &UsbHostPort) -> io::Result<()> {
+        loop {
+            // Blocks until the client sends a transaction (or disconnects).
+            let txn = read_transaction(&mut stream)?;
+            // An unplugged cable carries nothing: end the session.
+            if !self.plugged() {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "the USB cable was unplugged",
+                ));
+            }
+            port.submit(txn);
+            // Blocks until the emulator's main loop services it and responds.
+            let response = port.response_blocking().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::BrokenPipe, "device interface gone")
+            })?;
+            write_response(&mut stream, &response)?;
+        }
     }
 }
 
@@ -379,6 +432,9 @@ pub struct DiscoveredEndpoint {
     pub path: PathBuf,
     /// The identity string from the hello (e.g. the flash image name).
     pub identity: String,
+    /// Whether the emulator's USB cable is plugged in. Transactions are only
+    /// possible while it is.
+    pub plugged: bool,
 }
 
 /// Scans `dir` for live emulator endpoints, pruning stale ones. Endpoints
@@ -391,7 +447,11 @@ pub fn discover_in(dir: &Path) -> Vec<DiscoveredEndpoint> {
     for entry in entries.flatten() {
         let path = entry.path();
         match endpoint_connect(&path).and_then(|mut stream| read_hello(&mut stream)) {
-            Ok(identity) => found.push(DiscoveredEndpoint { path, identity }),
+            Ok(hello) => found.push(DiscoveredEndpoint {
+                path,
+                identity: hello.identity,
+                plugged: hello.plugged,
+            }),
             Err(why) if why.kind() == io::ErrorKind::ConnectionRefused => {
                 std::fs::remove_file(&path).ok();
             }
@@ -411,6 +471,7 @@ pub fn discover() -> Vec<DiscoveredEndpoint> {
 pub struct RemoteUsbDevice {
     stream: EndpointStream,
     identity: String,
+    plugged: bool,
 }
 
 impl RemoteUsbDevice {
@@ -427,13 +488,24 @@ impl RemoteUsbDevice {
     }
 
     fn from_stream(mut stream: EndpointStream) -> io::Result<Self> {
-        let identity = read_hello(&mut stream)?;
-        Ok(Self { stream, identity })
+        let hello = read_hello(&mut stream)?;
+        Ok(Self {
+            stream,
+            identity: hello.identity,
+            plugged: hello.plugged,
+        })
     }
 
     /// The identity string the emulator reported (e.g. the flash image name).
     pub fn identity(&self) -> &str {
         &self.identity
+    }
+
+    /// Whether the emulator's cable was plugged at connect time. When false,
+    /// the endpoint has already closed the connection - nothing is on the bus
+    /// until someone plugs the cable in.
+    pub fn plugged(&self) -> bool {
+        self.plugged
     }
 
     /// Issue one transaction and block for the device's response.
@@ -481,11 +553,13 @@ mod tests {
         respond_with(internal, UsbResponse::Data(vec![1, 2, 3]));
 
         let cable = UsbCable::new(port, "Spike 1.02.dat".into());
+        cable.set_plugged(true);
         let _guard = create_discovery_endpoint_in(&dir, cable).unwrap();
 
         let found = discover_in(&dir);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].identity, "Spike 1.02.dat");
+        assert!(found[0].plugged);
 
         let mut device = RemoteUsbDevice::connect_endpoint(&found[0].path).unwrap();
         assert_eq!(device.identity(), "Spike 1.02.dat");
@@ -508,11 +582,56 @@ mod tests {
         respond_with(internal, UsbResponse::Ack);
 
         let cable = UsbCable::new(port, "flash.dat".into());
+        cable.set_plugged(true);
         let guard = create_discovery_endpoint_in(&dir, cable).unwrap();
 
         let _first = RemoteUsbDevice::connect_endpoint(guard.path()).unwrap();
         // The second client is refused before the hello.
         assert!(RemoteUsbDevice::connect_endpoint(guard.path()).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unplugged_cable_reports_in_hello_and_carries_nothing() {
+        let dir = temp_dir("unplugged");
+        let (port, internal) = channel_pair();
+        respond_with(internal, UsbResponse::Ack);
+
+        let cable = UsbCable::new(port, "flash.dat".into());
+        let guard = create_discovery_endpoint_in(&dir, cable.clone()).unwrap();
+
+        // Discovery still sees the emulator, marked unplugged.
+        let found = discover_in(&dir);
+        assert_eq!(found.len(), 1);
+        assert!(!found[0].plugged);
+
+        // A client learns the cable state from the hello, but the connection
+        // carries no transactions.
+        let mut device = RemoteUsbDevice::connect_endpoint(guard.path()).unwrap();
+        assert!(!device.plugged());
+        assert!(device
+            .transaction(&UsbTransaction {
+                endpoint: 1,
+                token: UsbToken::In,
+                data: vec![],
+            })
+            .is_err());
+
+        // Plugging the cable makes the next session work.
+        cable.set_plugged(true);
+        let mut device = RemoteUsbDevice::connect_endpoint(guard.path()).unwrap();
+        assert!(device.plugged());
+        assert_eq!(
+            device
+                .transaction(&UsbTransaction {
+                    endpoint: 1,
+                    token: UsbToken::In,
+                    data: vec![],
+                })
+                .unwrap(),
+            UsbResponse::Ack
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

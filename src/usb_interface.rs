@@ -79,10 +79,16 @@ pub struct UsbHostPort {
 impl UsbHostPort {
     /// Report whether a host is attached (the "cable" is plugged). Drives the
     /// device's USBCON connect-status bit. A fresh pair starts disconnected; the
-    /// socket bridge raises it for the duration of each TCP client, and an
+    /// socket bridge raises it while the emulator's cable is plugged, and an
     /// in-process driver can raise it to exercise the connect-status bit.
     pub fn set_connected(&self, connected: bool) {
         self.connected.store(connected, Ordering::Relaxed);
+    }
+
+    /// The shared cable-presence flag itself, for owners that need to drive it
+    /// while the port is locked away inside a session (see `UsbCable`).
+    pub(crate) fn connected_flag(&self) -> Arc<AtomicBool> {
+        self.connected.clone()
     }
 
     /// Queue a transaction for the device to service on its next step.
