@@ -23,6 +23,12 @@ To start the emulator, run `emiu2 <OTP_FILE> <FLASH_FILE>`. Run `emiu2 --help` f
 
 On desktop, F5 saves the complete machine state and F9 restores it. The savestate file defaults to the flash image path with `.state` appended; override it with `--savestate-file`.
 
+### USB
+
+The emulated device has a working USB port. Host tools discover running emulators the way they discover real handhelds: each desktop instance publishes an endpoint in a runtime directory (`$XDG_RUNTIME_DIR/emiu2-usb`; override with `EMIU2_USB_DIR`), and [Native-Miuchiz-Handheld-USB-Utilities](https://github.com/ChrisMiuchiz/Native-Miuchiz-Handheld-USB-Utilities) built with the emulator backend lists them alongside physical devices, so `miuchiz dump-flash`, `load-flash`, and friends work on an emulator unchanged.
+
+Like a real Miuchiz, the device only answers USB in its "Please Connect to PC" mode; start the emulator with `--connect-mode` to boot straight into it. `--usb-socket ADDR` additionally exposes the same transaction protocol on TCP for remote or custom tooling, and `cargo run -r --bin usb_client` is a diagnostic host that exercises the whole stack.
+
 ### Playing together
 
 Miuchiz devices play and trade with each other over IR, and emiu2 can carry that link between two emulators in several ways.
