@@ -41,9 +41,15 @@ struct Args {
     show_gpio: bool,
 
     /// Expose the emulated USB device on a TCP transaction socket (e.g.
-    /// 127.0.0.1:3240). Off by default (no host attached).
+    /// 127.0.0.1:3240), in addition to the local discovery endpoint that
+    /// host tools find automatically.
     #[arg(long, value_name = "ADDR")]
     usb_socket: Option<String>,
+
+    /// Hold the D-pad through early boot so the device starts in its
+    /// "Please Connect to PC" (USB) mode.
+    #[arg(long, default_value_t = false)]
+    connect_mode: bool,
 
     /// IR transceiver: none, listen:<port>, connect:<host:port>, or
     /// relay:<host:port> (an emiu2 relay server; pair with friend codes
@@ -119,6 +125,40 @@ impl IrPlan {
     }
 }
 
+/// Holds the whole D-pad (active low on port A) through early boot, then
+/// defers to the real inputs. The boot ROM samples PA at cold start and a
+/// fully-held D-pad selects its "Please Connect to PC" (USB) mode - the same
+/// thing a player does to connect a real handheld.
+struct ConnectModeBoot {
+    inner: Box<dyn miuchiz::GpioInterfaceInternal>,
+}
+
+/// How long the D-pad stays held, in oscillator cycles (~4 s; the boot
+/// decision happens within the first few million cycles).
+const CONNECT_MODE_HOLD_CYCLES: u64 = 60_000_000;
+
+impl miuchiz::GpioInterfaceInternal for ConnectModeBoot {
+    fn get_inputs(&mut self, cycle: u64) -> miuchiz::GpioConnections {
+        let mut connections = self.inner.get_inputs(cycle);
+        if cycle < CONNECT_MODE_HOLD_CYCLES {
+            for button in [
+                miuchiz::MiuchizGpio::Up,
+                miuchiz::MiuchizGpio::Down,
+                miuchiz::MiuchizGpio::Left,
+                miuchiz::MiuchizGpio::Right,
+            ] {
+                let (port, bit) = button.to_port();
+                connections.connect(port, bit, false);
+            }
+        }
+        connections
+    }
+
+    fn set_outputs(&mut self, state: miuchiz::GpioState, cycle: u64) {
+        self.inner.set_outputs(state, cycle);
+    }
+}
+
 /// Reads pairing commands from standard input while the emulator runs.
 fn relay_console(commander: platform::relay_ir::RelayCommander) {
     use std::io::BufRead;
@@ -178,7 +218,7 @@ fn main() {
     let scale = args.scale;
     let show_gpio = args.show_gpio;
     let save_file = args.save_file;
-    let usb_socket_addr = args.usb_socket;
+    let connect_mode = args.connect_mode;
     let savestate_file = args
         .savestate_file
         .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
@@ -190,6 +230,33 @@ fn main() {
             return;
         }
     };
+
+    // The USB cable: the internal half goes to the device, the external half
+    // is shared by the discovery endpoint (always on, how host tools find
+    // running emulators) and the optional explicit TCP endpoint.
+    let (usb_host_port, usb_internal) = usb_interface::channel_pair();
+    let usb_identity = std::path::Path::new(&args.flash_file)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "emiu2".to_string());
+    let usb_cable = usb_socket::UsbCable::new(usb_host_port, usb_identity);
+    // Held for the process lifetime; dropping it removes the endpoint file.
+    let _usb_endpoint = match usb_socket::create_discovery_endpoint(usb_cable.clone()) {
+        Ok(guard) => Some(guard),
+        Err(why) => {
+            eprintln!("Warning: could not create the USB discovery endpoint: {why}");
+            None
+        }
+    };
+    if let Some(addr) = args.usb_socket {
+        println!("USB transaction socket listening on {addr}");
+        let cable = usb_cable.clone();
+        std::thread::spawn(move || {
+            if let Err(why) = usb_socket::serve(&addr, cable) {
+                eprintln!("USB socket server failed: {why}");
+            }
+        });
+    }
 
     let (screen, minifb_gpio, screen_tx, worker) =
         platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
@@ -208,7 +275,8 @@ fn main() {
             save_file,
             savestate_file,
             ir_plan,
-            usb_socket_addr,
+            usb_internal,
+            connect_mode,
         );
     });
 
@@ -230,7 +298,8 @@ fn run_emulator(
     save_file: Option<PathBuf>,
     savestate_file: PathBuf,
     ir_plan: IrPlan,
-    usb_socket_addr: Option<String>,
+    usb_internal: usb_interface::ChannelUsbInterface,
+    connect_mode: bool,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's
     // `Stream` is `!Send`, so it must be created and dropped on the same thread.
@@ -247,24 +316,6 @@ fn run_emulator(
         return;
     }
 
-    // USB host interface: an unplugged cable by default, or a TCP transaction
-    // socket when `--usb-socket ADDR` is given. The server runs on its own
-    // thread holding the external half; the main loop stays the sole CPU driver
-    // and services the internal half.
-    let usb_interface: Box<dyn usb_interface::UsbInterfaceInternal> = match usb_socket_addr {
-        Some(addr) => {
-            let (port, internal) = usb_interface::channel_pair();
-            println!("USB transaction socket listening on {addr}");
-            std::thread::spawn(move || {
-                if let Err(why) = usb_socket::serve(&addr, port) {
-                    eprintln!("USB socket server failed: {why}");
-                }
-            });
-            Box::new(internal)
-        }
-        None => Box::new(usb_interface::NullUsbInterface),
-    };
-
     // The IR transports live on this thread; only the commander (used
     // by the stdin console) may leave it.
     let (ir_transceiver, ir_rollback, ir_commander) = ir_plan.start();
@@ -272,14 +323,22 @@ fn run_emulator(
         std::thread::spawn(move || relay_console(commander));
     }
 
+    let io: Box<dyn miuchiz::GpioInterfaceInternal> = if connect_mode {
+        Box::new(ConnectModeBoot {
+            inner: Box::new(minifb_gpio),
+        })
+    } else {
+        Box::new(minifb_gpio)
+    };
+
     let mut handheld = match miuchiz::Handheld::new(
         &otp_data,
         &flash_data,
         Box::new(minifb_screen),
-        Box::new(minifb_gpio),
+        io,
         Box::new(sender),
         ir_transceiver,
-        usb_interface,
+        Box::new(usb_internal),
     ) {
         Ok(handheld) => handheld,
         Err(why) => {

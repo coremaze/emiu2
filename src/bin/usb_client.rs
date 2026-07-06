@@ -291,26 +291,55 @@ fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     // `--write` opts in to the (destructive) flash write+verify exercise.
     let do_write = raw.iter().any(|a| a == "--write");
-    let positional: Vec<&String> = raw.iter().filter(|a| !a.starts_with("--")).collect();
-    let addr = positional
-        .first()
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "127.0.0.1:3240".to_string());
+    let mut positional: Vec<&String> = raw.iter().filter(|a| !a.starts_with("--")).collect();
+    // An explicit TCP address is recognizable by its colon; without one, the
+    // emulator is found through endpoint discovery.
+    let addr = match positional.first() {
+        Some(first) if first.contains(':') => Some(positional.remove(0).to_string()),
+        _ => None,
+    };
     let flash_page = positional
-        .get(1)
+        .first()
         .and_then(|s| parse_u32(s).ok())
         .unwrap_or(0x0000);
 
-    println!("Connecting to USB bridge at {addr} ...");
-    let dev = match RemoteUsbDevice::connect(&addr) {
-        Ok(dev) => dev,
-        Err(why) => {
-            eprintln!(
-                "Could not connect: {why}\nIs the emulator running with --usb-socket {addr}?"
+    let dev = match &addr {
+        Some(addr) => {
+            println!("Connecting to USB bridge at {addr} ...");
+            match RemoteUsbDevice::connect(addr) {
+                Ok(dev) => dev,
+                Err(why) => {
+                    eprintln!(
+                        "Could not connect: {why}\nIs the emulator running with --usb-socket {addr}?"
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+        None => {
+            let found = emiu2::usb_socket::discover();
+            let Some(endpoint) = found.first() else {
+                eprintln!(
+                    "No running emulators discovered. Start emiu2 (ideally with \
+                     --connect-mode), or pass an explicit host:port."
+                );
+                std::process::exit(1);
+            };
+            println!(
+                "Discovered emulator \"{}\" at {}",
+                endpoint.identity,
+                endpoint.path.display()
             );
-            std::process::exit(1);
+            match RemoteUsbDevice::connect_endpoint(&endpoint.path) {
+                Ok(dev) => dev,
+                Err(why) => {
+                    eprintln!("Could not connect: {why}");
+                    std::process::exit(1);
+                }
+            }
         }
     };
+    println!("Connected to \"{}\"", dev.identity());
     let mut bus = Bus::new(dev);
 
     run_step("ENUMERATE: device descriptor", || {
