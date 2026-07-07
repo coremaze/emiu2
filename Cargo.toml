@@ -19,6 +19,7 @@ emiu2-relay = { path = "server" }
 cpal = "0.15.3"
 minifb = "0.27.0"
 clap = { version = "4.0.32", features = ["derive"] }
+miuchiz-reborn-paths = { git = "https://github.com/coremaze/Miuchiz-Reborn-Paths" }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

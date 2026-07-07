@@ -299,27 +299,19 @@ fn serve_unix(listener: std::os::unix::net::UnixListener, cable: Arc<UsbCable>) 
     }
 }
 
-/// The directory host tools scan to find running emulators. Overridable with
-/// `EMIU2_USB_DIR` (matched by the C library); otherwise a fixed per-platform
-/// runtime location so both sides agree without configuration.
+/// The directory host tools scan to find running emulators: emiu2's runtime
+/// directory under the shared Miuchiz Reborn storage-location policy
+/// (miuchiz-reborn-paths; the C library mirrors the same spec), so ecosystem
+/// tools agree without configuration and `MIUCHIZ_REBORN_HOME` reroots
+/// everything at once. `EMIU2_USB_DIR` remains a narrower, higher-priority
+/// override of just this directory.
 pub fn endpoint_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("EMIU2_USB_DIR") {
         return PathBuf::from(dir);
     }
-    #[cfg(unix)]
-    {
-        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
-            return Path::new(&runtime).join("emiu2-usb");
-        }
-        PathBuf::from("/tmp/emiu2-usb")
-    }
-    #[cfg(windows)]
-    {
-        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            return Path::new(&local).join("emiu2-usb");
-        }
-        std::env::temp_dir().join("emiu2-usb")
-    }
+    miuchiz_reborn_paths::AppDirs::new("emiu2")
+        .runtime_dir()
+        .to_path_buf()
 }
 
 /// Removes the discovery endpoint file when the emulator exits. Held by main
