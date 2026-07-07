@@ -77,9 +77,8 @@ At a high level, the emulator supports the following:
  - RTC interrupts (Used for the alarm clock ingame)
  - IR communication (Used to play or trade with other Miuchiz devices),
    including between emulators over the network with latency hiding
-
- It is possibly more useful to list the features which the Miuchiz firmware uses but which are not yet finished:
- - USB communication (Used to communicate with a PC)
+ - USB communication (Used to communicate with a PC), reachable by real
+   host tools through per-instance discovery endpoints
 
 ## Building
 
