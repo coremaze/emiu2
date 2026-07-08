@@ -29,7 +29,7 @@ The emulated device has a working USB port, and the cable is its own piece of st
 
 Host tools discover running emulators the way they discover real handhelds: each desktop instance publishes an endpoint in emiu2's runtime directory under the shared [Miuchiz Reborn path policy](https://github.com/coremaze/Miuchiz-Reborn-Paths) (`$XDG_RUNTIME_DIR/miuchiz-reborn/emiu2` on Linux; reroot everything with `MIUCHIZ_REBORN_HOME`, or override just this directory with `EMIU2_USB_DIR`), and [Native-Miuchiz-Handheld-USB-Utilities](https://github.com/ChrisMiuchiz/Native-Miuchiz-Handheld-USB-Utilities) built with the emulator backend lists them alongside physical devices, so `miuchiz dump-flash`, `load-flash`, and friends work on an emulator unchanged. Tools can only reach the device while the cable is plugged.
 
-Like a real Miuchiz, the device only answers USB in its "Please Connect to PC" mode; start the emulator with `--connect-mode` to boot straight into it (this implies a plugged cable). `--usb-socket ADDR` additionally exposes the same transaction protocol on TCP for remote or custom tooling, and `cargo run -r --bin usb_client` is a diagnostic host that exercises the whole stack.
+Like a real Miuchiz, the device only answers USB in its "Please Connect to PC" mode; start the emulator with `--connect-mode` to boot straight into it (this implies a plugged cable). `--usb-socket ADDR` additionally exposes the same transaction protocol on TCP for remote or custom tooling.
 
 ### Playing together
 

@@ -6,7 +6,7 @@
 //! bit and brings up the SIE; the test then acts as the host on the other
 //! end of the channel pair, driving enumeration, SCSI over Bulk-Only
 //! Transport, and the device's tunneled flash protocol - the same layers
-//! `usb_client` exercises over TCP.
+//! the libmiuchiz-usb tools exercise over the endpoint socket.
 //!
 //! Skipped when the firmware images are not present in `firmware/`
 //! (they are not distributable).

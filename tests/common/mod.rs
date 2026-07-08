@@ -1,7 +1,8 @@
 //! Shared harness for the firmware-backed USB integration tests: null
 //! peripheral stubs, machine-state probes (USBEN, PRR), and a host-side USB
-//! driver - usb_client's transport with "wait" replaced by stepping the
-//! machine (host and device share one thread).
+//! driver speaking enumeration, SCSI over Bulk-Only Transport, and the
+//! tunneled flash protocol, with "wait" replaced by stepping the machine
+//! (host and device share one thread).
 
 // Each test target compiles this module independently and uses a different
 // subset of it.
