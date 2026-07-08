@@ -101,6 +101,9 @@ impl Bus {
                         UsbResponse::Data(d) => {
                             println!("       <- DATA {:>3}B{suffix}  {}", d.len(), hex_inline(d))
                         }
+                        UsbResponse::Detached => {
+                            println!("       <- DETACHED (device off the bus){suffix}")
+                        }
                         UsbResponse::Nak => unreachable!(),
                     }
                     return Ok(resp);

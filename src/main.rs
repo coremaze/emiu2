@@ -46,7 +46,7 @@ struct Args {
     #[arg(long, value_name = "ADDR")]
     usb_socket: Option<String>,
 
-    /// Hold the D-pad through early boot so the device starts in its
+    /// Hold Left+Menu through early boot so the device starts in its
     /// "Please Connect to PC" (USB) mode. Implies --usb-plugged.
     #[arg(long, default_value_t = false)]
     connect_mode: bool,
@@ -131,15 +131,18 @@ impl IrPlan {
     }
 }
 
-/// Holds the whole D-pad (active low on port A) through early boot, then
-/// defers to the real inputs. The boot ROM samples PA at cold start and a
-/// fully-held D-pad selects its "Please Connect to PC" (USB) mode - the same
-/// thing a player does to connect a real handheld.
+/// Holds Left+Menu (active low on port A) through early boot, then defers to
+/// the real inputs. The boot ROM samples PA at cold start and Left+Menu
+/// selects its "Please Connect to PC" (USB) mode - the same thing a player
+/// does to connect a real handheld. (Holding the whole D-pad instead selects
+/// a different, factory-style USB mode that speaks the same protocol but
+/// hangs forever after a host-commanded eject instead of rebooting into the
+/// flash application; see the boot select at L5823 in the OTP disassembly.)
 struct ConnectModeBoot {
     inner: Box<dyn miuchiz::GpioInterfaceInternal>,
 }
 
-/// How long the D-pad stays held, in oscillator cycles (~4 s; the boot
+/// How long Left+Menu stays held, in oscillator cycles (~4 s; the boot
 /// decision happens within the first few million cycles).
 const CONNECT_MODE_HOLD_CYCLES: u64 = 60_000_000;
 
@@ -147,12 +150,7 @@ impl miuchiz::GpioInterfaceInternal for ConnectModeBoot {
     fn get_inputs(&mut self, cycle: u64) -> miuchiz::GpioConnections {
         let mut connections = self.inner.get_inputs(cycle);
         if cycle < CONNECT_MODE_HOLD_CYCLES {
-            for button in [
-                miuchiz::MiuchizGpio::Up,
-                miuchiz::MiuchizGpio::Down,
-                miuchiz::MiuchizGpio::Left,
-                miuchiz::MiuchizGpio::Right,
-            ] {
+            for button in [miuchiz::MiuchizGpio::Left, miuchiz::MiuchizGpio::Menu] {
                 let (port, bit) = button.to_port();
                 connections.connect(port, bit, false);
             }

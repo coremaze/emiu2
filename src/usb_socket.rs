@@ -33,7 +33,10 @@
 //!   (bit 0 = cable plugged)  identity_len:u32le  identity[..]` (identity is
 //!   UTF-8, e.g. the flash image name)
 //! - request : `endpoint:u8  token:u8(0=Setup,1=In,2=Out)  len:u32le  data[len]`
-//! - response: `kind:u8(0=Ack,1=Nak,2=Stall,3=Data)` then, for Data, `len:u32le data[len]`
+//! - response: `kind:u8(0=Ack,1=Nak,2=Stall,3=Data,4=Detached)` then, for
+//!   Data, `len:u32le data[len]`. Detached means the device is not on the bus
+//!   (its SIE is off - never brought up, or torn down by an eject); clients
+//!   should treat it as "device gone" immediately, not retry like Nak.
 
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -47,7 +50,8 @@ use crate::usb_interface::UsbHostPort;
 /// First bytes the server sends on every accepted connection.
 pub const HELLO_MAGIC: &[u8; 8] = b"EMIU2USB";
 /// Bumped on any incompatible change to the framing below.
-pub const PROTOCOL_VERSION: u16 = 2;
+/// v3: added response kind 4 (Detached - device off the bus).
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// Hello flags bit: the emulator's USB cable is currently plugged in.
 const HELLO_FLAG_PLUGGED: u8 = 1;
@@ -110,6 +114,7 @@ fn write_response(stream: &mut impl Write, response: &UsbResponse) -> io::Result
             stream.write_all(&[3])?;
             write_blob(stream, data)
         }
+        UsbResponse::Detached => stream.write_all(&[4]),
     }
 }
 
@@ -121,6 +126,7 @@ fn read_response(stream: &mut impl Read) -> io::Result<UsbResponse> {
         1 => Ok(UsbResponse::Nak),
         2 => Ok(UsbResponse::Stall),
         3 => Ok(UsbResponse::Data(read_blob(stream)?)),
+        4 => Ok(UsbResponse::Detached),
         other => Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("invalid USB response kind {other}"),
