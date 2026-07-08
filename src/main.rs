@@ -9,7 +9,6 @@ mod screen;
 pub mod snapshot;
 pub mod ssc;
 mod usb_interface;
-mod usb_socket;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -237,7 +236,7 @@ fn main() {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "emiu2".to_string());
-    let usb_cable = usb_socket::UsbCable::new(usb_host_port, usb_identity);
+    let usb_cable = platform::usb_socket::UsbCable::new(usb_host_port, usb_identity);
     // The cable's plugged state is the emulator's own, independent of any
     // client: firmware watches the connect-status bit and needs it stable.
     // Connect mode exists to talk to a host, so it implies a plugged cable.
@@ -246,7 +245,7 @@ fn main() {
         println!("USB cable plugged in (U unplugs it)");
     }
     // Held for the process lifetime; dropping it removes the endpoint file.
-    let _usb_endpoint = match usb_socket::create_discovery_endpoint(usb_cable.clone()) {
+    let _usb_endpoint = match platform::usb_socket::create_discovery_endpoint(usb_cable.clone()) {
         Ok(guard) => Some(guard),
         Err(why) => {
             eprintln!("Warning: could not create the USB discovery endpoint: {why}");
@@ -297,7 +296,7 @@ fn run_emulator(
     savestate_file: PathBuf,
     ir_plan: IrPlan,
     usb_internal: usb_interface::ChannelUsbInterface,
-    usb_cable: std::sync::Arc<usb_socket::UsbCable>,
+    usb_cable: std::sync::Arc<platform::usb_socket::UsbCable>,
     connect_mode: bool,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's

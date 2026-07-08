@@ -15,3 +15,5 @@ pub mod minifb_screen_gpio;
 pub mod relay_ir;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket_ir;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod usb_socket;
