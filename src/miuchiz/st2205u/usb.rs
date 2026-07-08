@@ -68,8 +68,11 @@ pub enum UsbResponse {
 const ENDPOINT_CONTROL: u8 = 0;
 const ENDPOINT_BULK: u8 = 1;
 
-/// Maximum packet sizes for this chip's endpoints.
+/// Maximum packet sizes for this chip's endpoints, which are also its
+/// endpoint buffer sizes (datasheet §18: EP0 has an 8-byte buffer, BKI/BKO
+/// 64-byte buffers).
 const EP0_MAX_PACKET: usize = 8;
+const BULK_MAX_PACKET: usize = 64;
 
 /// What the SIE decided to do with a SETUP packet on EP0.
 enum SetupDisposition {
@@ -98,47 +101,77 @@ enum Ep0Stage {
     AutoDataIn(Vec<u8>),
 }
 
+// Standard bRequest codes (USB 1.1 chapter 9) the classifier dispatches on.
+const REQ_GET_STATUS: u8 = 0x00;
+const REQ_CLEAR_FEATURE: u8 = 0x01;
+const REQ_SET_FEATURE: u8 = 0x03;
+const REQ_SET_ADDRESS: u8 = 0x05;
+const REQ_GET_DESCRIPTOR: u8 = 0x06;
+const REQ_GET_CONFIGURATION: u8 = 0x08;
+const REQ_SET_CONFIGURATION: u8 = 0x09;
+const REQ_GET_INTERFACE: u8 = 0x0A;
+const REQ_SET_INTERFACE: u8 = 0x0B;
+
+// Descriptor types in GET_DESCRIPTOR's wValue high byte (USB 1.1 §9.4.3).
+const DESC_DEVICE: u8 = 0x01;
+const DESC_CONFIGURATION: u8 = 0x02;
+const DESC_STRING: u8 = 0x03;
+
+// EP0CON DRQ[1:0] values (datasheet TABLE 18-7): which kind of request the
+// SIE is presenting to the firmware.
+const DRQ_DEVICE: u8 = 0b00;
+const DRQ_CONFIGURATION: u8 = 0b01;
+const DRQ_STRING: u8 = 0b10;
+const DRQ_NON_STANDARD: u8 = 0b11;
+
 /// Classify a SETUP packet: which requests the firmware sees vs. which the SIE
-/// auto-handles. Confirmed against the boot ROM + datasheet.
-/// The firmware only handles GET_DESCRIPTOR and class/vendor
-/// requests; the SIE completes SET_ADDRESS / SET_CONFIGURATION / etc. itself.
+/// auto-handles.
+///
+/// Justification: the DRQ[1:0] menu (TABLE 18-7) only encodes the three
+/// descriptor reads plus "non-standard", and the boot ROM's entire EP0
+/// dispatch is a four-way jump on those two bits (handle_ep0irq ->
+/// ep0_request_dispatch in the OTP disassembly) - it never reads bRequest
+/// for standard requests. Since every host sends SET_ADDRESS and
+/// SET_CONFIGURATION during enumeration and real hardware enumerates anyway,
+/// the SIE must complete those (and the other chapter-9 requests below)
+/// itself, without involving the firmware.
 fn classify_setup(setup: &[u8]) -> SetupDisposition {
     let bm_request_type = setup[0];
     let b_request = setup[1];
     let req_type = (bm_request_type >> 5) & 0x03; // 0 = standard, 1 = class, 2 = vendor
 
     if req_type != 0 {
-        // Class/vendor requests go to the firmware as "non-standard" (DRQ 0b11).
-        return SetupDisposition::Forward(0b11);
+        // Class/vendor requests go to the firmware as "non-standard".
+        return SetupDisposition::Forward(DRQ_NON_STANDARD);
     }
 
     match b_request {
-        0x06 => SetupDisposition::Forward(decode_drq(setup)), // GET_DESCRIPTOR
+        REQ_GET_DESCRIPTOR => SetupDisposition::Forward(decode_drq(setup)),
         // No-data standard "set" requests: completed by the SIE.
-        0x05 // SET_ADDRESS
-        | 0x09 // SET_CONFIGURATION
-        | 0x03 // SET_FEATURE
-        | 0x01 // CLEAR_FEATURE
-        | 0x0B => SetupDisposition::AutoAck, // SET_INTERFACE
+        REQ_SET_ADDRESS
+        | REQ_SET_CONFIGURATION
+        | REQ_SET_FEATURE
+        | REQ_CLEAR_FEATURE
+        | REQ_SET_INTERFACE => SetupDisposition::AutoAck,
         // Data-IN standard requests answered with constants.
-        0x00 => SetupDisposition::AutoIn(vec![0x00, 0x00]), // GET_STATUS [inferred]
-        0x08 => SetupDisposition::AutoIn(vec![0x01]),       // GET_CONFIGURATION [inferred]
-        0x0A => SetupDisposition::AutoIn(vec![0x00]),       // GET_INTERFACE [inferred]
+        REQ_GET_STATUS => SetupDisposition::AutoIn(vec![0x00, 0x00]), // [inferred]
+        REQ_GET_CONFIGURATION => SetupDisposition::AutoIn(vec![0x01]), // [inferred]
+        REQ_GET_INTERFACE => SetupDisposition::AutoIn(vec![0x00]),    // [inferred]
         // Anything else: let the firmware decide (it will likely STALL it).
-        _ => SetupDisposition::Forward(0b11),
+        _ => SetupDisposition::Forward(DRQ_NON_STANDARD),
     }
 }
 
 /// Decode the DRQ[1:0] field the hardware presents in EP0CON for a
 /// GET_DESCRIPTOR request, keyed on the descriptor type (wValue high byte).
-/// device=0b00, config=0b01, string=0b10, anything else=0b11 (datasheet
-/// §18.2.5; this is the mapping the firmware's dispatch table expects).
+/// This is the mapping the firmware's dispatch table expects (datasheet
+/// TABLE 18-7).
 fn decode_drq(setup: &[u8]) -> u8 {
     match setup.get(3) {
-        Some(0x01) => 0b00, // DEVICE
-        Some(0x02) => 0b01, // CONFIGURATION
-        Some(0x03) => 0b10, // STRING
-        _ => 0b11,          // non-standard
+        Some(&DESC_DEVICE) => DRQ_DEVICE,
+        Some(&DESC_CONFIGURATION) => DRQ_CONFIGURATION,
+        Some(&DESC_STRING) => DRQ_STRING,
+        _ => DRQ_NON_STANDARD,
     }
 }
 
@@ -206,6 +239,8 @@ impl UsbIen {
     pub fn new() -> Self {
         Self {
             bufen: false,
+            // BRIEN is set at reset (USBIEN default 0-10 0000, TABLE 18-2),
+            // so a bus reset can interrupt before firmware programs USBIEN.
             brien: true,
             resien: false,
             susien: false,
@@ -452,78 +487,120 @@ impl BkCon {
     }
 }
 
-// Buffer representation for USB endpoints
+/// One received packet staged in a bulk-OUT slot.
+#[derive(Clone, Copy)]
+struct BkoPacket {
+    data: [u8; BULK_MAX_PACKET],
+    len: usize,
+}
+
+impl BkoPacket {
+    const EMPTY: Self = Self {
+        data: [0; BULK_MAX_PACKET],
+        len: 0,
+    };
+}
+
+/// The double-buffered bulk-OUT endpoint ("double buffer scheme is applied
+/// to both BKI and BKO buffers", datasheet §18): two packet slots the SIE
+/// fills as packets arrive while the firmware drains the other. The firmware
+/// always sees the oldest unread packet - the front slot - at $0200.
+/// Modeling this as a single buffer makes the firmware's per-packet
+/// accounting drift and the host NAK-wait per packet, which compounds into a
+/// write deadlock.
+struct BkoBuffer {
+    slots: [BkoPacket; 2],
+    /// Slot currently presented at $0200 (oldest unread).
+    front: usize,
+    /// How many slots hold an unread packet (0, 1, or both).
+    count: usize,
+}
+
+impl BkoBuffer {
+    fn new() -> Self {
+        Self {
+            slots: [BkoPacket::EMPTY; 2],
+            front: 0,
+            count: 0,
+        }
+    }
+
+    /// Room for another received packet?
+    fn is_full(&self) -> bool {
+        self.count == self.slots.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Accept a received packet into the next free slot; `false` (the SIE
+    /// NAKs) when both slots still hold unread packets.
+    fn push(&mut self, data: &[u8]) -> bool {
+        if self.is_full() {
+            return false;
+        }
+        let slot = &mut self.slots[(self.front + self.count) % self.slots.len()];
+        let n = data.len().min(slot.data.len());
+        slot.data[..n].copy_from_slice(&data[..n]);
+        slot.len = n;
+        self.count += 1;
+        true
+    }
+
+    /// The firmware finished with the front packet; advance to the next.
+    fn pop(&mut self) {
+        if self.count > 0 {
+            self.front = (self.front + 1) % self.slots.len();
+            self.count -= 1;
+        }
+    }
+
+    fn read(&self, offset: usize) -> u8 {
+        self.slots[self.front].data[offset]
+    }
+
+    /// Firmware writing into the presented (front) slot; uncommon.
+    fn write(&mut self, offset: usize, value: u8) {
+        self.slots[self.front].data[offset] = value;
+    }
+
+    /// Length of the packet the firmware currently sees (0 when empty).
+    fn front_len(&self) -> usize {
+        if self.count > 0 {
+            self.slots[self.front].len
+        } else {
+            0
+        }
+    }
+}
+
+// Buffer representation for USB endpoints: the ST2205U's 144 bytes of
+// dedicated endpoint RAM ($0200-$028F; overlaid on user RAM and exposed
+// while USBIEN's BUFEN bit is set).
 pub struct UsbBuffers {
-    // The ST2205U uses 144 bytes of dedicated RAM for USB endpoints.
-    //
-    // Bulk-OUT is **double-buffered** (datasheet §18.1): two 64-byte slots that
-    // the SIE fills as packets arrive while the firmware drains the other. The
-    // firmware always sees the oldest unread packet at $0200; modeling this as a
-    // single buffer makes the firmware's per-packet accounting drift and the host
-    // NAK-wait per packet, which compounds into a write deadlock.
-    bko_slots: [[u8; 64]; 2], // Bulk-OUT double buffer ($0200-$023F = current slot)
-    bko_sizes: [usize; 2],
-    bko_front: usize,        // slot currently presented at $0200 (oldest unread)
-    bko_count: usize,        // occupied slots, 0..=2
-    bki_buffer: [u8; 64],    // Bulk-IN Buffer ($0240-$027F)
+    bko: BkoBuffer,                    // Bulk-OUT double buffer ($0200-$023F = front slot)
+    bki_buffer: [u8; BULK_MAX_PACKET], // Bulk-IN Buffer ($0240-$027F)
     bki_size: usize, // the highest index of the BKI buffer that has been written to (plus 1)
-    ep0_out_buffer: [u8; 8], // EP0 OUT Buffer ($0280-$0287)
-    ep0_in_buffer: [u8; 8], // EP0 IN Buffer ($0288-$028F)
-    // Buffer access is controlled by the BUFEN bit in USBIEN
+    ep0_out_buffer: [u8; EP0_MAX_PACKET], // EP0 OUT Buffer ($0280-$0287)
+    ep0_in_buffer: [u8; EP0_MAX_PACKET], // EP0 IN Buffer ($0288-$028F)
     ep0_in_size: usize, // the highest index of the EP0 IN buffer that has been written to (plus 1)
 }
 
 impl UsbBuffers {
     pub fn new() -> Self {
         Self {
-            bko_slots: [[0; 64]; 2],
-            bko_sizes: [0; 2],
-            bko_front: 0,
-            bko_count: 0,
-            bki_buffer: [0; 64],
+            bko: BkoBuffer::new(),
+            bki_buffer: [0; BULK_MAX_PACKET],
             bki_size: 0,
-            ep0_out_buffer: [0; 8],
-            ep0_in_buffer: [0; 8],
+            ep0_out_buffer: [0; EP0_MAX_PACKET],
+            ep0_in_buffer: [0; EP0_MAX_PACKET],
             ep0_in_size: 0,
         }
     }
 
-    /// Bulk-OUT double buffer: room for another received packet?
-    fn bko_is_full(&self) -> bool {
-        self.bko_count >= 2
-    }
-
-    fn bko_is_empty(&self) -> bool {
-        self.bko_count == 0
-    }
-
-    /// Push a received bulk-OUT packet into the next free slot.
-    fn bko_push(&mut self, data: &[u8]) {
-        let slot = (self.bko_front + self.bko_count) % 2;
-        let n = data.len().min(64);
-        self.bko_slots[slot][..n].copy_from_slice(&data[..n]);
-        self.bko_sizes[slot] = n;
-        self.bko_count += 1;
-    }
-
-    /// The firmware finished with the front packet; advance to the next.
-    fn bko_pop(&mut self) {
-        if self.bko_count > 0 {
-            self.bko_front = (self.bko_front + 1) % 2;
-            self.bko_count -= 1;
-        }
-    }
-
-    fn bko_read(&self, offset: usize) -> u8 {
-        self.bko_slots[self.bko_front][offset]
-    }
-
-    fn bko_front_size(&self) -> usize {
-        if self.bko_count > 0 {
-            self.bko_sizes[self.bko_front]
-        } else {
-            0
-        }
+    fn bki_read(&self, index: usize) -> u8 {
+        self.bki_buffer[index]
     }
 
     pub fn reset_bki_buffer(&mut self) {
@@ -535,6 +612,18 @@ impl UsbBuffers {
         self.bki_buffer[index] = value;
         let len = index + 1;
         self.bki_size = self.bki_size.max(len);
+    }
+
+    fn ep0_out_read(&self, index: usize) -> u8 {
+        self.ep0_out_buffer[index]
+    }
+
+    fn ep0_out_write(&mut self, index: usize, value: u8) {
+        self.ep0_out_buffer[index] = value;
+    }
+
+    fn ep0_in_read(&self, index: usize) -> u8 {
+        self.ep0_in_buffer[index]
     }
 
     pub fn reset_ep0_in_buffer(&mut self) {
@@ -609,14 +698,14 @@ impl UsbState {
     }
 
     pub fn read_usbcon(&self) -> u8 {
-        // Bit 1 is an (datasheet-undocumented) USB-connected status bit: firmware
-        // polls `USBCON & 0x02` to auto-detect a plugged cable before enabling the
-        // SIE (55_main.s main()/periodic_poll). Reserved bits 0/1 in TABLE 18-3.
+        // Bit 1 is a USB-connected status bit the datasheet leaves
+        // undocumented (bits 0/1 are reserved in TABLE 18-3): firmware polls
+        // `USBCON & 0x02` to auto-detect a plugged cable before enabling the
+        // SIE (55_main.s main()/periodic_poll).
         self.usbcon.read_u8() | ((self.host_connected as u8) << 1)
     }
 
     pub fn write_usbcon(&mut self, value: u8) {
-        let old_usben = self.usbcon.usben;
         let was_connected = self.usbcon.usben && self.usbcon.pull;
         self.usbcon.write_u8(value);
         println!(
@@ -624,13 +713,6 @@ impl UsbState {
             self.usbcon.read_u8(),
             self.usbcon.read_u8()
         );
-
-        // If USBEN transitions from 0 to 1, enable BRIEN in USBIEN
-        if !old_usben && self.usbcon.usben {
-            // Enable Bus Reset interrupt when USB is enabled
-            self.usbien.brien = true;
-            println!("USBEN enabled, automatically enabling BRIEN");
-        }
 
         // Connecting the D+ pull-up while enabled draws the host's bus reset.
         // This is the connect *edge* (USBEN && PULL going from false to true),
@@ -767,11 +849,11 @@ impl UsbState {
     }
 
     pub fn read_ep0len(&self) -> u8 {
-        self.ep0len & 0x0F // Only lower 4 bits are valid
+        self.ep0len & 0x0F // LEN[3:0] (datasheet TABLE 18-8)
     }
 
     pub fn write_ep0len(&mut self, value: u8) {
-        self.ep0len = value & 0x0F; // Max EP0 length is 15 (16 bytes)
+        self.ep0len = value & 0x0F; // LEN[3:0] (datasheet TABLE 18-8)
     }
 
     pub fn read_bkcon(&self) -> u8 {
@@ -788,12 +870,14 @@ impl UsbState {
     }
 
     pub fn read_bkolen(&self) -> u8 {
-        // Length of the current (front) bulk-OUT packet.
-        (self.buffers.bko_front_size() as u8) & 0x7F
+        // Length of the current (front) bulk-OUT packet. The register field
+        // is LEN[6:0] (datasheet TABLE 18-10); actual packets never exceed
+        // the endpoint's 64-byte buffer.
+        (self.buffers.bko.front_len() as u8) & 0x7F
     }
 
     pub fn write_bkolen(&mut self, value: u8) {
-        self.bkolen = value & 0x7F; // Max BKO length is 127 (128 bytes max, though we only support 64)
+        self.bkolen = value & 0x7F; // LEN[6:0] (datasheet TABLE 18-10)
     }
 
     pub fn are_buffers_enabled(&self) -> bool {
@@ -805,19 +889,17 @@ impl UsbState {
             return 0; // When buffer access is disabled, return 0
         }
 
-        let value = match address {
-            BKO_START..=BKO_END => self.buffers.bko_read((address - BKO_START) as usize),
-            BKI_START..=BKI_END => self.buffers.bki_buffer[(address - BKI_START) as usize],
-            EP0_OUT_START..=EP0_OUT_END => {
-                self.buffers.ep0_out_buffer[(address - EP0_OUT_START) as usize]
-            }
+        match address {
+            BKO_START..=BKO_END => self.buffers.bko.read((address - BKO_START) as usize),
+            BKI_START..=BKI_END => self.buffers.bki_read((address - BKI_START) as usize),
+            EP0_OUT_START..=EP0_OUT_END => self
+                .buffers
+                .ep0_out_read((address - EP0_OUT_START) as usize),
             EP0_IN_START..=EP0_IN_END => {
-                self.buffers.ep0_in_buffer[(address - EP0_IN_START) as usize]
+                self.buffers.ep0_in_read((address - EP0_IN_START) as usize)
             }
             _ => 0, // Out of range
-        };
-
-        value
+        }
     }
 
     /// Advance the BKO double buffer past the consumed front packet and refresh
@@ -829,8 +911,8 @@ impl UsbState {
     /// having merged two arrivals into one already-cleared interrupt, never gets
     /// woken to drain the trailing packet and the transfer stalls one chunk short.
     fn bko_advance(&mut self) {
-        self.buffers.bko_pop();
-        let pending = !self.buffers.bko_is_empty();
+        self.buffers.bko.pop();
+        let pending = !self.buffers.bko.is_empty();
         self.usbbfs.read_bko_needs_service = pending;
         if pending {
             self.usbirq.trigger_bulk_out();
@@ -844,17 +926,17 @@ impl UsbState {
 
         match address {
             BKO_START..=BKO_END => {
-                // Firmware writing into the (front) bulk-OUT slot; uncommon.
-                let off = (address - BKO_START) as usize;
-                let front = self.buffers.bko_front;
-                self.buffers.bko_slots[front][off] = value;
+                self.buffers
+                    .bko
+                    .write((address - BKO_START) as usize, value);
             }
             BKI_START..=BKI_END => {
                 self.buffers
                     .write_bki_buffer((address - BKI_START) as usize, value);
             }
             EP0_OUT_START..=EP0_OUT_END => {
-                self.buffers.ep0_out_buffer[(address - EP0_OUT_START) as usize] = value;
+                self.buffers
+                    .ep0_out_write((address - EP0_OUT_START) as usize, value);
             }
             EP0_IN_START..=EP0_IN_END => {
                 self.buffers
@@ -951,23 +1033,24 @@ impl UsbState {
         if self.ep0con.stall {
             return UsbResponse::Stall;
         }
-        match self.ep0_stage {
+        // Take the stage out to get owned access to AutoDataIn's bytes; each
+        // arm puts back the stage that transfer is now in.
+        match std::mem::replace(&mut self.ep0_stage, Ep0Stage::Idle) {
             Ep0Stage::Idle => UsbResponse::Nak,
             Ep0Stage::AutoStatus => {
-                // Status stage of a no-data control transfer: send a ZLP.
-                self.ep0_stage = Ep0Stage::Idle;
+                // Status stage of a no-data control transfer: send a ZLP and
+                // stay Idle - the transfer is complete.
                 UsbResponse::Data(Vec::new())
             }
-            Ep0Stage::AutoDataIn(_) => {
+            Ep0Stage::AutoDataIn(mut bytes) => {
                 // Serve the SIE-generated response in <=8-byte packets.
-                if let Ep0Stage::AutoDataIn(bytes) = &mut self.ep0_stage {
-                    let n = bytes.len().min(EP0_MAX_PACKET);
-                    UsbResponse::Data(bytes.drain(..n).collect())
-                } else {
-                    unreachable!()
-                }
+                let n = bytes.len().min(EP0_MAX_PACKET);
+                let chunk = bytes.drain(..n).collect();
+                self.ep0_stage = Ep0Stage::AutoDataIn(bytes);
+                UsbResponse::Data(chunk)
             }
             Ep0Stage::Firmware => {
+                self.ep0_stage = Ep0Stage::Firmware;
                 if self.ep0_in_zlp {
                     self.ep0_in_zlp = false;
                     self.ep0_in_armed = false;
@@ -1054,10 +1137,9 @@ impl UsbState {
         }
         // BKO is double-buffered: accept a packet as long as a slot is free, so
         // the host can stay one packet ahead of the firmware's draining.
-        if self.buffers.bko_is_full() {
+        if !self.buffers.bko.push(data) {
             return UsbResponse::Nak;
         }
-        self.buffers.bko_push(data);
         self.usbbfs.read_bko_needs_service = true; // a packet is waiting
         self.usbirq.trigger_bulk_out();
         UsbResponse::Ack
