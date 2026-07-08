@@ -40,12 +40,6 @@ struct Args {
     #[arg(long, default_value_t = false)]
     show_gpio: bool,
 
-    /// Expose the emulated USB device on a TCP transaction socket (e.g.
-    /// 127.0.0.1:3240), in addition to the local discovery endpoint that
-    /// host tools find automatically.
-    #[arg(long, value_name = "ADDR")]
-    usb_socket: Option<String>,
-
     /// Hold Left+Menu through early boot so the device starts in its
     /// "Please Connect to PC" (USB) mode. Implies --usb-plugged.
     #[arg(long, default_value_t = false)]
@@ -237,7 +231,7 @@ fn main() {
 
     // The USB cable: the internal half goes to the device, the external half
     // is shared by the discovery endpoint (always on, how host tools find
-    // running emulators) and the optional explicit TCP endpoint.
+    // running emulators).
     let (usb_host_port, usb_internal) = usb_interface::channel_pair();
     let usb_identity = std::path::Path::new(&args.flash_file)
         .file_name()
@@ -259,16 +253,6 @@ fn main() {
             None
         }
     };
-    if let Some(addr) = args.usb_socket {
-        println!("USB transaction socket listening on {addr}");
-        let cable = usb_cable.clone();
-        std::thread::spawn(move || {
-            if let Err(why) = usb_socket::serve(&addr, cable) {
-                eprintln!("USB socket server failed: {why}");
-            }
-        });
-    }
-
     let usb_cable_for_emulator = usb_cable.clone();
 
     let (screen, minifb_gpio, screen_tx, worker) =
