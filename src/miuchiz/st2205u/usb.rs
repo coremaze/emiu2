@@ -54,6 +54,14 @@ pub enum UsbResponse {
     /// IN data returned (0..=maxpacket bytes). An empty vec is a real
     /// zero-length packet (a transfer boundary), distinct from `Nak`.
     Data(Vec<u8>),
+    /// The device is not on the bus (the SIE is disabled or the D+ pull-up is
+    /// off). A real device simply stops answering and the host's transfers
+    /// time out until the OS declares it gone; this variant is that condition
+    /// made explicit so hosts fail fast instead of NAK-polling a corpse. The
+    /// boot ROM detaches like this on a host-commanded eject (it clears USBEN
+    /// before rebooting into the flash application), and the SIE is also off
+    /// the bus whenever firmware never brought USB up (e.g. during gameplay).
+    Detached,
 }
 
 /// Endpoint numbers used in `UsbTransaction`.
@@ -629,10 +637,44 @@ impl UsbState {
         // not a level: firing on every write where both bits happen to be set
         // meant a read-modify-write of USBCON (e.g. rmb/smb of an unrelated bit
         // while enabled) re-triggered a reset each time, storming the firmware.
+        //
+        // Either edge kills all in-flight endpoint state: off the bus, armed
+        // IN packets, buffered OUT packets, and control-transfer progress die
+        // with the connection (on silicon, clearing USBEN powers the SIE
+        // down). Without this, a bulk-IN packet armed just before an eject
+        // teardown (its CSW - the eject races the host by design) survives
+        // into the next session and is served as that session's first IN
+        // packet, desyncing the host; the host then aborts mid-transfer and
+        // the firmware's ISR data pump spins forever on the bulk-IN buffer
+        // status. Seen as the in-game computer room hanging on its second
+        // connect after a `miuchiz eject`.
         let now_connected = self.usbcon.usben && self.usbcon.pull;
+        if was_connected != now_connected {
+            self.reset_endpoint_state();
+        }
         if !was_connected && now_connected {
             self.usbirq.trigger_bus_reset();
         }
+    }
+
+    /// Drop every in-flight endpoint/transfer artifact - buffer contents,
+    /// armed IN packets, buffer statuses, control-transfer progress, stall
+    /// conditions - as physically happens when the device attaches to or
+    /// detaches from the bus. Register *configuration* (USBCON/USBIEN) is
+    /// firmware's to manage and is left alone.
+    fn reset_endpoint_state(&mut self) {
+        self.buffers = UsbBuffers::new();
+        self.usbbfs = UsbBfs::new();
+        self.ep0con = Ep0Con::new();
+        self.bkcon = BkCon::new();
+        self.ep0len = 0;
+        self.bkolen = 0;
+        self.ep0_stage = Ep0Stage::Idle;
+        self.ep0_in_armed = false;
+        self.ep0_in_zlp = false;
+        self.bki_armed = false;
+        self.bki_zlp = false;
+        self.usbirq.clear_all();
     }
 
     pub fn read_usbien(&self) -> u8 {
@@ -829,6 +871,14 @@ impl UsbState {
 
     /// Handle one host-issued USB transaction and return the device's response.
     pub fn handle_transaction(&mut self, txn: UsbTransaction) -> UsbResponse {
+        // On the bus only while the SIE is enabled with the D+ pull-up
+        // connected - the same condition whose rising edge draws the bus
+        // reset in `write_usbcon`. Off the bus, answer nothing: the boot
+        // ROM's eject path clears USBEN and expects the host to see the
+        // device drop away, not a live endpoint that NAKs forever.
+        if !(self.usbcon.usben && self.usbcon.pull) {
+            return UsbResponse::Detached;
+        }
         match txn.endpoint {
             ENDPOINT_CONTROL => match txn.token {
                 UsbToken::Setup => self.ep0_setup(&txn.data),
@@ -1019,5 +1069,44 @@ impl UsbState {
         self.buffers.reset_bki_buffer();
         self.usbbfs.read_bki_needs_service = true; // IN buffer free again
         self.usbirq.trigger_bulk_in();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bulk_in(usb: &mut UsbState) -> UsbResponse {
+        usb.handle_transaction(UsbTransaction {
+            endpoint: ENDPOINT_BULK,
+            token: UsbToken::In,
+            data: vec![],
+        })
+    }
+
+    /// An IN packet armed by the firmware but never collected by the host
+    /// (the eject CSW races the SIE teardown by design) must not survive a
+    /// detach and reappear as the next session's first IN packet - that
+    /// desyncs the host and hangs the firmware's data pump. Off the bus the
+    /// endpoint state dies, exactly as when silicon powers the SIE down.
+    #[test]
+    fn armed_bulk_in_does_not_survive_reattach() {
+        let mut usb = UsbState::new();
+        usb.write_usbcon(0xE4); // USBEN + PULL: on the bus (as the boot ROM programs it)
+        usb.write_usbien(0xBF); // BUFEN + interrupt enables
+
+        // Firmware stages a packet and arms bulk-IN; the host never reads it.
+        usb.write_buffer(0x0240, 0x55);
+        usb.write_usbbfs(0x08); // USBBFS_BKI
+
+        // Eject teardown: USBCON &= $3D clears USBEN - off the bus.
+        usb.write_usbcon(0xE4 & 0x3D);
+        assert_eq!(bulk_in(&mut usb), UsbResponse::Detached);
+
+        // The next session starts clean: nothing armed (NAK), rather than
+        // the stale packet served as data.
+        usb.write_usbcon(0xE4);
+        usb.write_usbien(0xBF);
+        assert_eq!(bulk_in(&mut usb), UsbResponse::Nak);
     }
 }
