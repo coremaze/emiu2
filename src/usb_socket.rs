@@ -6,18 +6,16 @@
 //! transport. Anything higher (enumeration, SCSI, the flash protocol) is the
 //! connecting software's job; the emulator only moves transactions.
 //!
-//! Two kinds of endpoint share one protocol:
-//! - A **discovery endpoint**, created unconditionally at emulator start, that
-//!   host tools find by scanning a well-known runtime directory - the software
-//!   analogue of enumerating the USB bus. One Unix socket per emulator instance
-//!   on Unix; a loopback TCP port published through a `<pid>.port` file on
-//!   Windows (where std has no local-socket type). The endpoint file is the
-//!   registry entry: it is removed on clean exit, and a stale one left by a
-//!   crash answers `ECONNREFUSED` and is pruned by whoever finds it.
-//! - An optional **TCP endpoint** (`--usb-socket ADDR`) for explicit/remote use.
+//! The **discovery endpoint**, created unconditionally at emulator start, is
+//! what host tools find by scanning a well-known runtime directory - the
+//! software analogue of enumerating the USB bus. One Unix socket per emulator
+//! instance on Unix; a loopback TCP port published through a `<pid>.port`
+//! file on Windows (where std has no local-socket type). The endpoint file is
+//! the registry entry: it is removed on clean exit, and a stale one left by a
+//! crash answers `ECONNREFUSED` and is pruned by whoever finds it.
 //!
-//! Both feed the same [`UsbCable`], which admits one client at a time - a
-//! device has one USB port.
+//! It feeds the [`UsbCable`], which admits one client at a time - a device
+//! has one USB port.
 //!
 //! Whether the cable is **plugged** is the emulator's own state (the player
 //! plugs it in - the U key, or `--usb-plugged`/`--connect-mode`), not a side
@@ -39,7 +37,7 @@
 //!   should treat it as "device gone" immediately, not retry like Nak.
 
 use std::io::{self, Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -257,18 +255,13 @@ impl UsbCable {
     }
 }
 
-/// Run the TCP bridge (the `--usb-socket ADDR` endpoint): accept one client at
-/// a time and serve it through the shared cable. Intended for its own thread.
+/// Serve the Windows discovery endpoint's loopback listener: accept one
+/// client at a time through the shared cable. Intended for its own thread.
 ///
 /// Blocks forever (until a fatal listener error). Per-client I/O errors just
 /// end that connection and wait for the next.
-pub fn serve<A: ToSocketAddrs>(addr: A, cable: Arc<UsbCable>) -> io::Result<()> {
-    serve_tcp(TcpListener::bind(addr)?, cable)
-}
-
-/// Like [`serve`], but on an already-bound listener (useful when the caller
-/// needs the resolved address first, e.g. an ephemeral port).
-pub fn serve_tcp(listener: TcpListener, cable: Arc<UsbCable>) -> io::Result<()> {
+#[cfg(windows)]
+fn serve_tcp(listener: std::net::TcpListener, cable: Arc<UsbCable>) -> io::Result<()> {
     // One thread per connection so that a client arriving while the cable is
     // held gets refused promptly instead of waiting in the accept backlog.
     for stream in listener.incoming() {
@@ -360,7 +353,7 @@ pub fn create_discovery_endpoint_in(dir: &Path, cable: Arc<UsbCable>) -> io::Res
     {
         // Windows has no std local-socket type, so the endpoint is a loopback
         // TCP port published through a port file.
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
         let port = listener.local_addr()?.port();
         let path = dir.join(format!("{pid}.port"));
         std::fs::write(&path, port.to_string())?;
@@ -473,13 +466,6 @@ pub struct RemoteUsbDevice {
 }
 
 impl RemoteUsbDevice {
-    /// Connect to a `--usb-socket` TCP endpoint.
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<Self> {
-        let stream = TcpStream::connect(addr)?;
-        stream.set_nodelay(true).ok();
-        Self::from_stream(Box::new(stream))
-    }
-
     /// Connect to a discovery endpoint file (from [`discover`]).
     pub fn connect_endpoint(path: &Path) -> io::Result<Self> {
         Self::from_stream(endpoint_connect(path)?)
