@@ -18,6 +18,7 @@ use emiu2::platform::relay_ir::RelayIr;
 use emiu2::platform::socket_ir::SocketIr;
 use emiu2::rollback::RollbackDriver;
 use emiu2::screen::{Pixel, Screen};
+use emiu2::usb_interface::NullUsbInterface;
 use std::cell::{Cell, RefCell};
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::net::{TcpListener, TcpStream};
@@ -240,6 +241,7 @@ fn make_handheld(otp: &[u8], flash: &[u8], ir: Box<dyn IrInterface>) -> Handheld
         Box::new(NullGpio),
         Box::new(NullAudio),
         ir,
+        Box::new(NullUsbInterface),
     )
     .expect("could not construct handheld")
 }

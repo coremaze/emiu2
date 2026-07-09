@@ -8,5 +8,6 @@ pub mod rollback;
 pub mod screen;
 pub mod snapshot;
 pub mod ssc;
+pub mod usb_interface;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

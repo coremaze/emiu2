@@ -8,7 +8,7 @@ mod rollback;
 mod screen;
 pub mod snapshot;
 pub mod ssc;
-
+mod usb_interface;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -38,6 +38,17 @@ struct Args {
     /// Show GPIO LED display
     #[arg(long, default_value_t = false)]
     show_gpio: bool,
+
+    /// Hold Left+Menu through early boot so the device starts in its
+    /// "Please Connect to PC" (USB) mode. Implies --usb-plugged.
+    #[arg(long, default_value_t = false)]
+    connect_mode: bool,
+
+    /// Start with the USB cable plugged in. The U key plugs/unplugs it at
+    /// any time; firmware sees the cable through its connect-status bit
+    /// whether or not host software is talking.
+    #[arg(long, default_value_t = false)]
+    usb_plugged: bool,
 
     /// IR transceiver: none, listen:<port>, connect:<host:port>, or
     /// relay:<host:port> (an emiu2 relay server; pair with friend codes
@@ -113,6 +124,38 @@ impl IrPlan {
     }
 }
 
+/// Holds Left+Menu (active low on port A) through early boot, then defers to
+/// the real inputs. The boot ROM samples PA at cold start and Left+Menu
+/// selects its "Please Connect to PC" (USB) mode - the same thing a player
+/// does to connect a real handheld. (Holding the whole D-pad instead selects
+/// a different, factory-style USB mode that speaks the same protocol but
+/// hangs forever after a host-commanded eject instead of rebooting into the
+/// flash application; see the boot select at L5823 in the OTP disassembly.)
+struct ConnectModeBoot {
+    inner: Box<dyn miuchiz::GpioInterfaceInternal>,
+}
+
+/// How long Left+Menu stays held, in oscillator cycles (~4 s; the boot
+/// decision happens within the first few million cycles).
+const CONNECT_MODE_HOLD_CYCLES: u64 = 60_000_000;
+
+impl miuchiz::GpioInterfaceInternal for ConnectModeBoot {
+    fn get_inputs(&mut self, cycle: u64) -> miuchiz::GpioConnections {
+        let mut connections = self.inner.get_inputs(cycle);
+        if cycle < CONNECT_MODE_HOLD_CYCLES {
+            for button in [miuchiz::MiuchizGpio::Left, miuchiz::MiuchizGpio::Menu] {
+                let (port, bit) = button.to_port();
+                connections.connect(port, bit, false);
+            }
+        }
+        connections
+    }
+
+    fn set_outputs(&mut self, state: miuchiz::GpioState, cycle: u64) {
+        self.inner.set_outputs(state, cycle);
+    }
+}
+
 /// Reads pairing commands from standard input while the emulator runs.
 fn relay_console(commander: platform::relay_ir::RelayCommander) {
     use std::io::BufRead;
@@ -172,6 +215,7 @@ fn main() {
     let scale = args.scale;
     let show_gpio = args.show_gpio;
     let save_file = args.save_file;
+    let connect_mode = args.connect_mode;
     let savestate_file = args
         .savestate_file
         .unwrap_or_else(|| PathBuf::from(format!("{}.state", args.flash_file)));
@@ -183,6 +227,32 @@ fn main() {
             return;
         }
     };
+
+    // The USB cable: the internal half goes to the device, the external half
+    // is shared by the discovery endpoint (always on, how host tools find
+    // running emulators).
+    let (usb_host_port, usb_internal) = usb_interface::channel_pair();
+    let usb_identity = std::path::Path::new(&args.flash_file)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "emiu2".to_string());
+    let usb_cable = platform::usb_socket::UsbCable::new(usb_host_port, usb_identity);
+    // The cable's plugged state is the emulator's own, independent of any
+    // client: firmware watches the connect-status bit and needs it stable.
+    // Connect mode exists to talk to a host, so it implies a plugged cable.
+    if args.usb_plugged || args.connect_mode {
+        usb_cable.set_plugged(true);
+        println!("USB cable plugged in (U unplugs it)");
+    }
+    // Held for the process lifetime; dropping it removes the endpoint file.
+    let _usb_endpoint = match platform::usb_socket::create_discovery_endpoint(usb_cable.clone()) {
+        Ok(guard) => Some(guard),
+        Err(why) => {
+            eprintln!("Warning: could not create the USB discovery endpoint: {why}");
+            None
+        }
+    };
+    let usb_cable_for_emulator = usb_cable.clone();
 
     let (screen, minifb_gpio, screen_tx, worker) =
         platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
@@ -201,6 +271,9 @@ fn main() {
             save_file,
             savestate_file,
             ir_plan,
+            usb_internal,
+            usb_cable_for_emulator,
+            connect_mode,
         );
     });
 
@@ -222,6 +295,9 @@ fn run_emulator(
     save_file: Option<PathBuf>,
     savestate_file: PathBuf,
     ir_plan: IrPlan,
+    usb_internal: usb_interface::ChannelUsbInterface,
+    usb_cable: std::sync::Arc<platform::usb_socket::UsbCable>,
+    connect_mode: bool,
 ) {
     // Keep the audio stream alive for the lifetime of this thread. cpal's
     // `Stream` is `!Send`, so it must be created and dropped on the same thread.
@@ -245,13 +321,22 @@ fn run_emulator(
         std::thread::spawn(move || relay_console(commander));
     }
 
+    let io: Box<dyn miuchiz::GpioInterfaceInternal> = if connect_mode {
+        Box::new(ConnectModeBoot {
+            inner: Box::new(minifb_gpio),
+        })
+    } else {
+        Box::new(minifb_gpio)
+    };
+
     let mut handheld = match miuchiz::Handheld::new(
         &otp_data,
         &flash_data,
         Box::new(minifb_screen),
-        Box::new(minifb_gpio),
+        io,
         Box::new(sender),
         ir_transceiver,
+        Box::new(usb_internal),
     ) {
         Ok(handheld) => handheld,
         Err(why) => {
@@ -310,6 +395,15 @@ fn run_emulator(
                 },
                 Err(why) => eprintln!("Failed to read state file: {why}"),
             }
+        }
+
+        if screen.take_usb_plug_request() {
+            let plugged = !usb_cable.plugged();
+            usb_cable.set_plugged(plugged);
+            println!(
+                "USB cable {}",
+                if plugged { "plugged in" } else { "unplugged" }
+            );
         }
 
         std::thread::sleep(std::time::Duration::from_nanos(1));

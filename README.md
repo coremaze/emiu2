@@ -23,6 +23,14 @@ To start the emulator, run `emiu2 <OTP_FILE> <FLASH_FILE>`. Run `emiu2 --help` f
 
 On desktop, F5 saves the complete machine state and F9 restores it. The savestate file defaults to the flash image path with `.state` appended; override it with `--savestate-file`.
 
+### USB
+
+The emulated device has a working USB port, and the cable is its own piece of state: press **U** to plug it in or unplug it (or start with `--usb-plugged`). Firmware sees the cable through the USBCON connect-status bit the moment it's plugged - stable, whether or not any host software is talking - just like a real cable left in the socket.
+
+Host tools discover running emulators the way they discover real handhelds: each desktop instance publishes an endpoint in emiu2's runtime directory under the shared [Miuchiz Reborn path policy](https://github.com/coremaze/Miuchiz-Reborn-Paths) (`$XDG_RUNTIME_DIR/miuchiz-reborn/emiu2` on Linux; reroot everything with `MIUCHIZ_REBORN_HOME`, or override just this directory with `EMIU2_USB_DIR`), and [Native-Miuchiz-Handheld-USB-Utilities](https://github.com/ChrisMiuchiz/Native-Miuchiz-Handheld-USB-Utilities) built with the emulator backend lists them alongside physical devices, so `miuchiz dump-flash`, `load-flash`, and friends work on an emulator unchanged. Tools can only reach the device while the cable is plugged.
+
+Like a real Miuchiz, the device only answers USB in its "Please Connect to PC" mode; start the emulator with `--connect-mode` to boot straight into it (this implies a plugged cable).
+
 ### Playing together
 
 Miuchiz devices play and trade with each other over IR, and emiu2 can carry that link between two emulators in several ways.
@@ -67,10 +75,7 @@ At a high level, the emulator supports the following:
  - OTP (One Time Programmable memory)
  - GPIO
  - RTC interrupts (Used for the alarm clock ingame)
- - IR communication (Used to play or trade with other Miuchiz devices),
-   including between emulators over the network with latency hiding
-
- It is possibly more useful to list the features which the Miuchiz firmware uses but which are not yet finished:
+ - IR communication (Used to play or trade with other Miuchiz devices)
  - USB communication (Used to communicate with a PC)
 
 ## Building

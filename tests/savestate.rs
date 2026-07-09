@@ -12,6 +12,7 @@ use emiu2::ir::DisconnectedIr;
 use emiu2::miuchiz::{GpioConnections, GpioInterfaceInternal, GpioState, Handheld};
 use emiu2::screen::{Pixel, Screen};
 use emiu2::snapshot::SnapshotError;
+use emiu2::usb_interface::NullUsbInterface;
 use std::path::PathBuf;
 
 struct NullScreen;
@@ -57,6 +58,7 @@ fn make_handheld(otp: &[u8], flash: &[u8]) -> Handheld {
         Box::new(NullGpio),
         Box::new(NullAudio),
         Box::new(DisconnectedIr),
+        Box::new(NullUsbInterface),
     )
     .expect("handheld construction")
 }

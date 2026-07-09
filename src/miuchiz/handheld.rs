@@ -10,6 +10,7 @@ use crate::{
     memory::AddressSpace,
     screen::Screen,
     snapshot::{SnapshotError, SnapshotReader, SnapshotWriter, MAGIC, VERSION},
+    usb_interface::UsbInterfaceInternal,
 };
 use std::fmt::Display;
 
@@ -137,6 +138,7 @@ impl Handheld {
         io: Box<dyn GpioInterfaceInternal>,
         audio_sender: Box<dyn AudioInterface>,
         ir_transceiver: Box<dyn IrInterface>,
+        usb_interface: Box<dyn UsbInterfaceInternal>,
     ) -> Result<Self, ConfigurationError> {
         let machine_address_space = Box::new(HandheldAddressSpace::new(otp, flash, screen)?);
 
@@ -145,7 +147,13 @@ impl Handheld {
         let io = Box::new(IrCircuit::new(io, ir_transceiver, SYSTEM_FREQ));
 
         let mcu = Self {
-            mcu: st2205u::Mcu::new(SYSTEM_FREQ, machine_address_space, io, audio_sender),
+            mcu: st2205u::Mcu::new(
+                SYSTEM_FREQ,
+                machine_address_space,
+                io,
+                audio_sender,
+                usb_interface,
+            ),
         };
 
         Ok(mcu)

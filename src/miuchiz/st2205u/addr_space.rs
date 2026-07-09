@@ -9,6 +9,7 @@ use super::psg::PsgChannel;
 use super::rtc;
 use super::timer;
 use super::timer::TimerIndex;
+use super::usb;
 use super::wdc_65c02::HandlesInterrupt;
 use crate::memory::AddressSpace;
 use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
@@ -133,6 +134,18 @@ const DMOD: u16 = 0x005F;
 
 const MULL: u16 = 0x006E;
 const MULH: u16 = 0x006F;
+const USBCON: u16 = 0x0070;
+const USBIEN: u16 = 0x0071;
+const USBIRQ: u16 = 0x0072;
+const USBBFS: u16 = 0x0073;
+const EP0CON: u16 = 0x0074;
+const EP0LEN: u16 = 0x0075;
+const BKCON: u16 = 0x0076;
+const BKOLEN: u16 = 0x0077;
+
+// The USB endpoint buffers overlay an internal-RAM range when buffer access is
+// enabled; the layout is owned by the `usb` module (usb::BUFFER_START/END), used
+// by read_ram/write_ram to decide when to route into the buffer overlay.
 
 pub struct St2205uAddressSpace {
     /// St2205uAddressSpace is 16 bits, but it can itself be used to access a
@@ -149,6 +162,7 @@ pub struct St2205uAddressSpace {
     pub psg: psg::State,
     pub interrupt: interrupt::State,
     pub rtc: rtc::State,
+    pub usb: usb::UsbState,
 }
 
 impl St2205uAddressSpace {
@@ -169,6 +183,7 @@ impl St2205uAddressSpace {
             psg: psg::State::new(),
             interrupt: interrupt::State::new(),
             rtc: rtc::State::new(frequency),
+            usb: usb::UsbState::new(),
         }
     }
 
@@ -248,6 +263,14 @@ impl St2205uAddressSpace {
             MULH => self.psg.read_mulh(),
             RTC => self.rtc.read_rtc(),
             RCTR => self.rtc.read_rctr(),
+            USBCON => self.usb.read_usbcon(),
+            USBIEN => self.usb.read_usbien(),
+            USBIRQ => self.usb.read_usbirq(),
+            USBBFS => self.usb.read_usbbfs(),
+            EP0CON => self.usb.read_ep0con(),
+            EP0LEN => self.usb.read_ep0len(),
+            BKCON => self.usb.read_bkcon(),
+            BKOLEN => self.usb.read_bkolen(),
             _ => {
                 // println!("Unimplemented read of register {address:02X}");
                 0
@@ -328,19 +351,44 @@ impl St2205uAddressSpace {
             MULH => self.psg.write_mulh(value),
             RCTR => self.rtc.write_rctr(value),
             RTC => self.rtc.write_rtc(value),
+            USBCON => self.usb.write_usbcon(value),
+            USBIEN => self.usb.write_usbien(value),
+            USBIRQ => self.usb.write_usbirq(value),
+            USBBFS => self.usb.write_usbbfs(value),
+            EP0CON => self.usb.write_ep0con(value),
+            EP0LEN => self.usb.write_ep0len(value),
+            BKCON => self.usb.write_bkcon(value),
+            BKOLEN => self.usb.write_bkolen(value),
             _ => {
                 println!("Unimplemented write of register {address:02X}");
             }
         }
     }
 
-    fn read_ram(&self, address: usize) -> u8 {
-        self.ram[address % self.ram.len()]
+    fn read_ram(&mut self, address: usize) -> u8 {
+        // Bank-windowed accesses (e.g. DMA via the $8000 window with DRR bit15
+        // set) reach internal RAM through a high alias like $8200; the USB buffer
+        // overlay lives at the physical RAM offset ($0200..), so match on the
+        // wrapped offset, not the raw address - otherwise a windowed DMA read of
+        // the bulk buffer misses the overlay and returns stale plain RAM.
+        let offset = (address % self.ram.len()) as u16;
+        match offset {
+            usb::BUFFER_START..=usb::BUFFER_END if self.usb.are_buffers_enabled() => {
+                self.usb.read_buffer(offset)
+            }
+            _ => self.ram[address % self.ram.len()],
+        }
     }
-
     fn write_ram(&mut self, address: usize, value: u8) {
-        // println!("Write to RAM {address:X}");
-        self.ram[address % self.ram.len()] = value;
+        let offset = (address % self.ram.len()) as u16;
+        match offset {
+            usb::BUFFER_START..=usb::BUFFER_END if self.usb.are_buffers_enabled() => {
+                self.usb.write_buffer(offset, value)
+            }
+            _ => {
+                self.ram[address % self.ram.len()] = value;
+            }
+        }
     }
 }
 
@@ -418,7 +466,12 @@ impl AddressSpace for St2205uAddressSpace {
                 };
 
                 if reg & (1 << 15) != 0 {
-                    // RAM access if uppermost bit is set
+                    // RAM access if uppermost bit is set. Pass the raw windowed
+                    // address (matching read_u8); write_ram wraps it with
+                    // `% ram.len()`, which maps the DRR/DMA $8000-window alias onto
+                    // the USB buffer overlay just as the read path does. Subtracting
+                    // the region base here instead would desync reads and writes for
+                    // the BRR/PRR windows (BRR defaults to a bit15-set bank).
                     self.write_ram(address, value);
                 } else {
                     // Otherwise, access a larger address which is governed by the machine
