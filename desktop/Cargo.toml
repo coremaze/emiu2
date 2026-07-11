@@ -15,3 +15,13 @@ emiu2 = { workspace = true }
 emiu2-netplay = { workspace = true }
 cpal = { workspace = true }
 miuchiz-reborn-paths = { workspace = true }
+eframe = { version = "0.35.0", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
