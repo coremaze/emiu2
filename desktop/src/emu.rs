@@ -398,22 +398,31 @@ fn run_session(
         frame_scratch: Vec::new(),
     };
 
-    // Wall-clock pacing anchor, re-anchored whenever the emulated cycle
-    // counter jumps (snapshot restore, IR rollback) or we fall too far
-    // behind to honestly catch up.
+    // Wall-clock pacing anchor (same scheme as emiu2-dev's run loop): the
+    // anchor stays fixed and the machine only ever steps up to the cycle
+    // count real time has earned. Re-anchored whenever the emulated cycle
+    // counter jumps (snapshot restore, IR rollback) or the machine falls
+    // too far behind to honestly catch up.
     let mut anchor_time = Instant::now();
     let mut anchor_cycles = handheld.mcu.core.cycles;
     let mut last_autosave = Instant::now();
 
+    let max_catchup_cycles =
+        handheld.mcu.core.cycles_per_second() as u128 * MAX_CATCHUP.as_millis() / 1000;
+
     loop {
-        let elapsed = anchor_time.elapsed();
-        if elapsed > MAX_CATCHUP {
-            anchor_time = Instant::now() - MAX_CATCHUP;
-            anchor_cycles = handheld.mcu.core.cycles;
-        }
         let nanoseconds = anchor_time.elapsed().as_nanos();
-        let cycles_required_so_far = anchor_cycles as u128
+        let mut cycles_required_so_far = anchor_cycles as u128
             + (nanoseconds * handheld.mcu.core.cycles_per_second() as u128) / 1_000_000_000;
+
+        // The machine being far behind what real time earned means the
+        // thread stalled (system sleep, a long disk write): skip ahead and
+        // resume at 1x instead of fast-forwarding through the gap.
+        if cycles_required_so_far > handheld.mcu.core.cycles as u128 + max_catchup_cycles {
+            anchor_time = Instant::now();
+            anchor_cycles = handheld.mcu.core.cycles;
+            cycles_required_so_far = anchor_cycles as u128;
+        }
 
         while (handheld.mcu.core.cycles as u128) < cycles_required_so_far {
             handheld.mcu.step();
@@ -431,8 +440,10 @@ fn run_session(
             match cmd_rx.try_recv() {
                 Ok(EmuCmd::Reset { connect_mode }) => {
                     if connect_mode {
+                        // get_inputs is handed oscillator cycles, so the
+                        // deadline must be in that clock (2x core.cycles).
                         boot_hold_until.store(
-                            handheld.mcu.core.cycles + CONNECT_MODE_HOLD_CYCLES,
+                            handheld.mcu.core.oscillator_cycles() + CONNECT_MODE_HOLD_CYCLES,
                             Ordering::Relaxed,
                         );
                     }
