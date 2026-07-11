@@ -60,6 +60,9 @@ pub struct PlaySession {
     pub fullscreen: bool,
     /// Buttons held with the mouse this frame, filled in during drawing.
     pub click_mask: u16,
+    /// Since when the LCD has shown nothing but black (device asleep, or
+    /// powered-off screen). `None` while the panel shows anything.
+    blank_since: Option<Instant>,
 }
 
 impl PlaySession {
@@ -73,11 +76,24 @@ impl PlaySession {
             return;
         }
         self.frame_seq = self.emu.frame.read_rgb(&mut self.rgb_scratch);
+        if emu::frame_is_blank(&self.rgb_scratch) {
+            self.blank_since.get_or_insert_with(Instant::now);
+        } else {
+            self.blank_since = None;
+        }
         let image = egui::ColorImage::from_rgb(
             [emu::LCD_WIDTH, emu::LCD_HEIGHT],
             &self.rgb_scratch,
         );
         self.texture.set(image, egui::TextureOptions::NEAREST);
+    }
+
+    /// True when the panel has been black long enough that it's the
+    /// device sleeping, not a scene transition. Resuming a sleeping save
+    /// would otherwise look broken.
+    pub fn looks_asleep(&self) -> bool {
+        self.blank_since
+            .is_some_and(|since| since.elapsed() > std::time::Duration::from_secs(3))
     }
 }
 
@@ -130,6 +146,14 @@ impl DesktopApp {
         }
         if let Some(shot) = &app.shot {
             shot.force_ui_state(&mut app.dialog);
+            // Only the in-app layout: requesting native fullscreen during
+            // startup stalls some compositors, and it's the layout the
+            // harness is checking.
+            if shot.ui_state() == Some("fullscreen") {
+                if let Some(session) = &mut app.session {
+                    session.fullscreen = true;
+                }
+            }
         }
         app
     }
@@ -220,6 +244,7 @@ impl DesktopApp {
             last_saved: None,
             fullscreen: false,
             click_mask: 0,
+            blank_since: None,
         });
         self.relay = None;
         self.view = View::Playing;

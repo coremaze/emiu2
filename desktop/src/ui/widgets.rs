@@ -71,6 +71,19 @@ pub fn device_button(
                 );
             }
             painter.circle(draw_rect.center(), radius, fill, edge);
+            // Unlabeled buttons (the screen-corner ones) get a molded dot
+            // so they read as pressable.
+            if glyph.is_empty() {
+                painter.circle_filled(
+                    draw_rect.center(),
+                    radius * 0.35,
+                    if pressed {
+                        Color32::from_black_alpha(60)
+                    } else {
+                        Color32::from_white_alpha(22)
+                    },
+                );
+            }
         }
         ButtonFace::Rounded(radius) => {
             if !pressed {

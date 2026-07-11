@@ -29,6 +29,12 @@ impl ShotState {
         }
     }
 
+    /// The requested `--shot-ui` state, for states dialogs can't express
+    /// (currently "fullscreen").
+    pub fn ui_state(&self) -> Option<&str> {
+        self.ui_state.as_deref()
+    }
+
     /// Applies `--shot-ui` by opening the corresponding dialog.
     pub fn force_ui_state(&self, dialog: &mut Dialog) {
         match self.ui_state.as_deref() {

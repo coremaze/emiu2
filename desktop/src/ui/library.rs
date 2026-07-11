@@ -129,7 +129,8 @@ fn hero_new_save(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
         return;
     };
     ui.vertical_centered(|ui| {
-        ui.set_max_width(560.0);
+        // Wide enough that all seven characters sit on one row.
+        ui.set_max_width(590.0);
         action = new_save_form(ui, state, false);
     });
     apply_form_action(app, ctx, action);
@@ -151,7 +152,7 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .button(egui::RichText::new("＋  New save").color(theme::ACCENT))
+                    .button(egui::RichText::new("+  New save").color(theme::ACCENT))
                     .clicked()
                 {
                     want_new_save = true;
@@ -243,13 +244,10 @@ fn save_card(
     );
     match thumb {
         Some(texture) => {
-            painter.rect_filled(thumb_rect, CornerRadius::same(6), Color32::BLACK);
-            painter.image(
-                texture.id(),
-                thumb_rect,
-                Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                Color32::WHITE,
-            );
+            let image = egui::Image::from_texture((texture.id(), thumb_rect.size()))
+                .corner_radius(CornerRadius::same(6))
+                .texture_options(egui::TextureOptions::NEAREST);
+            image.paint_at(ui, thumb_rect);
         }
         None => {
             let color = theme::character_color(&slot.meta.character);
@@ -273,20 +271,25 @@ fn save_card(
         }
     }
 
-    // Hovering suggests playing.
+    // Hovering suggests playing: dim the frame and paint a play triangle
+    // (drawn by hand — the default fonts have no reliable glyph for it).
     if hovered {
         painter.rect_filled(
             thumb_rect,
             CornerRadius::same(6),
             Color32::from_black_alpha(90),
         );
-        painter.text(
-            thumb_rect.center(),
-            Align2::CENTER_CENTER,
-            "▶",
-            FontId::proportional(30.0),
+        let center = thumb_rect.center();
+        let r = 13.0;
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                center + egui::vec2(-r * 0.6, -r),
+                center + egui::vec2(r, 0.0),
+                center + egui::vec2(-r * 0.6, r),
+            ],
             Color32::from_white_alpha(230),
-        );
+            Stroke::NONE,
+        ));
     }
 
     // Name and details.
@@ -312,7 +315,7 @@ fn save_card(
         theme::TEXT_DIM,
     );
 
-    // The ⋯ button, quiet until the card is hovered.
+    // The "more" button, quiet until the card is hovered.
     let more_rect = Rect::from_center_size(
         egui::pos2(rect.right() - 20.0, thumb_rect.bottom() + 26.0),
         egui::vec2(24.0, 24.0),
@@ -322,8 +325,8 @@ fn save_card(
         ui.painter().text(
             more_rect.center(),
             Align2::CENTER_CENTER,
-            "⋯",
-            FontId::proportional(18.0),
+            "…",
+            FontId::proportional(16.0),
             if more.hovered() { theme::TEXT } else { theme::TEXT_DIM },
         );
     }
@@ -373,7 +376,7 @@ fn new_save_tile(ui: &mut egui::Ui) -> bool {
     painter.text(
         rect.center() - egui::vec2(0.0, 12.0),
         Align2::CENTER_CENTER,
-        "＋",
+        "+",
         FontId::proportional(30.0),
         if hovered { theme::ACCENT } else { theme::TEXT_FAINT },
     );
@@ -443,12 +446,21 @@ pub fn new_save_form(
         && !state.name.trim().is_empty();
 
     ui.horizontal(|ui| {
-        let create = egui::Button::new(
-            egui::RichText::new("Create & Play")
-                .color(Color32::from_rgb(0x1d, 0x12, 0x05))
-                .strong(),
-        )
-        .fill(theme::ACCENT)
+        // A gray resting state until the form is complete; the accent only
+        // lights up when clicking would actually work.
+        let create = if ready {
+            egui::Button::new(
+                egui::RichText::new("Create & Play")
+                    .color(Color32::from_rgb(0x1d, 0x12, 0x05))
+                    .strong(),
+            )
+            .fill(theme::ACCENT)
+        } else {
+            egui::Button::new(
+                egui::RichText::new("Create & Play").color(theme::TEXT_FAINT),
+            )
+            .fill(theme::CARD)
+        }
         .min_size(egui::vec2(150.0, 34.0));
         if ui.add_enabled(ready, create).clicked() {
             action = FormAction::Create;

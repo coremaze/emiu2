@@ -23,8 +23,32 @@ enum MenuAction {
     ToggleUsb,
     ToggleFullscreen,
     ToggleIntegerScaling,
+    /// Resize the window so the LCD lands exactly on this integer scale.
+    SetWindowScale(u32),
     OpenControls,
     OpenFriends,
+}
+
+// The drawn handheld's fixed chrome, shared by the layout and by the
+// window-size presets so a preset always lands the LCD on a whole scale.
+const SIDE_W: f32 = 150.0;
+const TOP_H: f32 = 26.0;
+const BOTTOM_H: f32 = 66.0;
+const BEZEL: f32 = 12.0;
+const OUTER_PAD: f32 = 14.0;
+/// The menu bar's height (fill + margins + text), for the presets.
+const MENU_BAR_H: f32 = 30.0;
+
+/// The window inner size that gives the LCD exactly `scale`x pixels.
+fn window_size_for_scale(scale: u32) -> egui::Vec2 {
+    let glass = egui::vec2(
+        LCD_WIDTH as f32 * scale as f32,
+        LCD_HEIGHT as f32 * scale as f32,
+    );
+    egui::vec2(
+        glass.x + 2.0 * (BEZEL + SIDE_W + OUTER_PAD),
+        glass.y + 2.0 * (BEZEL + OUTER_PAD) + TOP_H + BOTTOM_H + MENU_BAR_H,
+    )
 }
 
 pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
@@ -46,7 +70,7 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
     };
 
     if session.fullscreen {
-        fullscreen_lcd(root, session, app.config.video.integer_scaling);
+        fullscreen_lcd(root, session, &app.bindings, app.config.video.integer_scaling);
         return;
     }
 
@@ -96,6 +120,11 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
                 app.config.video.integer_scaling = !app.config.video.integer_scaling;
                 app.save_config();
             }
+            MenuAction::SetWindowScale(scale) => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                    window_size_for_scale(scale),
+                ));
+            }
             MenuAction::OpenControls => {
                 app.dialog = Dialog::Controls(crate::ui::dialogs::RemapState::default());
             }
@@ -131,7 +160,10 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                 }
 
                 ui.menu_button("Device", |ui| {
-                    if ui.button("Save now").clicked() {
+                    if ui
+                        .add(egui::Button::new("Save now").shortcut_text("Ctrl+S"))
+                        .clicked()
+                    {
                         actions.push(MenuAction::SaveNow);
                     }
                     ui.separator();
@@ -162,8 +194,11 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
 
                 ui.menu_button("View", |ui| {
                     if ui
-                        .checkbox(&mut { false }, "Fullscreen screen")
-                        .on_hover_text("F11 · shows only the device screen")
+                        .add(
+                            egui::Button::new("Fullscreen screen")
+                                .shortcut_text("F11"),
+                        )
+                        .on_hover_text("Show only the device screen")
                         .clicked()
                     {
                         actions.push(MenuAction::ToggleFullscreen);
@@ -178,6 +213,19 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                     {
                         actions.push(MenuAction::ToggleIntegerScaling);
                     }
+                    ui.separator();
+                    ui.menu_button("Screen size", |ui| {
+                        for scale in 3..=8u32 {
+                            if ui
+                                .button(format!("{scale}×  ({}×{})",
+                                    LCD_WIDTH as u32 * scale,
+                                    LCD_HEIGHT as u32 * scale))
+                                .clicked()
+                            {
+                                actions.push(MenuAction::SetWindowScale(scale));
+                            }
+                        }
+                    });
                 });
 
                 if ui.button("Controls").clicked() {
@@ -250,7 +298,12 @@ fn lcd_scale(avail_w: f32, avail_h: f32, integer: bool) -> f32 {
     }
 }
 
-fn fullscreen_lcd(root: &mut egui::Ui, session: &mut PlaySession, integer: bool) {
+fn fullscreen_lcd(
+    root: &mut egui::Ui,
+    session: &mut PlaySession,
+    bindings: &Bindings,
+    integer: bool,
+) {
     egui::CentralPanel::default_margins()
         .frame(egui::Frame::new().fill(Color32::BLACK))
         .show(root, |ui| {
@@ -264,6 +317,9 @@ fn fullscreen_lcd(root: &mut egui::Ui, session: &mut PlaySession, integer: bool)
                 Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                 Color32::WHITE,
             );
+            if session.looks_asleep() {
+                asleep_hint(ui, glass, bindings);
+            }
 
             // A quiet exit hint while the pointer is moving.
             if ui.input(|i| i.pointer.is_moving()) {
@@ -276,6 +332,22 @@ fn fullscreen_lcd(root: &mut egui::Ui, session: &mut PlaySession, integer: bool)
                 );
             }
         });
+}
+
+/// The device sleeps like the real one; without this, resuming a sleeping
+/// save is indistinguishable from a hang.
+fn asleep_hint(ui: &egui::Ui, glass: Rect, bindings: &Bindings) {
+    let key = bindings
+        .key_for(MiuchizGpio::Power)
+        .map(|k| format!(" ({})", k.name()))
+        .unwrap_or_default();
+    ui.painter().text(
+        glass.center(),
+        Align2::CENTER_CENTER,
+        format!("zZz   asleep — press POWER{key} to wake"),
+        FontId::proportional(13.0),
+        Color32::from_white_alpha(90),
+    );
 }
 
 /// One drawn button: interaction, key mirroring, click-mask contribution.
@@ -295,12 +367,6 @@ fn device_panel(
     keys_down: Option<&HashSet<Key>>,
     integer_scaling: bool,
 ) {
-    const SIDE_W: f32 = 150.0;
-    const TOP_H: f32 = 22.0;
-    const BOTTOM_H: f32 = 66.0;
-    const BEZEL: f32 = 12.0;
-    const OUTER_PAD: f32 = 14.0;
-
     let avail = ui.available_rect_before_wrap();
     let scale = lcd_scale(
         avail.width() - 2.0 * (SIDE_W + BEZEL + OUTER_PAD),
@@ -323,7 +389,12 @@ fn device_panel(
     );
     let bezel_rect = glass.expand(BEZEL);
 
-    // The shell: one rounded slab of plastic.
+    // The shell: one rounded slab of plastic, lifted off the backdrop.
+    ui.painter().rect_filled(
+        shell.translate(egui::vec2(0.0, 5.0)),
+        CornerRadius::same(28),
+        Color32::from_black_alpha(70),
+    );
     ui.painter().rect(
         shell,
         CornerRadius::same(26),
@@ -331,18 +402,52 @@ fn device_panel(
         Stroke::new(1.5, theme::SHELL_EDGE),
         StrokeKind::Inside,
     );
+    // A faint top highlight sells the plastic.
+    ui.painter().line_segment(
+        [
+            egui::pos2(shell.left() + 30.0, shell.top() + 2.0),
+            egui::pos2(shell.right() - 30.0, shell.top() + 2.0),
+        ],
+        Stroke::new(1.0, Color32::from_white_alpha(14)),
+    );
+
+    // The brand, printed above the screen like on the real shell.
+    ui.painter().text(
+        egui::pos2(shell.center().x, shell.top() + TOP_H / 2.0 + 6.0),
+        Align2::CENTER_CENTER,
+        "miuchiz",
+        FontId::proportional(13.0),
+        theme::TEXT_FAINT,
+    );
 
     widgets::lcd(ui, glass, &session.texture);
+    if session.looks_asleep() {
+        asleep_hint(ui, glass, bindings);
+    }
 
     // D-pad, centered on the left side.
-    let dpad_center = egui::pos2(bezel_rect.left() - 84.0, glass.center().y);
-    let arm = egui::vec2(30.0, 30.0);
-    let reach = 31.0;
-    // The hub behind the arms.
+    let dpad_center = egui::pos2(bezel_rect.left() - SIDE_W / 2.0 - 8.0, glass.center().y);
+    let arm = egui::vec2(34.0, 34.0);
+    let reach = 34.0;
+    // The cross slab behind the arms.
+    ui.painter().circle_filled(
+        dpad_center,
+        56.0,
+        Color32::from_black_alpha(40),
+    );
     ui.painter()
-        .circle_filled(dpad_center, 24.0, theme::BUTTON);
+        .circle_filled(dpad_center, 26.0, theme::BUTTON);
 
-    let right_x = bezel_rect.right() + 84.0;
+    let right_x = bezel_rect.right() + SIDE_W / 2.0 + 8.0;
+    // A resting ring around the Action button, like the molded rim on the
+    // real shell.
+    ui.painter().circle(
+        egui::pos2(right_x, glass.center().y + 16.0),
+        36.0,
+        Color32::from_black_alpha(40),
+        Stroke::new(1.0, theme::SHELL_EDGE),
+    );
+
     let specs = [
         ButtonSpec {
             gpio: MiuchizGpio::Up,
@@ -350,7 +455,7 @@ fn device_panel(
             rect: Rect::from_center_size(dpad_center - egui::vec2(0.0, reach), arm),
             face: ButtonFace::Rounded(8.0),
             glyph: "⏶",
-            glyph_size: 13.0,
+            glyph_size: 15.0,
         },
         ButtonSpec {
             gpio: MiuchizGpio::Down,
@@ -358,7 +463,7 @@ fn device_panel(
             rect: Rect::from_center_size(dpad_center + egui::vec2(0.0, reach), arm),
             face: ButtonFace::Rounded(8.0),
             glyph: "⏷",
-            glyph_size: 13.0,
+            glyph_size: 15.0,
         },
         ButtonSpec {
             gpio: MiuchizGpio::Left,
@@ -366,7 +471,7 @@ fn device_panel(
             rect: Rect::from_center_size(dpad_center - egui::vec2(reach, 0.0), arm),
             face: ButtonFace::Rounded(8.0),
             glyph: "⏴",
-            glyph_size: 13.0,
+            glyph_size: 15.0,
         },
         ButtonSpec {
             gpio: MiuchizGpio::Right,
@@ -374,7 +479,7 @@ fn device_panel(
             rect: Rect::from_center_size(dpad_center + egui::vec2(reach, 0.0), arm),
             face: ButtonFace::Rounded(8.0),
             glyph: "⏵",
-            glyph_size: 13.0,
+            glyph_size: 15.0,
         },
         // The four soft buttons that hug the screen corners.
         ButtonSpec {

@@ -133,7 +133,7 @@ fn controls(app: &mut DesktopApp, ctx: &egui::Context, mut state: RemapState) {
                     let clear = ui
                         .add_enabled(
                             binding.key.is_some(),
-                            egui::Button::new(RichText::new("✕").size(11.0)).frame(false),
+                            egui::Button::new(RichText::new("×").size(11.0)).frame(false),
                         )
                         .on_hover_text("Unbind");
                     if clear.clicked() {
