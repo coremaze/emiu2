@@ -18,10 +18,12 @@ mod ui;
 /// `--shot <path>`      screenshot the window after settling, then exit
 /// `--shot-frames <n>`  frames to settle before the shot (default 45)
 /// `--shot-ui <state>`  force a UI state first: new-save | controls |
-///                      friends | reset-confirm
+///                      friends | reset-confirm | fullscreen
+/// `--shot-size <WxH>`  open the window at this inner size
 pub struct StartupOptions {
     pub play: Option<String>,
     pub shot: Option<shot::ShotState>,
+    pub window_size: Option<[f32; 2]>,
 }
 
 fn parse_args() -> Result<StartupOptions, String> {
@@ -29,6 +31,7 @@ fn parse_args() -> Result<StartupOptions, String> {
     let mut shot_path: Option<std::path::PathBuf> = None;
     let mut shot_frames: u32 = 45;
     let mut shot_ui: Option<String> = None;
+    let mut window_size = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -45,6 +48,16 @@ fn parse_args() -> Result<StartupOptions, String> {
                     .map_err(|_| "--shot-frames needs a number".to_owned())?;
             }
             "--shot-ui" => shot_ui = Some(value("--shot-ui")?),
+            "--shot-size" => {
+                let text = value("--shot-size")?;
+                let (w, h) = text
+                    .split_once('x')
+                    .ok_or_else(|| "--shot-size needs WxH".to_owned())?;
+                window_size = Some([
+                    w.parse().map_err(|_| "--shot-size needs numbers".to_owned())?,
+                    h.parse().map_err(|_| "--shot-size needs numbers".to_owned())?,
+                ]);
+            }
             other => return Err(format!("Unknown argument {other:?}")),
         }
     }
@@ -52,6 +65,7 @@ fn parse_args() -> Result<StartupOptions, String> {
     Ok(StartupOptions {
         play,
         shot: shot_path.map(|path| shot::ShotState::new(path, shot_frames, shot_ui)),
+        window_size,
     })
 }
 
@@ -68,7 +82,7 @@ fn main() {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Emiu2 Desktop")
             .with_app_id("emiu2-desktop")
-            .with_inner_size([960.0, 640.0])
+            .with_inner_size(options.window_size.unwrap_or([960.0, 640.0]))
             .with_min_inner_size([720.0, 520.0]),
         ..Default::default()
     };

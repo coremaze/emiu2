@@ -417,7 +417,7 @@ impl DesktopApp {
             )
         });
         if f11 {
-            self.set_fullscreen(ctx, self.session.as_ref().map_or(false, |s| !s.fullscreen));
+            self.set_fullscreen(ctx, self.session.as_ref().is_some_and(|s| !s.fullscreen));
         }
         if esc {
             self.set_fullscreen(ctx, false);
@@ -485,7 +485,7 @@ impl eframe::App for DesktopApp {
             let dead = self
                 .session
                 .as_ref()
-                .map_or(true, |session| session.emu.is_finished());
+                .is_none_or(|session| session.emu.is_finished());
             if dead {
                 self.toast(ToastKind::Error, "The emulator stopped unexpectedly");
                 self.close_session(&ctx);

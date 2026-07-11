@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub usb: UsbConfig,
@@ -16,17 +16,6 @@ pub struct Config {
     /// Device button slug -> egui key name (empty = unbound). See
     /// [`crate::controls::Bindings`].
     pub controls: BTreeMap<String, String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            usb: UsbConfig::default(),
-            ir: IrConfig::default(),
-            video: VideoConfig::default(),
-            controls: BTreeMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

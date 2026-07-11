@@ -39,6 +39,13 @@ impl ShotState {
     pub fn force_ui_state(&self, dialog: &mut Dialog) {
         match self.ui_state.as_deref() {
             Some("new-save") => *dialog = Dialog::NewSave(Default::default()),
+            Some("new-save-advanced") => {
+                let mut state = crate::ui::library::NewSaveState::default();
+                state.character = Some("Roc");
+                state.name = "Roc".to_owned();
+                state.advanced = true;
+                *dialog = Dialog::NewSave(state);
+            }
             Some("controls") => *dialog = Dialog::Controls(Default::default()),
             Some("friends") => *dialog = Dialog::Friends(Default::default()),
             Some("reset-confirm") => {

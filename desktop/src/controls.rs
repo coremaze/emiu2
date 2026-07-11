@@ -122,10 +122,6 @@ impl Default for Bindings {
 }
 
 impl Bindings {
-    pub fn iter(&self) -> impl Iterator<Item = &Binding> {
-        self.0.iter()
-    }
-
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -217,6 +213,7 @@ mod tests {
         let mut bindings = Bindings::default();
         // Give the Action key (Space) to Power.
         let power_index = bindings
+            .0
             .iter()
             .position(|b| b.gpio == MiuchizGpio::Power)
             .unwrap();

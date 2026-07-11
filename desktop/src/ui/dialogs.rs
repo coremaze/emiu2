@@ -46,7 +46,8 @@ fn new_save(app: &mut DesktopApp, ctx: &egui::Context, mut state: library::NewSa
         return;
     }
     let modal = egui::Modal::new(Id::new("new_save")).show(ctx, |ui| {
-        ui.set_width(540.0);
+        // Wide enough that all seven characters sit on one row.
+        ui.set_width(580.0);
         ui.heading("New save");
         ui.add_space(2.0);
         ui.label(
