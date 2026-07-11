@@ -1,0 +1,50 @@
+# The emulator core: the Miuchiz machine model plus the reusable platform
+# pieces (audio, IR transports, the USB socket seam). Frontends live in
+# sibling crates (`dev`, `desktop`); the wasm build of the web frontend is
+# this crate's cdylib (`wasm-pack build core --target web`), which is why
+# the package keeps the plain `emiu2` name.
+[package]
+name = "emiu2"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emiu2-netplay = { workspace = true }
+
+[dev-dependencies]
+emiu2-relay = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = { workspace = true }
+miuchiz-reborn-paths = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1.6"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Document",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "KeyboardEvent",
+    "Performance",
+    "ImageData",
+    "AudioContext",
+    "AudioBuffer",
+    "AudioBufferSourceNode",
+    "AudioDestinationNode",
+    "ScriptProcessorNode",
+    "AudioProcessingEvent",
+    "GainNode",
+    "AudioParam",
+    "WebSocket",
+    "BinaryType",
+    "MessageEvent",
+    "Event",
+    "CloseEvent",
+] }
+wasm-bindgen-futures = "0.4"

@@ -3,11 +3,11 @@ use std::sync::mpsc::{Sender, TryRecvError};
 
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
-use crate::miuchiz::{
+use emiu2::miuchiz::{
     GpioConnections, GpioInterfaceInternal, GpioState, MiuchizButtonStates, MiuchizGpio,
 };
-use crate::screen::{Pixel, Screen};
-use crate::ssc;
+use emiu2::screen::{Pixel, Screen};
+use emiu2::ssc;
 
 pub struct MiniFbGpioInterface;
 impl MiniFbGpioInterface {

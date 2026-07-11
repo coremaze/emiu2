@@ -7,7 +7,22 @@
 
 Emiu2 is an emulator for the [Miuchiz handheld devices](https://miuchiz.com/overview).
 
-## Usage
+## The workspace
+
+| Crate | What it is |
+|-------|------------|
+| `core/` (`emiu2`) | The emulator core: the machine model plus reusable platform pieces (audio, IR transports, the USB socket seam). Also the wasm module behind the web version. |
+| `desktop/` (`emiu2-desktop`) | **Emiu2 Desktop**, the player-facing app: pick a character, play, and let it manage saves for you. |
+| `dev/` (`emiu2-dev`) | The developer frontend (formerly the `emiu2` binary): a bare window driven by command-line flags, for firmware and tooling work. |
+| `netplay/`, `server/` | The IR relay protocol and server used for playing together over the internet. |
+
+## Emiu2 Desktop
+
+Players should start here: run `emiu2-desktop` (or `cargo run -r -p emiu2-desktop`), pick a character, and play. Saves, savestates, USB, and IR pairing are all managed in the UI; no image files or flags are needed.
+
+## emiu2-dev usage
+
+The rest of this section describes `emiu2-dev`, the flag-driven developer frontend.
 
 Emiu2 requires a dump of a Miuchiz handheld device's OTP (One Time Programmable) memory as well as a dump of its flash memory. These dumps can be created using [Native-Miuchiz-Handheld-USB-Utilities](https://github.com/ChrisMiuchiz/Native-Miuchiz-Handheld-USB-Utilities). Existing images of both can be obtained from https://archive.miuchiz.com/root/handhelds/.
 
@@ -17,7 +32,7 @@ Emiu2 can also be run in the web browser and is available at [emiu2.miuchiz.com]
 
 ### Desktop
 
-To start the emulator, run `emiu2 <OTP_FILE> <FLASH_FILE>`. Run `emiu2 --help` for more options.
+To start the emulator, run `emiu2-dev <OTP_FILE> <FLASH_FILE>`. Run `emiu2-dev --help` for more options.
 
 ### Savestates
 
@@ -38,8 +53,8 @@ Miuchiz devices play and trade with each other over IR, and emiu2 can carry that
 **On one machine or LAN**, connect two emulators directly:
 
 ```sh
-emiu2 OTP.dat flash1.dat --ir listen:5885
-emiu2 OTP.dat flash2.dat --ir connect:127.0.0.1:5885
+emiu2-dev OTP.dat flash1.dat --ir listen:5885
+emiu2-dev OTP.dat flash2.dat --ir connect:127.0.0.1:5885
 ```
 
 **Over the internet**, use the relay server and friend codes. Someone runs the relay on a reachable host:
@@ -51,7 +66,7 @@ cargo run -r -p emiu2-relay          # listens on port 5885
 Each player then starts their emulator pointed at the relay:
 
 ```sh
-emiu2 OTP.dat flash.dat --ir relay:relay.example.com:5885
+emiu2-dev OTP.dat flash.dat --ir relay:relay.example.com:5885
 ```
 
 On connecting, the terminal prints an ephemeral six-character friend code. Share it with the other player out of band; either of you types `join <code>` into the emulator's terminal to pair (`leave` unpairs, `status` shows the connection).
@@ -88,11 +103,11 @@ The hosted version of emiu2 is built with `wasm-pack`.
 
 Install `wasm-pack` with `cargo install wasm-pack`.
 
-Build a release version of emiu2 with `wasm-pack build --target web`.
+Build a release version of emiu2 with `wasm-pack build core --target web`.
 
 ### Desktop
 
-Build a release version of emiu2 with `cargo build -r`, or run it directly from cargo with `cargo run -r -- <OTP_FILE> <FLASH_FILE>`.
+Build a release version of emiu2 with `cargo build -r`, or run it directly from cargo with `cargo run -r -p emiu2-dev -- <OTP_FILE> <FLASH_FILE>`.
 
 ## Demos
 

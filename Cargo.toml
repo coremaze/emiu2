@@ -1,52 +1,10 @@
 [workspace]
-members = [".", "netplay", "server"]
+resolver = "2"
+members = ["core", "dev", "desktop", "netplay", "server"]
 
-[package]
-name = "emiu2"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
+[workspace.dependencies]
+emiu2 = { path = "core" }
 emiu2-netplay = { path = "netplay" }
-
-[dev-dependencies]
 emiu2-relay = { path = "server" }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-cpal = "0.15.3"
-minifb = "0.27.0"
-clap = { version = "4.0.32", features = ["derive"] }
 miuchiz-reborn-paths = { git = "https://github.com/coremaze/Miuchiz-Reborn-Paths" }
-
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-console_error_panic_hook = "0.1.6"
-web-sys = { version = "0.3", features = [
-    "console",
-    "Window",
-    "Document",
-    "HtmlCanvasElement",
-    "CanvasRenderingContext2d",
-    "KeyboardEvent",
-    "Performance",
-    "ImageData",
-    "AudioContext",
-    "AudioBuffer",
-    "AudioBufferSourceNode",
-    "AudioDestinationNode",
-    "ScriptProcessorNode",
-    "AudioProcessingEvent",
-    "GainNode",
-    "AudioParam",
-    "WebSocket",
-    "BinaryType",
-    "MessageEvent",
-    "Event",
-    "CloseEvent",
-] }
-wasm-bindgen-futures = "0.4"
-
+cpal = "0.15.3"

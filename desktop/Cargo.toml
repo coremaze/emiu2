@@ -1,0 +1,17 @@
+# Emiu2 Desktop: the player-facing frontend. Guides the user into a save,
+# runs the machine, and wraps the emulator's features (savestates, USB,
+# IR friend codes) in a real UI.
+[package]
+name = "emiu2-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "emiu2-desktop"
+path = "src/main.rs"
+
+[dependencies]
+emiu2 = { workspace = true }
+emiu2-netplay = { workspace = true }
+cpal = { workspace = true }
+miuchiz-reborn-paths = { workspace = true }
