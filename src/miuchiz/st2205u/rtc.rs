@@ -1,3 +1,5 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
+
 pub struct State {
     clock_frequency: u64,
     last_second_tick: u64,
@@ -163,6 +165,31 @@ impl State {
             Rsel::AlarmHours => self.set_alarm_hours(value),
         }
     }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u64(self.last_second_tick);
+        writer.put_u8(self.seconds);
+        writer.put_u8(self.minutes);
+        writer.put_u8(self.hours);
+        writer.put_u8(self.alarm_minutes);
+        writer.put_u8(self.alarm_hours);
+        writer.put_u8(self.rctr.selection.to_u8());
+        writer.put_u8(self.rctr.enables);
+        writer.put_u8(self.rctr.requests);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.last_second_tick = reader.take_u64()?;
+        self.seconds = reader.take_u8()?;
+        self.minutes = reader.take_u8()?;
+        self.hours = reader.take_u8()?;
+        self.alarm_minutes = reader.take_u8()?;
+        self.alarm_hours = reader.take_u8()?;
+        self.rctr.selection = Rsel::from_u8(reader.take_u8()?);
+        self.rctr.enables = reader.take_u8()?;
+        self.rctr.requests = reader.take_u8()?;
+        Ok(())
+    }
 }
 
 struct Rctr {
@@ -220,6 +247,17 @@ pub enum Rsel {
 }
 
 impl Rsel {
+    /// The inverse of `from_u8`, using the datasheet's RSEL codes.
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Rsel::Seconds => 0b000,
+            Rsel::Minutes => 0b001,
+            Rsel::Hours => 0b010,
+            Rsel::AlarmMinutes => 0b100,
+            Rsel::AlarmHours => 0b101,
+        }
+    }
+
     pub fn from_u8(value: u8) -> Self {
         // From datasheet:
         // Second counter (RSEL=000) : counter = 0~59

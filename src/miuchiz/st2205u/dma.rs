@@ -4,6 +4,7 @@ use super::{
     St2205uAddressSpace,
 };
 use crate::memory::AddressSpace;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 // DMA channels and function modes are not implemented yet.
 
@@ -84,6 +85,26 @@ impl State {
             dsel: U8Register::new(0b0000_0000, 0b0000_0011),
             dmod: U8Register::new(0b0000_0000, 0b0011_1111),
         }
+    }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        self.src_dptr.snapshot(writer);
+        self.dest_dptr.snapshot(writer);
+        self.src_dbkr.snapshot(writer);
+        self.dest_dbkr.snapshot(writer);
+        self.dcnt.snapshot(writer);
+        self.dsel.snapshot(writer);
+        self.dmod.snapshot(writer);
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.src_dptr.restore(reader)?;
+        self.dest_dptr.restore(reader)?;
+        self.src_dbkr.restore(reader)?;
+        self.dest_dbkr.restore(reader)?;
+        self.dcnt.restore(reader)?;
+        self.dsel.restore(reader)?;
+        self.dmod.restore(reader)
     }
 }
 

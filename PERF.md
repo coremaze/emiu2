@@ -146,6 +146,55 @@ takes a per-instruction observer closure, so `--verify` hashes the exact
 chained execution path (and confirmed identical hashes *and* instruction
 counts); the GUI/web loops pass a no-op that compiles away.
 
+### Master merge (IR, savestates/rollback, USB) — cycle-exactness re-verified
+
+Master moved on while phases 1-5 landed: IR (a cycle-timed board circuit on
+the GPIO chain), savestates and netplay rollback, and USB. Merging it changed
+the reference hashes, because master intentionally changed semantics:
+
+- Interrupt dispatch gained the RTI re-entry guard (one main-loop instruction
+  is guaranteed between back-to-back ISRs), shifting ISR entry cycles.
+- Every machine now carries the IR circuit and USB link, whose servicing
+  participates in the event schedule.
+
+The old baseline binaries no longer exist on master, so equivalence was
+re-established directly: the bench harness was ported onto current master
+(pure per-instruction `step()` loop, no perf machinery) and both trees were
+hashed per instruction. They agree exactly:
+
+| Workload | verify_hash (master step loop == this branch) | ram_hash |
+|---|---|---|
+| Yasmin 30s | `6429130751646579` | `c1282cee7f110734` |
+| save.dat 20s | `dcec4abb242dfbfc` | `884c573ee324487f` |
+
+Same instruction counts, same final state, identical hash chains; the
+event-driven loop runs ~35x (idle) / ~5x (busy) faster than the step loop
+build it was verified against, and back-to-back runs show parity with the
+pre-merge phase 5 numbers (within ~1%).
+
+Integration notes, for anyone touching these paths:
+
+- GPIO polling stays on an 8000-sysck grid (now aligned to multiples, so a
+  restored savestate polls at the same cycles the original timeline did),
+  but board circuitry can schedule finer events:
+  `GpioInterfaceInternal::next_event_cycle` / `IrInterface::next_edge_cycle`
+  expose the IR replay engine's next scheduled edge, and the MCU folds it
+  into `next_event_sysck` — IR edges are delivered cycle-accurately without
+  per-instruction polling.
+- GPIO port reads/writes (and TIEN writes, which gate the TCO0 carrier)
+  refresh the GPIO block at the instruction boundary, so the IR soft-modem
+  sees per-instruction timing exactly where it matters and nothing pays for
+  it elsewhere.
+- USB host servicing runs on a 16000-cycle grid (the same pacing floor
+  master enforces per step); USB register writes set `events_dirty` so IRQ
+  sources raised by the firmware are asserted immediately.
+- `Mcu::restore` resets `boundary_sysck` to the restored cycle. Left stale,
+  a register access made by the platform between restore and the next
+  instruction (exactly what the rollback driver's caller does) is stamped
+  with abandoned-timeline cycles and, via the IR circuit, flushes the whole
+  replayed burst before the machine can hear it. This bug cost the
+  high-latency rollback tests their handshake until found.
+
 ## Where this leaves the ESP32 goal
 
 Busy-workload cost is ~47 host cycles per emulated instruction on a Zen 3

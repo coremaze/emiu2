@@ -4,4 +4,8 @@ pub trait AudioInterface {
     fn add_sample(&mut self, value: f32);
     /// The earliest cycle for which `needs_sample` will return true
     fn next_sample_cycle(&self) -> u64;
+
+    /// Called when the emulated cycle counter jumps (a savestate load or
+    /// rollback) so the sink can move its sample cursor along with it.
+    fn clock_rewound(&mut self, _current_cycle: u64) {}
 }

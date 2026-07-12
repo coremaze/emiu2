@@ -72,6 +72,10 @@ impl AudioInterface for AudioSender {
     fn next_sample_cycle(&self) -> u64 {
         (self.clock_of_last_sample + self.clocks_between_samples).ceil() as u64
     }
+
+    fn clock_rewound(&mut self, current_cycle: u64) {
+        self.clock_of_last_sample = current_cycle as f64;
+    }
 }
 
 pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>> {

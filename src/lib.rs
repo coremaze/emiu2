@@ -1,8 +1,13 @@
 pub mod audio;
+pub mod ir;
+pub mod ir_replay;
 pub mod memory;
 pub mod miuchiz;
 pub mod platform;
+pub mod rollback;
 pub mod screen;
+pub mod snapshot;
 pub mod ssc;
+pub mod usb_interface;
 #[cfg(target_arch = "wasm32")]
 pub mod web;

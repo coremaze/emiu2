@@ -10,8 +10,10 @@ use super::psg::PsgChannel;
 use super::rtc;
 use super::timer;
 use super::timer::TimerIndex;
+use super::usb;
 use super::wdc_65c02::{DecodedInstruction, FetchedInstruction, FetchesDecoded, HandlesInterrupt};
 use crate::memory::AddressSpace;
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
 
 pub const OTP_SIZE: usize = 0x4000;
 pub type Otp = [u8; OTP_SIZE];
@@ -112,6 +114,7 @@ const BRRL: u16 = 0x0036;
 const BRRH: u16 = 0x0037;
 
 const PMCR: u16 = 0x003A;
+const XREQ: u16 = 0x003B;
 
 const IREQL: u16 = 0x003C;
 const IREQH: u16 = 0x003D;
@@ -132,6 +135,18 @@ const DMOD: u16 = 0x005F;
 
 const MULL: u16 = 0x006E;
 const MULH: u16 = 0x006F;
+const USBCON: u16 = 0x0070;
+const USBIEN: u16 = 0x0071;
+const USBIRQ: u16 = 0x0072;
+const USBBFS: u16 = 0x0073;
+const EP0CON: u16 = 0x0074;
+const EP0LEN: u16 = 0x0075;
+const BKCON: u16 = 0x0076;
+const BKOLEN: u16 = 0x0077;
+
+// The USB endpoint buffers overlay an internal-RAM range when buffer access is
+// enabled; the layout is owned by the `usb` module (usb::BUFFER_START/END), used
+// by read_ram/write_ram to decide when to route into the buffer overlay.
 
 enum TimerRegister {
     Tcl,
@@ -197,6 +212,7 @@ pub struct St2205uAddressSpace<M: AddressSpace> {
     pub psg: psg::State,
     pub interrupt: interrupt::State,
     pub rtc: rtc::State,
+    pub usb: usb::UsbState,
 
     /// The instruction cycle count at the start of the instruction currently
     /// executing. Register accesses take effect at this cycle: peripherals
@@ -239,6 +255,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             psg: psg::State::new(),
             interrupt: interrupt::State::new(),
             rtc: rtc::State::new(frequency),
+            usb: usb::UsbState::new(),
 
             boundary_sysck: 0,
             events_dirty: true,
@@ -252,8 +269,47 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
         }
     }
 
+    /// Updates the GPIO block, including the pin activity that can raise
+    /// interrupts. The TCO0 clocking output follows Timer0's enable bit.
+    pub fn update_gpio(&mut self, cycle: u64) -> gpio::PortActivity {
+        let timer0_enabled = self.timer.read_tien() & 0b0000_0001 != 0;
+        self.gpio.update(cycle, timer0_enabled)
+    }
+
+    /// Updates the GPIO block at `oscx`, routing any pin activity to the
+    /// interrupt controller. Activity also marks the event schedule dirty
+    /// so a chained run loop breaks and dispatches promptly.
+    pub fn refresh_gpio(&mut self, oscx: u64) {
+        let activity = self.update_gpio(oscx);
+        if activity.port_a_transition {
+            self.interrupt
+                .assert_interrupt(interrupt::Interrupt::PortATransition);
+            self.events_dirty = true;
+        }
+        if activity.intx {
+            self.interrupt.assert_interrupt(interrupt::Interrupt::Intx);
+            self.events_dirty = true;
+        }
+    }
+
+    /// The oscillator cycle at which the current instruction began; GPIO
+    /// activity caused by a register access is stamped with it.
+    fn boundary_oscx(&self) -> u64 {
+        self.boundary_sysck * 2
+    }
+
     fn read_register(&mut self, address: u16) -> u8 {
         // println!("Read from register {address:X}");
+        // Pin-level reads see the board as of this instruction, not the
+        // last periodic poll: the IR receiver's line (PE1) changes far
+        // faster than button inputs.
+        match address {
+            PA | PB | PC | PD | PE | PF | PL | XREQ => {
+                let oscx = self.boundary_oscx();
+                self.refresh_gpio(oscx);
+            }
+            _ => {}
+        }
         match address {
             IRRL => bank::read_irrl(self),
             IRRH => bank::read_irrh(self),
@@ -307,6 +363,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             T3CH => self.timer.read_txch(TimerIndex::T3, self.boundary_sysck),
             TIEN => self.timer.read_tien(),
             PMCR => gpio::read_pmcr(&self.gpio),
+            XREQ => gpio::read_xreq(&self.gpio),
             PL => gpio::read_pl(&self.gpio),
             PCL => gpio::read_pcl(&self.gpio),
             BTEN => base_timer::read_bten(&self.base_timer),
@@ -320,6 +377,14 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             MULH => self.psg.read_mulh(),
             RTC => self.rtc.read_rtc(),
             RCTR => self.rtc.read_rctr(),
+            USBCON => self.usb.read_usbcon(),
+            USBIEN => self.usb.read_usbien(),
+            USBIRQ => self.usb.read_usbirq(),
+            USBBFS => self.usb.read_usbbfs(),
+            EP0CON => self.usb.read_ep0con(),
+            EP0LEN => self.usb.read_ep0len(),
+            BKCON => self.usb.read_bkcon(),
+            BKOLEN => self.usb.read_bkolen(),
             _ => {
                 // println!("Unimplemented read of register {address:02X}");
                 0
@@ -421,6 +486,7 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 self.events_dirty = true;
             }
             PMCR => gpio::write_pmcr(&mut self.gpio, value),
+            XREQ => gpio::write_xreq(&mut self.gpio, value),
             PL => gpio::write_pl(&mut self.gpio, value),
             PCL => gpio::write_pcl(&mut self.gpio, value),
             BTEN => base_timer::write_bten(&mut self.base_timer, value),
@@ -434,9 +500,34 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             MULH => self.psg.write_mulh(value),
             RCTR => self.rtc.write_rctr(value),
             RTC => self.rtc.write_rtc(value),
+            USBCON => self.usb.write_usbcon(value),
+            USBIEN => self.usb.write_usbien(value),
+            USBIRQ => self.usb.write_usbirq(value),
+            USBBFS => self.usb.write_usbbfs(value),
+            EP0CON => self.usb.write_ep0con(value),
+            EP0LEN => self.usb.write_ep0len(value),
+            BKCON => self.usb.write_bkcon(value),
+            BKOLEN => self.usb.write_bkolen(value),
             _ => {
                 println!("Unimplemented write of register {address:02X}");
             }
+        }
+
+        match address {
+            // GPIO-affecting writes reach the board at this instruction's
+            // boundary: IR transmission needs edge-accurate output timing
+            // (TIEN gates the TCO0 carrier), and a refresh also latches
+            // fresh inputs before any following read.
+            PA..=PFD | PMCR | XREQ | PL | PCL | TIEN => {
+                let oscx = self.boundary_oscx();
+                self.refresh_gpio(oscx);
+            }
+            // USB register writes may raise or clear interrupt sources;
+            // have the MCU recheck them right after this instruction.
+            USBCON | USBIEN | USBIRQ | USBBFS | EP0CON | EP0LEN | BKCON | BKOLEN => {
+                self.events_dirty = true;
+            }
+            _ => {}
         }
     }
 
@@ -454,13 +545,30 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
         self.events_dirty = true;
     }
 
-    fn read_ram(&self, address: usize) -> u8 {
-        self.ram[address % self.ram.len()]
+    fn read_ram(&mut self, address: usize) -> u8 {
+        // Bank-windowed accesses (e.g. DMA via the $8000 window with DRR bit15
+        // set) reach internal RAM through a high alias like $8200; the USB buffer
+        // overlay lives at the physical RAM offset ($0200..), so match on the
+        // wrapped offset, not the raw address - otherwise a windowed DMA read of
+        // the bulk buffer misses the overlay and returns stale plain RAM.
+        let offset = (address % self.ram.len()) as u16;
+        match offset {
+            usb::BUFFER_START..=usb::BUFFER_END if self.usb.are_buffers_enabled() => {
+                self.usb.read_buffer(offset)
+            }
+            _ => self.ram[address % self.ram.len()],
+        }
     }
-
     fn write_ram(&mut self, address: usize, value: u8) {
-        // println!("Write to RAM {address:X}");
-        self.ram[address % self.ram.len()] = value;
+        let offset = (address % self.ram.len()) as u16;
+        match offset {
+            usb::BUFFER_START..=usb::BUFFER_END if self.usb.are_buffers_enabled() => {
+                self.usb.write_buffer(offset, value)
+            }
+            _ => {
+                self.ram[address % self.ram.len()] = value;
+            }
+        }
     }
 }
 
@@ -494,8 +602,14 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 let ram_index = pc as usize % self.ram.len();
                 // Entries must not span a 256-byte RAM page (the byte
                 // check reads up to ram_index + 2, and any 8K-aligned
-                // bank window boundary is also a page boundary)
-                if (ram_index ^ (ram_index + 2)) & !0xFF != 0 {
+                // bank window boundary is also a page boundary). Fetches
+                // touching an active USB buffer overlay read through
+                // `read_ram`, not plain RAM, so they bypass the cache too.
+                if (ram_index ^ (ram_index + 2)) & !0xFF != 0
+                    || (self.usb.are_buffers_enabled()
+                        && ram_index + 2 >= usb::BUFFER_START as usize
+                        && ram_index <= usb::BUFFER_END as usize)
+                {
                     return Some((self.fetch_uncached(pc), usize::MAX));
                 }
                 match self.ram_decode_cache.get(ram_index, &self.ram) {
@@ -697,27 +811,6 @@ impl<M: AddressSpace> HandlesInterrupt for St2205uAddressSpace<M> {
     }
 }
 
-impl<M: AddressSpace> AddressSpace for St2205uAddressSpace<M> {
-    #[inline(always)]
-    fn read_u8(&mut self, address: usize) -> u8 {
-        // The ST2205U address space is only 16 bits wide
-        match address as u16 {
-            REGISTERS_START..=REGISTERS_END => self.read_register(address as u16),
-            0x80..=0x1FFF => self.read_ram(address),
-            _ => self.read_banked(address),
-        }
-    }
-
-    #[inline(always)]
-    fn write_u8(&mut self, address: usize, value: u8) {
-        match address as u16 {
-            REGISTERS_START..=REGISTERS_END => self.write_register(address as u16, value),
-            LOW_RAM_START..=LOW_RAM_END => self.write_ram(address, value),
-            _ => self.write_banked(address, value),
-        }
-    }
-}
-
 impl<M: AddressSpace> St2205uAddressSpace<M> {
     fn read_banked(&mut self, address: usize) -> u8 {
         match address as u16 {
@@ -778,7 +871,12 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
                 };
 
                 if reg & (1 << 15) != 0 {
-                    // RAM access if uppermost bit is set
+                    // RAM access if uppermost bit is set. Pass the raw windowed
+                    // address (matching read_u8); write_ram wraps it with
+                    // `% ram.len()`, which maps the DRR/DMA $8000-window alias onto
+                    // the USB buffer overlay just as the read path does. Subtracting
+                    // the region base here instead would desync reads and writes for
+                    // the BRR/PRR windows (BRR defaults to a bit15-set bank).
                     self.write_ram(address, value);
                 } else {
                     // Otherwise, access a larger address which is governed by the machine
@@ -800,5 +898,62 @@ impl<M: AddressSpace> St2205uAddressSpace<M> {
             }
             _ => unreachable!("Only banked ranges reach write_banked."),
         }
+    }
+}
+
+impl<M: AddressSpace> AddressSpace for St2205uAddressSpace<M> {
+    #[inline(always)]
+    fn read_u8(&mut self, address: usize) -> u8 {
+        // The ST2205U address space is only 16 bits wide
+        match address as u16 {
+            REGISTERS_START..=REGISTERS_END => self.read_register(address as u16),
+            0x80..=0x1FFF => self.read_ram(address),
+            _ => self.read_banked(address),
+        }
+    }
+
+    #[inline(always)]
+    fn write_u8(&mut self, address: usize, value: u8) {
+        match address as u16 {
+            REGISTERS_START..=REGISTERS_END => self.write_register(address as u16, value),
+            LOW_RAM_START..=LOW_RAM_END => self.write_ram(address, value),
+            _ => self.write_banked(address, value),
+        }
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_bytes(&self.ram);
+        self.banks.snapshot(writer);
+        self.dma.snapshot(writer);
+        self.gpio.snapshot(writer);
+        self.base_timer.snapshot(writer);
+        self.timer.snapshot(writer);
+        self.psg.snapshot(writer);
+        self.interrupt.snapshot(writer);
+        self.rtc.snapshot(writer);
+        self.machine_addr_space.snapshot(writer);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        reader.take_into(&mut self.ram)?;
+        self.banks.restore(reader)?;
+        self.dma.restore(reader)?;
+        self.gpio.restore(reader)?;
+        self.base_timer.restore(reader)?;
+        self.timer.restore(reader)?;
+        self.psg.restore(reader)?;
+        self.interrupt.restore(reader)?;
+        self.rtc.restore(reader)?;
+        self.machine_addr_space.restore(reader)?;
+
+        // Machine memory contents and the bank registers may all have
+        // changed: drop cached decodes and fetch mappings. (The RAM decode
+        // cache needs nothing: its hits re-validate against RAM bytes.)
+        self.decode_cache
+            .apply_change(self.machine_addr_space.take_content_change());
+        self.invalidate_fetch_window();
+        // Peripheral event times were all rewound; make the MCU reschedule
+        self.events_dirty = true;
+        Ok(())
     }
 }

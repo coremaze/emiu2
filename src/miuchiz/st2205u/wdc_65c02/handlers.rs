@@ -264,6 +264,15 @@ impl AddressSpace for ZeroMemory {
     }
 
     fn write_u8(&mut self, _address: usize, _value: u8) {}
+
+    fn snapshot(&self, _writer: &mut crate::snapshot::SnapshotWriter) {}
+
+    fn restore(
+        &mut self,
+        _reader: &mut crate::snapshot::SnapshotReader,
+    ) -> Result<(), crate::snapshot::SnapshotError> {
+        Ok(())
+    }
 }
 
 /// Build the fused handler table: one handler per opcode byte, selected

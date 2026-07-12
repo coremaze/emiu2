@@ -16,11 +16,11 @@ impl Screen for NullScreen {
 struct NullGpio;
 
 impl GpioInterfaceInternal for NullGpio {
-    fn get_inputs(&mut self) -> GpioConnections {
+    fn get_inputs(&mut self, _cycle: u64) -> GpioConnections {
         GpioConnections::default()
     }
 
-    fn set_outputs(&mut self, _state: GpioState) {}
+    fn set_outputs(&mut self, _state: GpioState, _cycle: u64) {}
 }
 
 /// Consumes samples at the same cadence as the real audio backend so the
@@ -89,6 +89,8 @@ pub fn run(otp_data: &[u8], flash_data: &[u8], seconds: u64, verify: bool) {
         Box::new(NullScreen),
         Box::new(NullGpio),
         Box::new(NullAudio::new()),
+        Box::new(crate::ir::DisconnectedIr),
+        Box::new(crate::usb_interface::NullUsbInterface),
     ) {
         Ok(handheld) => handheld,
         Err(why) => {

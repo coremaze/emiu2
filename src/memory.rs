@@ -1,3 +1,5 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
+
 pub trait AddressSpace {
     // This uses &mut self because a read could possibly mutate the state of hardware
     fn read_u8(&mut self, address: usize) -> u8;
@@ -23,6 +25,13 @@ pub trait AddressSpace {
     fn take_content_change(&mut self) -> ContentChange {
         ContentChange::None
     }
+
+    /// Serializes the runtime-mutable state behind this address space.
+    /// ROM-only spaces write nothing.
+    fn snapshot(&self, writer: &mut SnapshotWriter);
+
+    /// Restores state previously written by `snapshot`, in place.
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError>;
 }
 
 /// A change to memory contents underlying previously-issued cache keys

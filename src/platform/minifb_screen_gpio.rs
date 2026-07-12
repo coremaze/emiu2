@@ -1,7 +1,7 @@
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::mpsc::{Sender, TryRecvError};
 
-use minifb::{Key, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
+use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, ScaleMode, Window, WindowOptions};
 
 use crate::miuchiz::{
     GpioConnections, GpioInterfaceInternal, GpioState, MiuchizButtonStates, MiuchizGpio,
@@ -59,7 +59,7 @@ pub struct MiniFbGpioInternalInterface {
 }
 
 impl GpioInterfaceInternal for MiniFbGpioInternalInterface {
-    fn get_inputs(&mut self) -> GpioConnections {
+    fn get_inputs(&mut self, _cycle: u64) -> GpioConnections {
         if let Some(buttons) = self.button_rx.recv() {
             self.connections = buttons.to_gpio_connections();
         }
@@ -67,7 +67,7 @@ impl GpioInterfaceInternal for MiniFbGpioInternalInterface {
         self.connections.clone()
     }
 
-    fn set_outputs(&mut self, state: GpioState) {
+    fn set_outputs(&mut self, state: GpioState, _cycle: u64) {
         // Only send the state if it has changed or None.
         if Some(state.clone()) != self.last_gpio_state {
             self.gpio_leds_tx.send(state.clone());
@@ -80,6 +80,9 @@ pub struct MiniFbScreen {
     tx: Sender<MiniFBMessage>,
     rx: Receiver<MiniFBMessage>,
     closed: bool,
+    snapshot_requested: bool,
+    restore_requested: bool,
+    usb_plug_requested: bool,
 }
 
 impl MiniFbScreen {
@@ -117,6 +120,9 @@ impl MiniFbScreen {
                 tx: host_tx,
                 rx: host_rx,
                 closed: false,
+                snapshot_requested: false,
+                restore_requested: false,
+                usb_plug_requested: false,
             },
             gpio_internal,
             screen_tx,
@@ -129,18 +135,34 @@ impl MiniFbScreen {
     }
 
     pub fn update_state(&mut self) {
-        match self.rx.try_recv() {
-            Ok(message) => match message {
-                MiniFBMessage::Close => {
-                    self.closed = true;
-                }
-            },
-            Err(_) => return,
+        while let Ok(message) = self.rx.try_recv() {
+            match message {
+                MiniFBMessage::Close => self.closed = true,
+                MiniFBMessage::Snapshot => self.snapshot_requested = true,
+                MiniFBMessage::Restore => self.restore_requested = true,
+                MiniFBMessage::UsbPlugToggle => self.usb_plug_requested = true,
+            }
         }
     }
 
     pub fn is_open(&self) -> bool {
         !self.closed
+    }
+
+    /// Whether the user pressed the save-state key since the last call.
+    pub fn take_snapshot_request(&mut self) -> bool {
+        std::mem::take(&mut self.snapshot_requested)
+    }
+
+    /// Whether the user pressed the load-state key since the last call.
+    pub fn take_restore_request(&mut self) -> bool {
+        std::mem::take(&mut self.restore_requested)
+    }
+
+    /// Whether the user pressed the USB cable plug/unplug key since the
+    /// last call.
+    pub fn take_usb_plug_request(&mut self) -> bool {
+        std::mem::take(&mut self.usb_plug_requested)
     }
 }
 
@@ -152,6 +174,9 @@ impl Drop for MiniFbScreen {
 
 enum MiniFBMessage {
     Close,
+    Snapshot,
+    Restore,
+    UsbPlugToggle,
 }
 
 /// Owns everything required to create and drive the minifb window. Because
@@ -322,6 +347,10 @@ fn run_minifb_worker(worker: MiniFbWorker) {
 
             match worker_rx.try_recv() {
                 Ok(MiniFBMessage::Close) => close = true,
+                // Hotkey requests only flow worker -> host.
+                Ok(MiniFBMessage::Snapshot)
+                | Ok(MiniFBMessage::Restore)
+                | Ok(MiniFBMessage::UsbPlugToggle) => {}
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
                     println!("Worker thread disconnected");
@@ -359,6 +388,25 @@ fn run_minifb_worker(worker: MiniFbWorker) {
                         player_buffer[player_index] = pixel;
                     }
                 }
+            }
+        }
+
+        // Savestate hotkeys: F5 saves, F9 loads.
+        if window.is_key_pressed(Key::F5, KeyRepeat::No) {
+            if let Err(err) = worker_tx.send(MiniFBMessage::Snapshot) {
+                eprintln!("Failed to send save-state message: {err:?}");
+            }
+        }
+        if window.is_key_pressed(Key::F9, KeyRepeat::No) {
+            if let Err(err) = worker_tx.send(MiniFBMessage::Restore) {
+                eprintln!("Failed to send load-state message: {err:?}");
+            }
+        }
+
+        // U plugs/unplugs the USB cable.
+        if window.is_key_pressed(Key::U, KeyRepeat::No) {
+            if let Err(err) = worker_tx.send(MiniFBMessage::UsbPlugToggle) {
+                eprintln!("Failed to send USB plug message: {err:?}");
             }
         }
 
@@ -544,5 +592,33 @@ impl Screen for MiniFbScreenInterface {
         if let Err(err) = self.tx.send(pixels.to_vec()) {
             eprintln!("Failed to send pixels: {err:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The USB plug hotkey travels window worker -> host as a message and must
+    /// surface exactly once per press (the window itself needs a display, so
+    /// the key-to-message hop is exercised manually; it mirrors F5/F9).
+    #[test]
+    fn usb_plug_toggle_message_surfaces_once() {
+        let (tx, _unused_rx) = channel();
+        let (host_tx, host_rx) = channel();
+        let mut screen = MiniFbScreen {
+            tx,
+            rx: host_rx,
+            closed: false,
+            snapshot_requested: false,
+            restore_requested: false,
+            usb_plug_requested: false,
+        };
+
+        assert!(!screen.take_usb_plug_request());
+        host_tx.send(MiniFBMessage::UsbPlugToggle).unwrap();
+        screen.update_state();
+        assert!(screen.take_usb_plug_request());
+        assert!(!screen.take_usb_plug_request());
     }
 }

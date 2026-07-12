@@ -1,3 +1,5 @@
+use crate::snapshot::{SnapshotError, SnapshotReader, SnapshotWriter};
+
 // 12-bit counter; an increment past 0x0FFF overflows and triggers an interrupt
 const COUNTER_MODULUS: u64 = 4096;
 
@@ -137,6 +139,19 @@ impl TimerBlocksState {
             }
         }
     }
+
+    pub fn snapshot(&self, writer: &mut SnapshotWriter) {
+        for timer in [&self.t0, &self.t1, &self.t2, &self.t3] {
+            timer.snapshot(writer);
+        }
+    }
+
+    pub fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        for timer in [&mut self.t0, &mut self.t1, &mut self.t2, &mut self.t3] {
+            timer.restore(reader)?;
+        }
+        Ok(())
+    }
 }
 
 impl TimerState {
@@ -214,5 +229,26 @@ impl TimerState {
         }
 
         true
+    }
+
+    fn snapshot(&self, writer: &mut SnapshotWriter) {
+        writer.put_u16(self.counter_base);
+        writer.put_u64(self.base_cycle);
+        writer.put_u16(self.reload_value);
+        writer.put_u8(self.clock_select);
+        writer.put_bool(self.enabled);
+        writer.put_bool(self.auto_reload);
+    }
+
+    fn restore(&mut self, reader: &mut SnapshotReader) -> Result<(), SnapshotError> {
+        self.counter_base = reader.take_u16()?;
+        self.base_cycle = reader.take_u64()?;
+        self.reload_value = reader.take_u16()?;
+        self.clock_select = reader.take_u8()?;
+        self.enabled = reader.take_bool()?;
+        self.auto_reload = reader.take_bool()?;
+        // Derived from the fields above rather than persisted
+        self.recompute_next_overflow();
+        Ok(())
     }
 }
