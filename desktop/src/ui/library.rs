@@ -4,7 +4,7 @@
 //! saves with live thumbnails, most recent first.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Rect, Sense, Stroke, StrokeKind, TextureHandle,
+    self, Align2, Color32, CornerRadius, FontId, Rect, Sense, Stroke, TextureHandle,
 };
 
 use crate::app::{DesktopApp, Dialog, ToastKind};
@@ -55,12 +55,18 @@ enum CardAction {
 
 pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
     let ctx = root.ctx().clone();
+    let full = root.max_rect();
+    crate::ui::backdrop::paint(root, full);
     top_bar(app, root);
 
     let first_run = app.saves.is_empty();
 
     egui::CentralPanel::default_margins()
-        .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::same(24)))
+        .frame(
+            egui::Frame::new()
+                .fill(Color32::TRANSPARENT)
+                .inner_margin(egui::Margin::same(28)),
+        )
         .show(root, |ui| {
             if first_run {
                 hero_new_save(app, &ctx, ui);
@@ -70,27 +76,38 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
         });
 }
 
+/// The brand lockup: a warm glowing dot, EMIU2 in the display face, and a
+/// quiet mono tag — a single warm point against the cool aurora.
+pub fn wordmark(ui: &mut egui::Ui) {
+    let (dot, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::hover());
+    ui.painter()
+        .circle_filled(dot.center(), 8.5, theme::with_alpha(theme::GOLD, 70));
+    ui.painter().circle_filled(dot.center(), 5.0, theme::GOLD);
+    ui.painter().circle_stroke(
+        dot.center(),
+        5.0,
+        Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 180)),
+    );
+    ui.add_space(2.0);
+    ui.label(theme::display(18.0, "EMIU2").color(theme::ACCENT));
+    ui.label(theme::caps(12.5, "Desktop").color(theme::TEXT_DIM));
+}
+
 fn top_bar(app: &mut DesktopApp, root: &mut egui::Ui) {
     egui::Panel::top("library_bar")
         .frame(
             egui::Frame::new()
                 .fill(theme::PANEL)
-                .inner_margin(egui::Margin::symmetric(16, 10)),
+                .stroke(Stroke::new(1.0, theme::OUTLINE))
+                .inner_margin(egui::Margin::symmetric(18, 12))
+                .shadow(theme::fx::soft_card()),
         )
         .show(root, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("EMIU2")
-                        .color(theme::ACCENT)
-                        .strong()
-                        .size(17.0),
-                );
-                ui.label(
-                    egui::RichText::new("DESKTOP")
-                        .color(theme::TEXT_DIM)
-                        .size(17.0),
-                );
+                wordmark(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(theme::mono(10.5, "PLANET MION").color(theme::TEXT_FAINT));
+                    ui.add_space(6.0);
                     if ui.button("Controls").clicked() {
                         app.dialog = Dialog::Controls(crate::ui::dialogs::RemapState::default());
                     }
@@ -107,21 +124,17 @@ fn hero_new_save(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     }
 
     ui.vertical_centered(|ui| {
-        ui.add_space(ui.available_height() * 0.08);
-        ui.label(
-            egui::RichText::new("Pick your Miuchiz")
-                .heading()
-                .color(theme::TEXT)
-                .size(28.0),
-        );
-        ui.add_space(4.0);
+        ui.add_space(ui.available_height() * 0.06);
+        ui.label(theme::display(32.0, "Pick your Miuchiz").color(theme::TEXT));
+        ui.add_space(6.0);
         ui.label(
             egui::RichText::new(
                 "Choose a character to start. Your game saves itself while you play.",
             )
-            .color(theme::TEXT_DIM),
+            .color(theme::TEXT_DIM)
+            .size(14.5),
         );
-        ui.add_space(20.0);
+        ui.add_space(24.0);
     });
 
     let mut action = FormAction::None;
@@ -145,21 +158,19 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Your saves")
-                    .heading()
-                    .color(theme::TEXT),
-            );
+            ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button(egui::RichText::new("+  New save").color(theme::ACCENT))
-                    .clicked()
-                {
+                let new_save = egui::Button::new(
+                    egui::RichText::new("+  New save").color(theme::ON_ACCENT).strong(),
+                )
+                .fill(theme::ACCENT)
+                .corner_radius(CornerRadius::same(10));
+                if ui.add(new_save).clicked() {
                     want_new_save = true;
                 }
             });
         });
-        ui.add_space(12.0);
+        ui.add_space(16.0);
 
         // Make sure thumbnails are loaded (once per refresh).
         let ids: Vec<String> = app.saves.iter().map(|s| s.id.clone()).collect();
@@ -229,19 +240,33 @@ fn save_card(
 
     let hovered = response.hovered();
     let painter = ui.painter();
-    painter.rect(
+    let cr = CornerRadius::same(16);
+    painter.add(egui::Shape::from(theme::fx::soft_card().as_shape(rect, cr)));
+    theme::acrylic(
+        painter,
         rect,
-        CornerRadius::same(10),
+        cr,
         if hovered { theme::CARD_HOVER } else { theme::CARD },
-        Stroke::new(1.0, if hovered { theme::ACCENT_DIM } else { theme::OUTLINE }),
-        StrokeKind::Inside,
+        if hovered { theme::with_alpha(theme::ACCENT, 0xcc) } else { theme::OUTLINE },
     );
+    theme::gloss_cap(painter, rect, 30);
 
     // Thumbnail (or a character-colored placeholder).
     let thumb_rect = Rect::from_min_size(
         rect.min + egui::vec2(12.0, 12.0),
         egui::vec2(THUMB_W, THUMB_H),
     );
+    // A soft character-colored bloom so the screen glows behind the glass.
+    let glow_c = theme::character_color(&slot.meta.character);
+    painter.add(egui::Shape::mesh(theme::radial_mesh(
+        thumb_rect.center(),
+        THUMB_W * 0.62,
+        THUMB_H * 0.66,
+        glow_c,
+        if hovered { 105 } else { 78 },
+    )));
+    // A dark glossy bezel behind the LCD thumbnail.
+    painter.rect_filled(thumb_rect.expand(2.0), CornerRadius::same(8), theme::LCD_BEZEL);
     match thumb {
         Some(texture) => {
             let image = egui::Image::from_texture((texture.id(), thumb_rect.size()))
@@ -293,25 +318,31 @@ fn save_card(
     }
 
     // Name and details.
-    let text_x = rect.min.x + 14.0;
+    let text_x = rect.min.x + 15.0;
+    let dot_c = theme::character_color(&slot.meta.character);
+    painter.circle_filled(
+        egui::pos2(text_x + 4.0, thumb_rect.bottom() + 19.0),
+        4.5,
+        dot_c,
+    );
     painter.text(
-        egui::pos2(text_x, thumb_rect.bottom() + 10.0),
+        egui::pos2(text_x + 15.0, thumb_rect.bottom() + 10.0),
         Align2::LEFT_TOP,
         &slot.meta.name,
-        FontId::proportional(15.0),
+        FontId::new(15.5, theme::display_family()),
         theme::TEXT,
     );
     let detail = format!(
-        "{} · {} · {}",
+        "{}  ·  {}  ·  {}",
         slot.meta.character,
         theme::playtime(slot.meta.play_seconds),
         theme::ago(now, slot.meta.last_played_unix),
     );
     painter.text(
-        egui::pos2(text_x, thumb_rect.bottom() + 31.0),
+        egui::pos2(text_x, thumb_rect.bottom() + 33.0),
         Align2::LEFT_TOP,
         detail,
-        FontId::proportional(11.5),
+        FontId::new(10.5, theme::mono_family()),
         theme::TEXT_DIM,
     );
 
@@ -362,29 +393,41 @@ fn new_save_tile(ui: &mut egui::Ui) -> bool {
         ui.allocate_exact_size(egui::vec2(CARD_W, card_h), Sense::click());
     let hovered = response.hovered();
     let painter = ui.painter();
-    painter.rect(
+    let cr = CornerRadius::same(16);
+    theme::acrylic(
+        painter,
         rect,
-        CornerRadius::same(10),
+        cr,
         if hovered {
-            theme::CARD
+            theme::CARD_HOVER
         } else {
-            Color32::TRANSPARENT
+            theme::with_alpha(Color32::WHITE, 12)
         },
-        Stroke::new(1.0, if hovered { theme::ACCENT_DIM } else { theme::OUTLINE }),
-        StrokeKind::Inside,
+        if hovered { theme::with_alpha(theme::ACCENT, 0xcc) } else { theme::OUTLINE },
+    );
+    // A soft "+" plate that lights up on hover.
+    let plate = rect.center() - egui::vec2(0.0, 12.0);
+    let pc = if hovered { theme::ACCENT } else { theme::TEXT_FAINT };
+    if hovered {
+        painter.add(egui::Shape::mesh(theme::radial_mesh(
+            plate, 40.0, 40.0, theme::ACCENT, 70,
+        )));
+    }
+    painter.circle_filled(plate, 20.0, theme::with_alpha(pc, 34));
+    let a = 11.0;
+    painter.line_segment(
+        [plate - egui::vec2(a, 0.0), plate + egui::vec2(a, 0.0)],
+        Stroke::new(3.0, pc),
+    );
+    painter.line_segment(
+        [plate - egui::vec2(0.0, a), plate + egui::vec2(0.0, a)],
+        Stroke::new(3.0, pc),
     );
     painter.text(
-        rect.center() - egui::vec2(0.0, 12.0),
-        Align2::CENTER_CENTER,
-        "+",
-        FontId::proportional(30.0),
-        if hovered { theme::ACCENT } else { theme::TEXT_FAINT },
-    );
-    painter.text(
-        rect.center() + egui::vec2(0.0, 18.0),
+        rect.center() + egui::vec2(0.0, 20.0),
         Align2::CENTER_CENTER,
         "New save",
-        FontId::proportional(13.0),
+        FontId::new(13.0, theme::display_family()),
         if hovered { theme::TEXT } else { theme::TEXT_DIM },
     );
     response.clicked()
@@ -451,7 +494,7 @@ pub fn new_save_form(
         let create = if ready {
             egui::Button::new(
                 egui::RichText::new("Create & Play")
-                    .color(Color32::from_rgb(0x1d, 0x12, 0x05))
+                    .color(theme::ON_ACCENT)
                     .strong(),
             )
             .fill(theme::ACCENT)
@@ -461,7 +504,8 @@ pub fn new_save_form(
             )
             .fill(theme::CARD)
         }
-        .min_size(egui::vec2(150.0, 34.0));
+        .corner_radius(CornerRadius::same(10))
+        .min_size(egui::vec2(160.0, 36.0));
         if ui.add_enabled(ready, create).clicked() {
             action = FormAction::Create;
         }
@@ -557,44 +601,53 @@ fn character_tile(ui: &mut egui::Ui, character: &str, selected: bool) -> bool {
     let hovered = response.hovered();
     let color = theme::character_color(character);
     let painter = ui.painter();
-    painter.rect(
+    let cr = CornerRadius::same(14);
+    if selected || hovered {
+        painter.add(egui::Shape::from(theme::fx::soft_card().as_shape(rect, cr)));
+    }
+    // The character's color glows up through the frosted chip.
+    let disc_center = rect.center() - egui::vec2(0.0, 11.0);
+    painter.add(egui::Shape::mesh(theme::radial_mesh(
+        disc_center,
+        30.0,
+        34.0,
+        color,
+        if selected { 150 } else if hovered { 104 } else { 74 },
+    )));
+    let fill = if selected { theme::CARD_HOVER } else { theme::CARD };
+    theme::acrylic(
+        painter,
         rect,
-        CornerRadius::same(10),
+        cr,
+        fill,
         if selected {
-            theme::CARD_HOVER
+            theme::with_alpha(color, 0xdc)
         } else if hovered {
-            theme::CARD
+            theme::with_alpha(theme::ACCENT, 0xcc)
         } else {
-            Color32::TRANSPARENT
+            theme::OUTLINE
         },
-        Stroke::new(
-            if selected { 2.0 } else { 1.0 },
-            if selected {
-                color
-            } else if hovered {
-                theme::ACCENT_DIM
-            } else {
-                theme::OUTLINE
-            },
-        ),
-        StrokeKind::Inside,
     );
-    // The character "portrait": a filled disc with the initial.
-    let disc_center = rect.center() - egui::vec2(0.0, 12.0);
-    painter.circle_filled(disc_center, 17.0, color.gamma_multiply(0.28));
-    painter.circle(disc_center, 17.0, Color32::TRANSPARENT, Stroke::new(1.5, color));
+    // The character "portrait": a glossy colored disc with the initial.
+    painter.circle_filled(disc_center, 18.0, color);
+    painter.circle_filled(
+        disc_center - egui::vec2(0.0, 5.0),
+        13.0,
+        theme::with_alpha(Color32::WHITE, 55),
+    );
+    painter.circle_stroke(disc_center, 18.0, Stroke::new(1.5, color.gamma_multiply(0.7)));
     painter.text(
         disc_center,
         Align2::CENTER_CENTER,
         character.chars().next().unwrap_or('?'),
-        FontId::proportional(16.0),
-        color,
+        FontId::new(17.0, theme::display_family()),
+        Color32::WHITE,
     );
     painter.text(
         egui::pos2(rect.center().x, rect.bottom() - 12.0),
         Align2::CENTER_CENTER,
         character,
-        FontId::proportional(11.5),
+        FontId::new(11.5, theme::display_family()),
         if selected { theme::TEXT } else { theme::TEXT_DIM },
     );
     response.clicked()

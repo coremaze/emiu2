@@ -74,6 +74,9 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
         return;
     }
 
+    let full = root.max_rect();
+    crate::ui::backdrop::paint(root, full);
+
     let mut actions: Vec<MenuAction> = Vec::new();
     menu_bar(root, app, &mut actions);
 
@@ -82,7 +85,7 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
         return;
     };
     egui::CentralPanel::default_margins()
-        .frame(egui::Frame::new().fill(theme::BG))
+        .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
         .show(root, |ui| {
             device_panel(
                 ui,
@@ -151,6 +154,7 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
         .frame(
             egui::Frame::new()
                 .fill(theme::PANEL)
+                .stroke(Stroke::new(1.0, theme::OUTLINE))
                 .inner_margin(egui::Margin::symmetric(8, 5)),
         )
         .show(root, |ui| {
@@ -389,35 +393,38 @@ fn device_panel(
     );
     let bezel_rect = glass.expand(BEZEL);
 
-    // The shell: one rounded slab of plastic, lifted off the backdrop.
-    ui.painter().rect_filled(
-        shell.translate(egui::vec2(0.0, 5.0)),
-        CornerRadius::same(28),
-        Color32::from_black_alpha(70),
-    );
-    ui.painter().rect(
+    // The shell: one frosted glass slab, lifted off the aurora with a deep
+    // drop shadow and wrapped in a faint icy glow. Translucent, so the LCD
+    // and the aurora glow through it.
+    let cr = CornerRadius::same(30);
+    ui.painter()
+        .add(egui::Shape::from(theme::fx::shell().as_shape(shell, cr)));
+    ui.painter()
+        .add(egui::Shape::from(theme::fx::glow().as_shape(shell, cr)));
+    ui.painter().add(egui::Shape::mesh(theme::rounded_vgrad_mesh(
         shell,
-        CornerRadius::same(26),
-        theme::SHELL,
-        Stroke::new(1.5, theme::SHELL_EDGE),
+        cr,
+        theme::with_alpha(Color32::from_rgb(0xdc, 0xef, 0xff), 104),
+        theme::with_alpha(Color32::from_rgb(0x9c, 0xbf, 0xe6), 54),
+    )));
+    // A faint ground-glass dither over the slab.
+    theme::dither(ui.painter(), shell, 96, 2.0, 16);
+    ui.painter().rect_stroke(
+        shell,
+        cr,
+        Stroke::new(1.2, theme::SHELL_EDGE),
         StrokeKind::Inside,
     );
-    // A faint top highlight sells the plastic.
-    ui.painter().line_segment(
-        [
-            egui::pos2(shell.left() + 30.0, shell.top() + 2.0),
-            egui::pos2(shell.right() - 30.0, shell.top() + 2.0),
-        ],
-        Stroke::new(1.0, Color32::from_white_alpha(14)),
-    );
+    // The bright inner top-edge highlight that sells the frosted glass.
+    theme::frost_top_edge(ui.painter(), shell, cr, 175);
 
     // The brand, printed above the screen like on the real shell.
     ui.painter().text(
         egui::pos2(shell.center().x, shell.top() + TOP_H / 2.0 + 6.0),
         Align2::CENTER_CENTER,
         "miuchiz",
-        FontId::proportional(13.0),
-        theme::TEXT_FAINT,
+        FontId::new(13.0, theme::display_family()),
+        theme::TEXT_DIM,
     );
 
     widgets::lcd(ui, glass, &session.texture);
@@ -429,22 +436,32 @@ fn device_panel(
     let dpad_center = egui::pos2(bezel_rect.left() - SIDE_W / 2.0 - 8.0, glass.center().y);
     let arm = egui::vec2(34.0, 34.0);
     let reach = 34.0;
-    // The cross slab behind the arms.
+    // A recessed frosted well behind the D-pad arms.
     ui.painter().circle_filled(
         dpad_center,
-        56.0,
-        Color32::from_black_alpha(40),
+        54.0,
+        theme::with_alpha(Color32::from_rgb(0x0a, 0x12, 0x1e), 95),
+    );
+    ui.painter().circle_stroke(
+        dpad_center,
+        54.0,
+        Stroke::new(1.0, theme::SHELL_EDGE),
     );
     ui.painter()
-        .circle_filled(dpad_center, 26.0, theme::BUTTON);
+        .circle_filled(dpad_center, 24.0, theme::BUTTON);
+    ui.painter().circle_stroke(
+        dpad_center,
+        24.0,
+        Stroke::new(1.0, theme::with_alpha(theme::FROST_HILITE, 60)),
+    );
 
     let right_x = bezel_rect.right() + SIDE_W / 2.0 + 8.0;
-    // A resting ring around the Action button, like the molded rim on the
-    // real shell.
+    // A recessed frosted ring around the Action button, like the molded rim
+    // on the real shell.
     ui.painter().circle(
         egui::pos2(right_x, glass.center().y + 16.0),
         36.0,
-        Color32::from_black_alpha(40),
+        theme::with_alpha(Color32::from_rgb(0x0a, 0x12, 0x1e), 85),
         Stroke::new(1.0, theme::SHELL_EDGE),
     );
 
