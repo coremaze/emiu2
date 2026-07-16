@@ -463,7 +463,7 @@ fn confirm_modal(
         ui.horizontal(|ui| {
             let danger = egui::Button::new(
                 RichText::new(confirm_label)
-                    .color(Color32::from_rgb(0x2b, 0x0d, 0x0d))
+                    .color(Color32::WHITE)
                     .strong(),
             )
             .fill(theme::BAD);

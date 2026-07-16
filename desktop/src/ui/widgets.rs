@@ -159,31 +159,38 @@ pub fn device_button(
     (response, mouse_held)
 }
 
-/// The LCD glass: a glossy black bezel, the frame with crisp pixels, and a
-/// faint sheen across the top of the glass.
+/// The LCD glass: a chrome-rimmed dark bezel set into the frosted white
+/// shell, the frame with crisp pixels, and a sheen across the glass.
 pub fn lcd(ui: &mut Ui, glass: Rect, texture: &egui::TextureHandle) {
     let bezel = glass.expand(12.0);
     let painter = ui.painter();
     let cr = CornerRadius::same(10);
-    // The screen's light bleeds through the frosted slab: a soft cyan halo
-    // hugging the bezel.
+    // The screen's light spills onto the ice-white shell: a soft glacier
+    // halo hugging the bezel.
     painter.add(egui::Shape::mesh(theme::radial_mesh(
         glass.center(),
-        glass.width() * 0.72,
-        glass.height() * 0.90,
+        glass.width() * 0.74,
+        glass.height() * 0.92,
         theme::ACCENT,
-        72,
+        56,
     )));
+    // A polished chrome lip around the dark glass.
+    painter.rect_stroke(
+        bezel.expand(1.5),
+        CornerRadius::same(11),
+        Stroke::new(1.5, theme::SHELL_EDGE),
+        StrokeKind::Inside,
+    );
     painter.add(egui::Shape::mesh(theme::rounded_vgrad_mesh(
         bezel,
         cr,
-        Color32::from_rgb(0x18, 0x22, 0x30),
-        Color32::from_rgb(0x07, 0x0c, 0x14),
+        Color32::from_rgb(0x2b, 0x3c, 0x4a),
+        Color32::from_rgb(0x0c, 0x16, 0x1f),
     )));
     painter.rect_stroke(
         bezel,
         cr,
-        Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 30)),
+        Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 60)),
         StrokeKind::Inside,
     );
     painter.image(
@@ -210,7 +217,7 @@ pub fn status_chip(ui: &mut Ui, label: &str, on: bool, on_color: Color32) -> Res
         (on_color, Stroke::NONE, theme::ON_ACCENT)
     } else {
         (
-            theme::with_alpha(theme::FROST_HILITE, 24),
+            theme::with_alpha(theme::FROST_HILITE, 150),
             Stroke::new(1.0, theme::OUTLINE),
             theme::TEXT_DIM,
         )

@@ -77,7 +77,7 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
 }
 
 /// The brand lockup: a warm glowing dot, EMIU2 in the display face, and a
-/// quiet mono tag — a single warm point against the cool aurora.
+/// quiet mono tag — a single warm point against the glacier.
 pub fn wordmark(ui: &mut egui::Ui) {
     let (dot, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::hover());
     ui.painter()
@@ -401,7 +401,7 @@ fn new_save_tile(ui: &mut egui::Ui) -> bool {
         if hovered {
             theme::CARD_HOVER
         } else {
-            theme::with_alpha(Color32::WHITE, 12)
+            theme::with_alpha(Color32::WHITE, 96)
         },
         if hovered { theme::with_alpha(theme::ACCENT, 0xcc) } else { theme::OUTLINE },
     );

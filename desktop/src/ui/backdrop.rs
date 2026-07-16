@@ -1,94 +1,230 @@
-//! The "Frost" backdrop: a slow aurora over a dark-cool base. Several large
-//! soft radial glows in cyan, violet, and teal overlap and drift, their
-//! centers animated off the egui clock, building a deep, atmospheric wash
-//! behind the frosted-acrylic chrome. Painter-only (no shader), so it stays
-//! calm and smooth — no bokeh, no bright sky.
+//! The "Prism" backdrop: glacier light. A pale ice-blue/white field is
+//! crossed by broad diagonal prismatic light shafts that slowly sweep and
+//! overlap; where two shafts cross, a faint rainbow dispersion bloom opens
+//! (spectral rose/gold/sky glows split along the crossing); and tiny sparkle
+//! glints pop in and out across the ice. Painter-only (no shader) — meshes
+//! with vertex-alpha falloff keep it smooth and calm.
 
-use eframe::egui::{self, Color32, Rect};
+use eframe::egui::epaint::Vertex;
+use eframe::egui::{self, Color32, Mesh, Rect};
 
 use crate::theme;
 
-const BASE_TOP: Color32 = Color32::from_rgb(0x0c, 0x14, 0x21);
-const BASE_BOT: Color32 = Color32::from_rgb(0x08, 0x0d, 0x16);
+const BASE_TOP: Color32 = Color32::from_rgb(0xdf, 0xef, 0xf9);
+const BASE_MID: Color32 = Color32::from_rgb(0xc8, 0xe2, 0xf4);
+const BASE_BOT: Color32 = Color32::from_rgb(0xa8, 0xcd, 0xea);
 
-const CYAN: Color32 = Color32::from_rgb(0x35, 0xe0, 0xff);
-const VIOLET: Color32 = Color32::from_rgb(0x8a, 0x6c, 0xff);
-const TEAL: Color32 = Color32::from_rgb(0x3f, 0xd0, 0xc0);
+const SHAFT_WHITE: Color32 = Color32::WHITE;
+const SHAFT_ICE: Color32 = Color32::from_rgb(0xe2, 0xf6, 0xff);
 
-/// One drifting aurora glow: a base position (fraction of the rect), an
-/// elliptical radius (fraction), a color and peak alpha, and a slow drift.
-struct Blob {
-    x: f32,
-    y: f32,
-    rx: f32,
-    ry: f32,
-    color: Color32,
-    alpha: u8,
-    /// Drift: amplitude (fraction), angular speed, and phase per axis.
-    ax: f32,
-    ay: f32,
-    sx: f32,
-    sy: f32,
-    px: f32,
-    py: f32,
-}
-
-const BLOBS: &[Blob] = &[
-    // A wide cyan curtain, upper-left.
-    Blob { x: 0.26, y: 0.28, rx: 0.62, ry: 0.58, color: CYAN, alpha: 64,
-           ax: 0.06, ay: 0.05, sx: 0.031, sy: 0.024, px: 0.0, py: 1.7 },
-    // A tall violet drape on the right.
-    Blob { x: 0.80, y: 0.44, rx: 0.52, ry: 0.70, color: VIOLET, alpha: 58,
-           ax: 0.07, ay: 0.06, sx: 0.026, sy: 0.037, px: 2.1, py: 0.6 },
-    // Teal pooling low across the floor.
-    Blob { x: 0.50, y: 0.90, rx: 0.72, ry: 0.44, color: TEAL, alpha: 52,
-           ax: 0.08, ay: 0.04, sx: 0.022, sy: 0.030, px: 1.0, py: 3.0 },
-    // A cyan swell, lower-left.
-    Blob { x: 0.14, y: 0.74, rx: 0.44, ry: 0.46, color: CYAN, alpha: 46,
-           ax: 0.06, ay: 0.06, sx: 0.035, sy: 0.028, px: 3.4, py: 1.2 },
-    // A faint violet bloom, upper-right.
-    Blob { x: 0.68, y: 0.12, rx: 0.46, ry: 0.40, color: VIOLET, alpha: 40,
-           ax: 0.05, ay: 0.05, sx: 0.029, sy: 0.033, px: 0.7, py: 2.4 },
-    // A brighter, livelier cyan thread near the middle.
-    Blob { x: 0.44, y: 0.50, rx: 0.30, ry: 0.34, color: CYAN, alpha: 44,
-           ax: 0.10, ay: 0.08, sx: 0.045, sy: 0.052, px: 1.9, py: 0.2 },
+// The dispersion spectrum (kept pastel, and deliberately violet-free):
+// a warm rose, a pale gold, a mint, and a sky blue, split along the shaft.
+const SPECTRUM: [(Color32, f32, u8); 4] = [
+    (Color32::from_rgb(0xff, 0x96, 0x86), -1.0, 42),
+    (Color32::from_rgb(0xff, 0xdd, 0x78), -0.33, 38),
+    (Color32::from_rgb(0x7f, 0xe6, 0xb8), 0.33, 38),
+    (Color32::from_rgb(0x58, 0xb8, 0xff), 1.0, 46),
 ];
 
-/// Paint the aurora into `rect`. Call once, first thing, so the chrome draws
-/// over it. Requests a repaint to keep the drift smooth.
+/// One prismatic light shaft: a broad diagonal band, brightest at its core,
+/// fading to nothing at both edges. `x` is the anchor of the core where it
+/// meets the top edge (fraction of width), `slope` is dx per dy going down,
+/// and the whole shaft sweeps sideways slowly around its anchor.
+struct Shaft {
+    x: f32,
+    slope: f32,
+    /// Half-width of the band at the top edge (fraction of width).
+    half_w: f32,
+    color: Color32,
+    alpha: u8,
+    /// Sweep: amplitude (fraction of width), angular speed, phase.
+    amp: f32,
+    speed: f32,
+    phase: f32,
+}
+
+const SHAFTS: &[Shaft] = &[
+    // The hero shaft: broad, bright, leaning hard from the upper light.
+    Shaft { x: 0.16, slope: 0.62, half_w: 0.16, color: SHAFT_WHITE, alpha: 196,
+            amp: 0.070, speed: 0.051, phase: 0.0 },
+    // A wide, softer ice-tinted companion further right.
+    Shaft { x: 0.52, slope: 0.34, half_w: 0.21, color: SHAFT_ICE, alpha: 142,
+            amp: 0.095, speed: 0.037, phase: 2.1 },
+    // A steep bright sliver near the right edge.
+    Shaft { x: 0.86, slope: 0.78, half_w: 0.10, color: SHAFT_WHITE, alpha: 170,
+            amp: 0.060, speed: 0.066, phase: 4.0 },
+    // One fainter counter-leaning shaft, so crossings actually happen.
+    Shaft { x: 0.66, slope: -0.30, half_w: 0.13, color: SHAFT_ICE, alpha: 108,
+            amp: 0.110, speed: 0.044, phase: 1.2 },
+];
+
+/// Where the shaft's core crosses the top edge right now, in pixels.
+fn shaft_core_x(s: &Shaft, t: f32, rect: &Rect) -> f32 {
+    rect.left() + (s.x + (t * s.speed + s.phase).sin() * s.amp) * rect.width()
+}
+
+/// A diagonal band with a smooth alpha bump across its width: transparent
+/// edge → bright core → transparent edge, as vertex columns spanning the
+/// rect top-to-bottom (the clip rect trims the overhang).
+fn shaft_mesh(rect: &Rect, core_x: f32, slope: f32, half_w: f32, color: Color32, alpha: u8) -> Mesh {
+    const STOPS: [(f32, f32); 5] = [(-1.0, 0.0), (-0.30, 0.48), (0.0, 1.0), (0.30, 0.48), (1.0, 0.0)];
+    let h = rect.height();
+    let mut m = Mesh::default();
+    for (off, k) in STOPS {
+        let c = theme::with_alpha(color, (alpha as f32 * k) as u8);
+        let xt = core_x + off * half_w;
+        m.vertices.push(Vertex::untextured(egui::pos2(xt, rect.top()), c));
+        m.vertices
+            .push(Vertex::untextured(egui::pos2(xt + slope * h, rect.bottom()), c));
+    }
+    for i in 0..STOPS.len() as u32 - 1 {
+        let b = i * 2;
+        m.indices.extend_from_slice(&[b, b + 2, b + 1, b + 2, b + 3, b + 1]);
+    }
+    m
+}
+
+/// Deterministic 0..1 hash, so the sparkle field stays put across frames.
+fn hash01(n: f32) -> f32 {
+    (n.sin() * 43758.5453).fract().abs()
+}
+
+/// Paint the glacier into `rect`. Call once, first thing, so the chrome
+/// draws over it. Requests a repaint to keep the sweep smooth.
 pub fn paint(ui: &mut egui::Ui, rect: Rect) {
     let t = ui.input(|i| i.time) as f32;
     ui.ctx().request_repaint();
     let p = ui.painter().with_clip_rect(rect);
 
-    // Dark-cool base, a touch deeper at the floor.
-    theme::vgrad(&p, rect, BASE_TOP, BASE_BOT);
+    // Pale ice base: near-white light at the top, deeper glacier blue below.
+    let mid_y = rect.top() + rect.height() * 0.42;
+    theme::vgrad(&p, Rect::from_min_max(rect.left_top(), egui::pos2(rect.right(), mid_y)),
+                 BASE_TOP, BASE_MID);
+    theme::vgrad(&p, Rect::from_min_max(egui::pos2(rect.left(), mid_y), rect.right_bottom()),
+                 BASE_MID, BASE_BOT);
 
     let w = rect.width();
     let h = rect.height();
-    for b in BLOBS {
-        let cx = rect.left() + (b.x + (t * b.sx + b.px).sin() * b.ax) * w;
-        let cy = rect.top() + (b.y + (t * b.sy + b.py).cos() * b.ay) * h;
-        p.add(egui::Shape::mesh(theme::radial_mesh(
-            egui::pos2(cx, cy),
-            b.rx * w,
-            b.ry * h,
-            b.color,
-            b.alpha,
+
+    // A soft breathing sun bloom, upper-left — the light source the shafts
+    // pour from.
+    let breathe = 1.0 + 0.06 * (t * 0.23).sin();
+    p.add(egui::Shape::mesh(theme::radial_mesh(
+        egui::pos2(rect.left() + 0.16 * w, rect.top() + 0.04 * h),
+        0.40 * w * breathe,
+        0.26 * h * breathe,
+        Color32::WHITE,
+        112,
+    )));
+
+    // The prismatic shafts, slowly sweeping. The hero shaft (index 0) also
+    // carries a faint spectral fringe on each edge — light splitting as it
+    // leaves the prism: rose off the left lip, sky off the right.
+    let cores: Vec<f32> = SHAFTS.iter().map(|s| shaft_core_x(s, t, &rect)).collect();
+    for (i, (s, &core)) in SHAFTS.iter().zip(&cores).enumerate() {
+        p.add(egui::Shape::mesh(shaft_mesh(
+            &rect, core, s.slope, s.half_w * w, s.color, s.alpha,
         )));
+        if i == 0 {
+            let hw = s.half_w * w;
+            p.add(egui::Shape::mesh(shaft_mesh(
+                &rect, core - hw * 0.92, s.slope, hw * 0.30,
+                Color32::from_rgb(0xff, 0xa8, 0x96), 30,
+            )));
+            p.add(egui::Shape::mesh(shaft_mesh(
+                &rect, core + hw * 0.92, s.slope, hw * 0.30,
+                Color32::from_rgb(0x66, 0xc2, 0xff), 34,
+            )));
+        }
     }
 
-    // A gentle vignette: darken the very top and bottom lips so the aurora
-    // feels held in a deep frame rather than running off the edges.
-    let fade = (h * 0.16).min(120.0);
-    p.add(egui::Shape::mesh(theme::vgrad_mesh(
-        Rect::from_min_max(rect.left_top(), egui::pos2(rect.right(), rect.top() + fade)),
-        theme::with_alpha(BASE_BOT, 150),
-        theme::with_alpha(BASE_BOT, 0),
-    )));
+    // Rainbow dispersion where shafts cross: find each pair's crossing point
+    // and open a faint spectral bloom there, its colors split along the
+    // brighter shaft's direction.
+    for i in 0..SHAFTS.len() {
+        for j in (i + 1)..SHAFTS.len() {
+            let (si, sj) = (&SHAFTS[i], &SHAFTS[j]);
+            let dslope = si.slope - sj.slope;
+            if dslope.abs() < 0.08 {
+                continue; // near-parallel: no crossing worth marking
+            }
+            let dy = (cores[j] - cores[i]) / dslope;
+            if dy < 0.06 * h || dy > 0.94 * h {
+                continue;
+            }
+            let cx = cores[i] + si.slope * dy;
+            let cy = rect.top() + dy;
+            if cx < rect.left() + 0.03 * w || cx > rect.right() - 0.03 * w {
+                continue;
+            }
+            // Split the spectrum along the steeper shaft's normal.
+            let steep = if si.slope.abs() > sj.slope.abs() { si } else { sj };
+            let norm = egui::vec2(1.0, -steep.slope).normalized();
+            let spread = (si.half_w.min(sj.half_w)) * w * 0.80;
+            for (color, offset, alpha) in SPECTRUM {
+                p.add(egui::Shape::mesh(theme::radial_mesh(
+                    egui::pos2(cx, cy) + norm * (offset * spread),
+                    spread * 2.3,
+                    spread * 2.9,
+                    color,
+                    alpha,
+                )));
+            }
+        }
+    }
+
+    // Sparkle glints: tiny four-point stars popping in and out over the ice.
+    const SPARKS: u32 = 34;
+    for k in 0..SPARKS {
+        let fk = k as f32;
+        let x = rect.left() + hash01(fk * 12.9898 + 78.233) * w;
+        let y = rect.top() + hash01(fk * 39.3468 + 11.135) * h;
+        let period = 2.6 + hash01(fk * 3.7 + 0.5) * 3.4;
+        let phase = hash01(fk * 7.3 + 2.2);
+        let cycle = (t / period + phase).fract();
+        // Visible for the first ~30% of its cycle, easing in and out.
+        if cycle > 0.30 {
+            continue;
+        }
+        let pulse = (cycle / 0.30 * std::f32::consts::PI).sin();
+        let size = 2.6 + hash01(fk * 5.1 + 9.0) * 4.2;
+        let c = egui::pos2(x, y);
+        // An icy halo so the white star reads on the pale field...
+        p.add(egui::Shape::mesh(theme::radial_mesh(
+            c,
+            size * 4.4,
+            size * 4.4,
+            Color32::from_rgb(0x2f, 0xa8, 0xea),
+            (78.0 * pulse) as u8,
+        )));
+        // ...then the glint itself: a little 4-point star, with short
+        // diagonal arms on the larger ones.
+        let white = theme::with_alpha(Color32::WHITE, (245.0 * pulse) as u8);
+        let arm = size * (0.8 + 0.4 * pulse);
+        p.line_segment(
+            [c - egui::vec2(arm, 0.0), c + egui::vec2(arm, 0.0)],
+            egui::Stroke::new(1.5, white),
+        );
+        p.line_segment(
+            [c - egui::vec2(0.0, arm), c + egui::vec2(0.0, arm)],
+            egui::Stroke::new(1.5, white),
+        );
+        if size > 4.6 {
+            let d = arm * 0.45;
+            let faint = theme::with_alpha(Color32::WHITE, (150.0 * pulse) as u8);
+            p.line_segment([c - egui::vec2(d, d), c + egui::vec2(d, d)],
+                           egui::Stroke::new(1.0, faint));
+            p.line_segment([c - egui::vec2(d, -d), c + egui::vec2(d, -d)],
+                           egui::Stroke::new(1.0, faint));
+        }
+        p.circle_filled(c, size * 0.32, white);
+    }
+
+    // Ground the floor: the ice deepens toward the bottom lip.
+    let fade = (h * 0.18).min(130.0);
     p.add(egui::Shape::mesh(theme::vgrad_mesh(
         Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - fade), rect.right_bottom()),
-        theme::with_alpha(BASE_BOT, 0),
-        theme::with_alpha(BASE_BOT, 170),
+        theme::with_alpha(Color32::from_rgb(0x8e, 0xba, 0xdd), 0),
+        theme::with_alpha(Color32::from_rgb(0x8e, 0xba, 0xdd), 120),
     )));
 }

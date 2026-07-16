@@ -393,9 +393,9 @@ fn device_panel(
     );
     let bezel_rect = glass.expand(BEZEL);
 
-    // The shell: one frosted glass slab, lifted off the aurora with a deep
-    // drop shadow and wrapped in a faint icy glow. Translucent, so the LCD
-    // and the aurora glow through it.
+    // The shell: a frosted translucent white slab, lifted off the ice with
+    // a cool drop shadow and a faint icy halo. Just translucent enough that
+    // the prismatic shafts ghost through the plastic.
     let cr = CornerRadius::same(30);
     ui.painter()
         .add(egui::Shape::from(theme::fx::shell().as_shape(shell, cr)));
@@ -404,19 +404,26 @@ fn device_panel(
     ui.painter().add(egui::Shape::mesh(theme::rounded_vgrad_mesh(
         shell,
         cr,
-        theme::with_alpha(Color32::from_rgb(0xdc, 0xef, 0xff), 104),
-        theme::with_alpha(Color32::from_rgb(0x9c, 0xbf, 0xe6), 54),
+        theme::with_alpha(Color32::WHITE, 214),
+        theme::with_alpha(Color32::from_rgb(0xdb, 0xec, 0xf8), 182),
     )));
     // A faint ground-glass dither over the slab.
-    theme::dither(ui.painter(), shell, 96, 2.0, 16);
+    theme::dither(ui.painter(), shell, 110, 2.0, 26);
+    // Chrome hairline rim, with a white inner hairline: polished edge work.
     ui.painter().rect_stroke(
         shell,
         cr,
         Stroke::new(1.2, theme::SHELL_EDGE),
         StrokeKind::Inside,
     );
+    ui.painter().rect_stroke(
+        shell.shrink(2.0),
+        CornerRadius::same(28),
+        Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 170)),
+        StrokeKind::Inside,
+    );
     // The bright inner top-edge highlight that sells the frosted glass.
-    theme::frost_top_edge(ui.painter(), shell, cr, 175);
+    theme::frost_top_edge(ui.painter(), shell, cr, 240);
 
     // The brand, printed above the screen like on the real shell.
     ui.painter().text(
@@ -436,11 +443,11 @@ fn device_panel(
     let dpad_center = egui::pos2(bezel_rect.left() - SIDE_W / 2.0 - 8.0, glass.center().y);
     let arm = egui::vec2(34.0, 34.0);
     let reach = 34.0;
-    // A recessed frosted well behind the D-pad arms.
+    // A recessed well molded into the white plastic behind the D-pad arms.
     ui.painter().circle_filled(
         dpad_center,
         54.0,
-        theme::with_alpha(Color32::from_rgb(0x0a, 0x12, 0x1e), 95),
+        theme::with_alpha(Color32::from_rgb(0x93, 0xb6, 0xd0), 70),
     );
     ui.painter().circle_stroke(
         dpad_center,
@@ -452,16 +459,16 @@ fn device_panel(
     ui.painter().circle_stroke(
         dpad_center,
         24.0,
-        Stroke::new(1.0, theme::with_alpha(theme::FROST_HILITE, 60)),
+        Stroke::new(1.0, theme::SHELL_EDGE),
     );
 
     let right_x = bezel_rect.right() + SIDE_W / 2.0 + 8.0;
-    // A recessed frosted ring around the Action button, like the molded rim
-    // on the real shell.
+    // A recessed molded ring around the Action button, like the rim on the
+    // real shell.
     ui.painter().circle(
         egui::pos2(right_x, glass.center().y + 16.0),
         36.0,
-        theme::with_alpha(Color32::from_rgb(0x0a, 0x12, 0x1e), 85),
+        theme::with_alpha(Color32::from_rgb(0x93, 0xb6, 0xd0), 60),
         Stroke::new(1.0, theme::SHELL_EDGE),
     );
 

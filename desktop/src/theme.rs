@@ -1,11 +1,11 @@
-//! Skin: "Frost" — frosted acrylic over a drifting aurora (Fluent / visionOS).
-//! A slow cyan/violet/teal aurora (see [`crate::ui::backdrop`]) glows over a
-//! dark-cool base; the chrome is translucent frosted-acrylic glass — a faint
-//! near-white veil with a bright inner top-edge highlight and a light rim —
-//! floating over it, and the handheld reads as a frosted glass slab the LCD
-//! shines through. Everything visual that more than one screen uses lives
-//! here: the font stack, the palette, egui style, paint helpers, and the
-//! per-character accents.
+//! Skin: "Prism" — frost turned crystalline. A pale ice-blue/white glacier
+//! field (see [`crate::ui::backdrop`]) is crossed by broad prismatic light
+//! shafts with faint rainbow dispersion where they meet, and tiny sparkle
+//! glints pop in and out. The chrome is ui-9's frosted acrylic sharpened:
+//! colder white panels with crisp edges and chrome hairlines, ice-blue gel
+//! buttons, and a handheld that reads as a frosted translucent white shell.
+//! Everything visual that more than one screen uses lives here: the font
+//! stack, the palette, egui style, paint helpers, and per-character accents.
 
 use std::sync::Arc;
 
@@ -16,51 +16,50 @@ use eframe::egui::{
 };
 
 // ---- Palette ---------------------------------------------------------
-// Frost reads dark and moody: the aurora backdrop is deep and cool, and the
-// chrome is frosted-acrylic glass — a faint near-white veil over the aurora,
-// carried by a bright top-edge highlight and a light rim, not a bright fill.
-// (Theme::Dark, but the panels read as luminous frosted glass.)
+// Prism reads bright and cold: glacier light, not night. Panels are crisp
+// white glass floated over the ice with chrome hairlines; ink is a deep
+// glacier blue so text stays sharp on the pale field. (Theme::Light.)
 
-// The translucent frosted fills are written premultiplied (const-friendly);
-// each is the near-white tint above, carried at a low alpha over the aurora.
+// The translucent glass fills are written premultiplied (const-friendly);
+// each is a cold white carried at a moderate alpha over the ice.
 
-/// Fallback base behind the backdrop — the dark-cool floor.
-pub const BG: Color32 = Color32::from_rgb(0x0d, 0x14, 0x20);
-/// Bars — a translucent frosted-acrylic veil (≈ #ddecff @ 0x22).
-pub const PANEL: Color32 = Color32::from_rgba_premultiplied(0x1d, 0x1f, 0x22, 0x22);
-/// Cards and dialogs — frosted acrylic (≈ #e4f0ff @ 0x20).
-pub const CARD: Color32 = Color32::from_rgba_premultiplied(0x1d, 0x1e, 0x20, 0x20);
-/// Hovered cards / inputs — the veil thickens (≈ #f0f8ff @ 0x4a).
-pub const CARD_HOVER: Color32 = Color32::from_rgba_premultiplied(0x46, 0x48, 0x4a, 0x4a);
-/// Hairlines and rims — a light frosted edge (≈ #cbe4ff @ 0x3a).
-pub const OUTLINE: Color32 = Color32::from_rgba_premultiplied(0x2e, 0x34, 0x3a, 0x3a);
+/// Fallback base behind the backdrop — the pale ice floor.
+pub const BG: Color32 = Color32::from_rgb(0xda, 0xec, 0xf8);
+/// Bars — a bright frosted-glass veil (≈ #f7fbff @ 0xb8).
+pub const PANEL: Color32 = Color32::from_rgba_premultiplied(0xb2, 0xb5, 0xb8, 0xb8);
+/// Cards and dialogs — crisp cold glass (≈ #f8fcff @ 0x9c).
+pub const CARD: Color32 = Color32::from_rgba_premultiplied(0x98, 0x9a, 0x9c, 0x9c);
+/// Hovered cards / inputs — the glass thickens toward solid white.
+pub const CARD_HOVER: Color32 = Color32::from_rgba_premultiplied(0xca, 0xca, 0xca, 0xca);
+/// Hairlines and rims — polished chrome (cool steel, kept solid for crispness).
+pub const OUTLINE: Color32 = Color32::from_rgb(0x9f, 0xb9, 0xcc);
 
-pub const TEXT: Color32 = Color32::from_rgb(0xea, 0xf2, 0xfb);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(0xa4, 0xb7, 0xcb);
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x71, 0x84, 0x9a);
+pub const TEXT: Color32 = Color32::from_rgb(0x0e, 0x2a, 0x3f);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(0x41, 0x60, 0x78);
+pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x74, 0x8f, 0xa4);
 
-/// Icy cyan — the aurora's brightest thread.
-pub const ACCENT: Color32 = Color32::from_rgb(0x6f, 0xd8, 0xff);
-pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x4a, 0xba, 0xe8);
-/// A warm point of light against the cool — wordmark dot, small highlights.
-pub const GOLD: Color32 = Color32::from_rgb(0xff, 0xd6, 0x7a);
+/// Glacier blue — the color of deep ice lit from within.
+pub const ACCENT: Color32 = Color32::from_rgb(0x17, 0x9a, 0xdd);
+pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x0f, 0x7c, 0xb6);
+/// A warm point of light against the cold — wordmark dot, small highlights.
+pub const GOLD: Color32 = Color32::from_rgb(0xe4, 0x9c, 0x22);
 
-pub const GOOD: Color32 = Color32::from_rgb(0x49, 0xda, 0x9c);
-pub const BAD: Color32 = Color32::from_rgb(0xff, 0x6b, 0x74);
+pub const GOOD: Color32 = Color32::from_rgb(0x0d, 0x94, 0x64);
+pub const BAD: Color32 = Color32::from_rgb(0xd6, 0x3d, 0x51);
 
-/// The frosted glass rim of the drawn handheld (≈ #d6ecff @ 0x66).
-pub const SHELL_EDGE: Color32 = Color32::from_rgba_premultiplied(0x56, 0x5e, 0x66, 0x66);
-/// Frosted pill buttons on the shell (≈ #e6f2ff @ 0x3c / #f2f9ff @ 0x5e).
-pub const BUTTON: Color32 = Color32::from_rgba_premultiplied(0x36, 0x39, 0x3c, 0x3c);
-pub const BUTTON_HOVER: Color32 = Color32::from_rgba_premultiplied(0x59, 0x5c, 0x5e, 0x5e);
+/// The chrome hairline that rims the frosted white shell.
+pub const SHELL_EDGE: Color32 = Color32::from_rgb(0x9c, 0xb8, 0xcc);
+/// Ice-blue gel buttons on the shell.
+pub const BUTTON: Color32 = Color32::from_rgb(0xcd, 0xea, 0xfa);
+pub const BUTTON_HOVER: Color32 = Color32::from_rgb(0xe3, 0xf5, 0xff);
 pub const BUTTON_PRESSED: Color32 = ACCENT;
 /// The dark screen border around the LCD glass.
-pub const LCD_BEZEL: Color32 = Color32::from_rgb(0x0a, 0x11, 0x1d);
+pub const LCD_BEZEL: Color32 = Color32::from_rgb(0x14, 0x21, 0x2c);
 
-/// The bright inner top-edge highlight that lights a frosted panel's lip.
-pub const FROST_HILITE: Color32 = Color32::from_rgb(0xf4, 0xfb, 0xff);
-/// Deep ink for text sitting on a bright (icy-cyan) accent fill.
-pub const ON_ACCENT: Color32 = Color32::from_rgb(0x05, 0x1a, 0x2a);
+/// The bright inner top-edge highlight that lights a glass panel's lip.
+pub const FROST_HILITE: Color32 = Color32::WHITE;
+/// Text sitting on a filled glacier-blue accent.
+pub const ON_ACCENT: Color32 = Color32::from_rgb(0xfb, 0xfe, 0xff);
 
 /// Each character's accent, used for gallery placeholders and chips.
 pub fn character_color(character: &str) -> Color32 {
@@ -69,7 +68,7 @@ pub fn character_color(character: &str) -> Color32 {
         "Inferno" => Color32::from_rgb(0xef, 0x4b, 0x2e),
         "Creeper" => Color32::from_rgb(0x35, 0xa5, 0x3e),
         "Dash" => Color32::from_rgb(0x3a, 0x8f, 0xe8),
-        "Roc" => Color32::from_rgb(0xf0, 0xc0, 0x1e),
+        "Roc" => Color32::from_rgb(0xe8, 0xb4, 0x0e),
         "Cloe" => Color32::from_rgb(0xec, 0x40, 0xa8),
         "Yasmin" => Color32::from_rgb(0x8c, 0x55, 0xf5),
         _ => ACCENT,
@@ -159,8 +158,8 @@ fn setup_fonts(ctx: &egui::Context) {
 
 pub fn apply(ctx: &egui::Context) {
     setup_fonts(ctx);
-    ctx.set_theme(egui::Theme::Dark);
-    let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
+    ctx.set_theme(egui::Theme::Light);
+    let mut style = (*ctx.style_of(egui::Theme::Light)).clone();
 
     style.text_styles = [
         (TextStyle::Heading, FontId::new(23.0, display_family())),
@@ -176,16 +175,16 @@ pub fn apply(ctx: &egui::Context) {
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.window_margin = egui::Margin::same(18);
 
-    let mut visuals = Visuals::dark();
+    let mut visuals = Visuals::light();
     visuals.override_text_color = Some(TEXT);
-    // Modals sit over a dimmed backdrop: a substantial dark-cool frosted pane
-    // so near-white body text always reads, with a light rim from window_stroke.
-    visuals.window_fill = Color32::from_rgba_unmultiplied(0x1b, 0x28, 0x3a, 0xe2);
+    // Modals sit over a dimmed backdrop: a near-solid cold white pane so the
+    // dark glacier ink always reads, rimmed by a chrome hairline.
+    visuals.window_fill = Color32::from_rgba_unmultiplied(0xfa, 0xfd, 0xff, 0xf5);
     visuals.panel_fill = Color32::TRANSPARENT;
-    // Inset fields read as recessed frosted glass, darker than the panel.
-    visuals.extreme_bg_color = Color32::from_rgba_unmultiplied(0x08, 0x10, 0x1c, 0xc0);
+    // Inset fields read as polished wells cut into the glass.
+    visuals.extreme_bg_color = Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0xe8);
     visuals.faint_bg_color = CARD;
-    visuals.window_corner_radius = CornerRadius::same(16);
+    visuals.window_corner_radius = CornerRadius::same(14);
     visuals.window_stroke = Stroke::new(1.0, OUTLINE);
     visuals.window_shadow = fx::shell();
     visuals.popup_shadow = fx::soft_card();
@@ -194,38 +193,38 @@ pub fn apply(ctx: &egui::Context) {
     w.noninteractive.bg_fill = PANEL;
     w.noninteractive.bg_stroke = Stroke::new(1.0, OUTLINE);
     w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
-    w.noninteractive.corner_radius = CornerRadius::same(10);
+    w.noninteractive.corner_radius = CornerRadius::same(9);
 
     w.inactive.bg_fill = CARD;
     w.inactive.weak_bg_fill = CARD;
     w.inactive.bg_stroke = Stroke::new(1.0, OUTLINE);
     w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
-    w.inactive.corner_radius = CornerRadius::same(11);
+    w.inactive.corner_radius = CornerRadius::same(10);
 
     w.hovered.bg_fill = CARD_HOVER;
     w.hovered.weak_bg_fill = CARD_HOVER;
-    w.hovered.bg_stroke = Stroke::new(1.0, with_alpha(ACCENT, 0xb0));
+    w.hovered.bg_stroke = Stroke::new(1.0, with_alpha(ACCENT, 0xc8));
     w.hovered.fg_stroke = Stroke::new(1.5, TEXT);
-    w.hovered.corner_radius = CornerRadius::same(11);
+    w.hovered.corner_radius = CornerRadius::same(10);
 
     w.active.bg_fill = CARD_HOVER;
     w.active.weak_bg_fill = CARD_HOVER;
     w.active.bg_stroke = Stroke::new(1.5, ACCENT);
-    w.active.fg_stroke = Stroke::new(1.5, ACCENT);
-    w.active.corner_radius = CornerRadius::same(11);
+    w.active.fg_stroke = Stroke::new(1.5, ACCENT_DIM);
+    w.active.corner_radius = CornerRadius::same(10);
 
     w.open.bg_fill = CARD_HOVER;
     w.open.weak_bg_fill = CARD_HOVER;
-    w.open.bg_stroke = Stroke::new(1.0, with_alpha(ACCENT, 0xb0));
+    w.open.bg_stroke = Stroke::new(1.0, with_alpha(ACCENT, 0xc8));
     w.open.fg_stroke = Stroke::new(1.0, TEXT);
-    w.open.corner_radius = CornerRadius::same(11);
+    w.open.corner_radius = CornerRadius::same(10);
 
-    visuals.selection.bg_fill = ACCENT.gamma_multiply(0.32);
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT);
+    visuals.selection.bg_fill = with_alpha(ACCENT, 70);
+    visuals.selection.stroke = Stroke::new(1.0, ACCENT_DIM);
     visuals.hyperlink_color = ACCENT_DIM;
 
     style.visuals = visuals;
-    ctx.set_style_of(egui::Theme::Dark, style);
+    ctx.set_style_of(egui::Theme::Light, style);
 }
 
 // ---- Paint helpers (shared with the backdrop, cards, and the device) --
@@ -310,11 +309,11 @@ pub fn gloss_cap(painter: &egui::Painter, rect: Rect, strength: u8) {
     )));
 }
 
-// ---- Frosted acrylic -------------------------------------------------
+// ---- Crystalline acrylic ---------------------------------------------
 
 /// A soft radial (elliptical) glow mesh: bright at the center, fading to
-/// transparent at the rim. The aurora and the device's luminous glows are
-/// built from these — a triangle fan gives a smooth, shader-free falloff.
+/// transparent at the rim. The prismatic dispersion and the device's luminous
+/// glows are built from these — a triangle fan gives a smooth falloff.
 pub fn radial_mesh(center: egui::Pos2, rx: f32, ry: f32, color: Color32, center_alpha: u8) -> Mesh {
     let mut m = Mesh::default();
     const SEG: usize = 56;
@@ -334,8 +333,8 @@ pub fn radial_mesh(center: egui::Pos2, rx: f32, ry: f32, color: Color32, center_
     m
 }
 
-/// The bright 1px inner highlight that rides the top lip of a frosted panel —
-/// the single detail that most sells "acrylic glass lit from above".
+/// The bright 1px inner highlight that rides the top lip of a glass panel —
+/// the single detail that most sells "cut glass lit from above".
 pub fn frost_top_edge(painter: &egui::Painter, rect: Rect, cr: CornerRadius, alpha: u8) {
     let inset = cr.nw.max(cr.ne) as f32 * 0.72 + 1.5;
     let y = rect.top() + 1.0;
@@ -348,11 +347,21 @@ pub fn frost_top_edge(painter: &egui::Painter, rect: Rect, cr: CornerRadius, alp
     );
 }
 
-/// Paint a frosted-acrylic panel: a translucent veil, a bright inner top-edge
-/// highlight, and a light outer rim. The luminous aurora shows through.
+/// Paint a crystalline acrylic panel: a cold white glass fill, a crisp white
+/// top-edge highlight, a chrome hairline rim, and a faint cool shade along
+/// the bottom lip so the pane reads as cut, not printed.
 pub fn acrylic(painter: &egui::Painter, rect: Rect, cr: CornerRadius, fill: Color32, rim: Color32) {
     painter.rect_filled(rect, cr, fill);
-    frost_top_edge(painter, rect, cr, 150);
+    frost_top_edge(painter, rect, cr, 235);
+    let inset = cr.sw.max(cr.se) as f32 * 0.72 + 1.5;
+    let y = rect.bottom() - 1.0;
+    painter.line_segment(
+        [
+            egui::pos2(rect.left() + inset, y),
+            egui::pos2(rect.right() - inset, y),
+        ],
+        Stroke::new(1.0, with_alpha(Color32::from_rgb(0x77, 0x99, 0xb2), 70)),
+    );
     painter.rect_stroke(rect, cr, Stroke::new(1.0, rim), egui::StrokeKind::Inside);
 }
 
@@ -361,10 +370,10 @@ fn frost_hash(n: f32) -> f32 {
     (n.sin() * 43758.5453).fract().abs()
 }
 
-/// A faint fine dither: tiny low-alpha specks that suggest a frosted, ground
-/// texture on a large acrylic surface. Cheap; keep `count` modest.
+/// A faint fine dither: tiny low-alpha ice-blue specks that suggest a ground,
+/// frosted texture on a large glass surface. Cheap; keep `count` modest.
 pub fn dither(painter: &egui::Painter, rect: Rect, count: u32, seed: f32, alpha: u8) {
-    let c = with_alpha(FROST_HILITE, alpha);
+    let c = with_alpha(Color32::from_rgb(0x7d, 0xb4, 0xd8), alpha);
     for i in 0..count {
         let fi = i as f32 + seed * 97.0;
         let x = rect.left() + frost_hash(fi * 1.7 + 0.3) * rect.width();
@@ -382,40 +391,40 @@ pub fn dither(painter: &egui::Painter, rect: Rect, count: u32, seed: f32, alpha:
 pub mod fx {
     use super::{Color32, Shadow};
 
-    /// Deep, cool drop shadow that lifts the device off the aurora.
+    /// Cool slate drop shadow that lifts the device off the ice.
     pub fn shell() -> Shadow {
         Shadow {
-            offset: [0, 16],
-            blur: 48,
+            offset: [0, 14],
+            blur: 42,
             spread: 0,
-            color: Color32::from_rgba_unmultiplied(2, 6, 12, 155),
+            color: Color32::from_rgba_unmultiplied(0x24, 0x48, 0x64, 80),
         }
     }
-    /// Softer grounding shadow under a floating frosted card.
+    /// Softer grounding shadow under a floating glass card.
     pub fn soft_card() -> Shadow {
         Shadow {
-            offset: [0, 9],
-            blur: 28,
+            offset: [0, 8],
+            blur: 24,
             spread: 0,
-            color: Color32::from_rgba_unmultiplied(3, 8, 14, 120),
+            color: Color32::from_rgba_unmultiplied(0x2a, 0x4e, 0x6a, 60),
         }
     }
     /// Small contact shadow under a raised button.
     pub fn button() -> Shadow {
         Shadow {
             offset: [0, 2],
-            blur: 7,
+            blur: 6,
             spread: 0,
-            color: Color32::from_rgba_unmultiplied(0, 3, 8, 95),
+            color: Color32::from_rgba_unmultiplied(0x22, 0x44, 0x60, 70),
         }
     }
-    /// A luminous icy-cyan halo around hero acrylic (the device slab).
+    /// A luminous icy halo around hero glass (the device slab).
     pub fn glow() -> Shadow {
         Shadow {
             offset: [0, 0],
-            blur: 38,
-            spread: 3,
-            color: Color32::from_rgba_unmultiplied(0x6f, 0xd8, 0xff, 46),
+            blur: 34,
+            spread: 2,
+            color: Color32::from_rgba_unmultiplied(0x5d, 0xc4, 0xf4, 60),
         }
     }
 }
