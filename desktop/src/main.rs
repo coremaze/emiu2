@@ -68,6 +68,36 @@ fn parse_args() -> Result<StartupOptions, String> {
     })
 }
 
+/// The window icon, rasterized from the bundled logo at startup. X11 and
+/// Windows apply it to the window and taskbar; Wayland takes the icon
+/// from the bundle's desktop entry (matched by app id) and macOS from an
+/// .app bundle, so they ignore this.
+fn window_icon() -> Option<eframe::egui::IconData> {
+    const SIZE: u32 = 256;
+    let svg = include_bytes!("../assets/emiu2.svg");
+    let tree = resvg::usvg::Tree::from_data(svg, &resvg::usvg::Options::default()).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(SIZE, SIZE)?;
+    let scale = SIZE as f32 / tree.size().width().max(tree.size().height());
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let rgba = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|px| {
+            let px = px.demultiply();
+            [px.red(), px.green(), px.blue(), px.alpha()]
+        })
+        .collect();
+    Some(eframe::egui::IconData {
+        rgba,
+        width: SIZE,
+        height: SIZE,
+    })
+}
+
 fn main() {
     let options = match parse_args() {
         Ok(options) => options,
@@ -82,12 +112,16 @@ fn main() {
     // still; let it win so low-resolution layouts can be exercised.
     let floor = ui::player::window_size_for_scale(ui::player::MIN_SCALE);
     let size = options.window_size.unwrap_or([960.0, 640.0]);
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_title("Emiu2 Desktop")
+        .with_app_id("emiu2-desktop")
+        .with_inner_size(size)
+        .with_min_inner_size([size[0].min(floor.x), size[1].min(floor.y)]);
+    if let Some(icon) = window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let native_options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("Emiu2 Desktop")
-            .with_app_id("emiu2-desktop")
-            .with_inner_size(size)
-            .with_min_inner_size([size[0].min(floor.x), size[1].min(floor.y)]),
+        viewport,
         ..Default::default()
     };
 
@@ -99,5 +133,17 @@ fn main() {
     if let Err(why) = result {
         eprintln!("Could not start Emiu2 Desktop: {why}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn window_icon_renders() {
+        let icon = super::window_icon().expect("the bundled logo should rasterize");
+        assert_eq!((icon.width, icon.height), (256, 256));
+        assert_eq!(icon.rgba.len(), 256 * 256 * 4);
+        // The logo's gold disc must actually have landed in the pixels.
+        assert!(icon.rgba.chunks(4).any(|px| px[3] == 255 && px[0] > 200));
     }
 }

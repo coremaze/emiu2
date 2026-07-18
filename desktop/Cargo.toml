@@ -26,6 +26,13 @@ eframe = { version = "0.35.0", default-features = false, features = [
 egui_extras = { version = "0.35.0", default-features = false, features = [
     "svg",
 ] }
+# For rasterizing the same logo into the window icon at startup (matches
+# the version and features egui_extras already builds).
+resvg = { version = "0.45.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2"
+
+[build-dependencies]
+# Embeds assets/emiu2.ico into the .exe when targeting Windows.
+winresource = "0.1"
