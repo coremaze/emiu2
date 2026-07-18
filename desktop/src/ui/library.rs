@@ -84,17 +84,12 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
         });
 }
 
-/// The brand lockup: a warm glowing dot, EMIU2 in the display face, and a
-/// quiet mono tag — a single warm point against the glacier.
+/// The brand lockup: the emiu2 logo, EMIU2 in the display face, and a
+/// quiet caps tag — a single warm point against the glacier.
 pub fn wordmark(ui: &mut egui::Ui) {
-    let (dot, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::hover());
-    ui.painter()
-        .circle_filled(dot.center(), 8.5, theme::with_alpha(theme::GOLD, 70));
-    ui.painter().circle_filled(dot.center(), 5.0, theme::GOLD);
-    ui.painter().circle_stroke(
-        dot.center(),
-        5.0,
-        Stroke::new(1.0, theme::with_alpha(Color32::WHITE, 180)),
+    ui.add(
+        egui::Image::new(egui::include_image!("../../assets/emiu2.svg"))
+            .fit_to_exact_size(egui::vec2(20.0, 20.0)),
     );
     ui.add_space(2.0);
     ui.label(theme::display(18.0, "EMIU2").color(theme::ACCENT));

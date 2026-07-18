@@ -41,9 +41,6 @@ pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x74, 0x8f, 0xa4);
 /// Glacier blue — the color of deep ice lit from within.
 pub const ACCENT: Color32 = Color32::from_rgb(0x17, 0x9a, 0xdd);
 pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x0f, 0x7c, 0xb6);
-/// A warm point of light against the cold — wordmark dot, small highlights.
-pub const GOLD: Color32 = Color32::from_rgb(0xe4, 0x9c, 0x22);
-
 pub const GOOD: Color32 = Color32::from_rgb(0x0d, 0x94, 0x64);
 pub const BAD: Color32 = Color32::from_rgb(0xd6, 0x3d, 0x51);
 

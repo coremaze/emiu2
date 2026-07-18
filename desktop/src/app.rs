@@ -117,6 +117,8 @@ pub struct DesktopApp {
 impl DesktopApp {
     pub fn new(cc: &eframe::CreationContext<'_>, options: crate::StartupOptions) -> Self {
         theme::apply(&cc.egui_ctx);
+        // The wordmark's SVG logo needs the svg image loader.
+        egui_extras::install_image_loaders(&cc.egui_ctx);
 
         let config_path = Config::path();
         let config = Config::load(&config_path);
