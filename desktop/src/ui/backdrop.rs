@@ -83,6 +83,17 @@ fn shaft_mesh(rect: &Rect, core_x: f32, slope: f32, half_w: f32, color: Color32,
     m
 }
 
+/// 0 at `lo` and `hi`, easing smoothly up to 1 from `band` inside them.
+/// Anything positioned by the sweeping shafts must fade through this at
+/// its validity edges — a hard cutoff pops in and out as it drifts.
+fn edge_fade(v: f32, lo: f32, hi: f32, band: f32) -> f32 {
+    let ease = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    ease((v - lo) / band) * ease((hi - v) / band)
+}
+
 /// Paint the glacier into `rect`. Call once, first thing, so the chrome
 /// draws over it. Requests a repaint to keep the sweep smooth.
 pub fn paint(ui: &mut egui::Ui, rect: Rect) {
@@ -134,21 +145,22 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
 
     // Rainbow dispersion where shafts cross: find each pair's crossing point
     // and open a faint spectral bloom there, its colors split along the
-    // brighter shaft's direction.
+    // brighter shaft's direction. The crossing drifts (fast — core distance
+    // over a small slope difference) as the shafts sweep, so the bloom
+    // fades through its validity edges instead of popping.
     for i in 0..SHAFTS.len() {
         for j in (i + 1)..SHAFTS.len() {
             let (si, sj) = (&SHAFTS[i], &SHAFTS[j]);
             let dslope = si.slope - sj.slope;
             if dslope.abs() < 0.08 {
-                continue; // near-parallel: no crossing worth marking
+                continue; // near-parallel (static): no crossing worth marking
             }
             let dy = (cores[j] - cores[i]) / dslope;
-            if dy < 0.06 * h || dy > 0.94 * h {
-                continue;
-            }
             let cx = cores[i] + si.slope * dy;
             let cy = rect.top() + dy;
-            if cx < rect.left() + 0.03 * w || cx > rect.right() - 0.03 * w {
+            let envelope = edge_fade(dy, 0.06 * h, 0.94 * h, 0.12 * h)
+                * edge_fade(cx - rect.left(), 0.03 * w, 0.97 * w, 0.08 * w);
+            if envelope <= 0.0 {
                 continue;
             }
             // Split the spectrum along the steeper shaft's normal.
@@ -161,7 +173,7 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
                     spread * 2.3,
                     spread * 2.9,
                     color,
-                    alpha,
+                    (alpha as f32 * envelope) as u8,
                 )));
             }
         }
