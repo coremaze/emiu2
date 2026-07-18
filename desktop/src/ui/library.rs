@@ -12,6 +12,13 @@ use crate::firmware;
 use crate::saves::{self, SaveSlot};
 use crate::theme;
 
+/// Which custom-image field a file picker was opened for.
+#[derive(Clone, Copy)]
+pub enum PickerTarget {
+    Otp,
+    Flash,
+}
+
 /// The new-save form, shown as a hero on first launch and as a modal later.
 pub struct NewSaveState {
     pub character: Option<&'static str>,
@@ -23,6 +30,10 @@ pub struct NewSaveState {
     pub version: &'static str,
     pub custom_otp: String,
     pub custom_flash: String,
+    /// A native file picker running on a helper thread, if one is open:
+    /// the field it fills and the channel its choice arrives on. The main
+    /// window keeps rendering; the pick is polled in each frame.
+    pub picker: Option<(PickerTarget, std::sync::mpsc::Receiver<Option<String>>)>,
 }
 
 impl Default for NewSaveState {
@@ -35,8 +46,34 @@ impl Default for NewSaveState {
             version: firmware::RECOMMENDED_VERSION,
             custom_otp: String::new(),
             custom_flash: String::new(),
+            picker: None,
         }
     }
+}
+
+/// Opens a native file picker on a helper thread. The dialog must not run
+/// on this thread — it would freeze the window — and on macOS only the
+/// async dialog may be driven off the main thread at all.
+fn open_picker(ctx: &egui::Context, state: &mut NewSaveState, target: PickerTarget) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
+    let title = match target {
+        PickerTarget::Otp => "Choose an OTP image",
+        PickerTarget::Flash => "Choose a flash image",
+    };
+    std::thread::spawn(move || {
+        let file = pollster::block_on(
+            rfd::AsyncFileDialog::new()
+                .set_title(title)
+                .add_filter("Firmware images", &["dat", "bin", "rom"])
+                .add_filter("All files", &["*"])
+                .pick_file(),
+        );
+        tx.send(file.map(|f| f.path().display().to_string())).ok();
+        // Wake the UI so the pick lands without waiting for the heartbeat.
+        ctx.request_repaint();
+    });
+    state.picker = Some((target, rx));
 }
 
 pub enum FormAction {
@@ -636,16 +673,55 @@ pub fn new_save_form(ui: &mut egui::Ui, state: &mut NewSaveState, show_cancel: b
                         .small()
                         .color(theme::TEXT_DIM),
                 );
-                ui.add(
-                    egui::TextEdit::singleline(&mut state.custom_otp)
-                        .hint_text("OTP image path (blank = built-in)")
-                        .desired_width(f32::INFINITY),
-                );
-                ui.add(
-                    egui::TextEdit::singleline(&mut state.custom_flash)
-                        .hint_text("Flash image path (blank = built-in firmware)")
-                        .desired_width(f32::INFINITY),
-                );
+
+                // Land a finished picker's choice in its field. The picker
+                // runs on a helper thread, so the window stayed live.
+                let mut picked = false;
+                if let Some((target, rx)) = &state.picker {
+                    match rx.try_recv() {
+                        Ok(choice) => {
+                            picked = true;
+                            if let Some(path) = choice {
+                                match target {
+                                    PickerTarget::Otp => state.custom_otp = path,
+                                    PickerTarget::Flash => state.custom_flash = path,
+                                }
+                            }
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => picked = true,
+                    }
+                }
+                if picked {
+                    state.picker = None;
+                }
+
+                let picking = state.picker.is_some();
+                let path_row = |ui: &mut egui::Ui, value: &mut String, hint: &str| {
+                    let mut browse = false;
+                    ui.horizontal(|ui| {
+                        let browse_w = 76.0 + ui.spacing().item_spacing.x;
+                        ui.add(
+                            egui::TextEdit::singleline(value)
+                                .hint_text(hint)
+                                .desired_width(ui.available_width() - browse_w),
+                        );
+                        browse = ui
+                            .add_enabled(!picking, egui::Button::new("Browse…"))
+                            .clicked();
+                    });
+                    browse
+                };
+                if path_row(ui, &mut state.custom_otp, "OTP image (blank = built-in)") {
+                    open_picker(ui.ctx(), state, PickerTarget::Otp);
+                }
+                if path_row(
+                    ui,
+                    &mut state.custom_flash,
+                    "Flash image (blank = built-in firmware)",
+                ) {
+                    open_picker(ui.ctx(), state, PickerTarget::Flash);
+                }
             });
     }
 

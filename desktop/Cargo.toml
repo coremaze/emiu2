@@ -30,6 +30,14 @@ egui_extras = { version = "0.35.0", default-features = false, features = [
 # the version and features egui_extras already builds).
 resvg = { version = "0.45.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+# Native file pickers for the custom-image fields. Async + a tiny block_on
+# executor, run on a helper thread: the async macOS dialog is the one that
+# may be driven off the main thread, and the main window keeps rendering.
+rfd = { version = "0.15", default-features = false, features = [
+    "xdg-portal",
+    "async-std",
+] }
+pollster = "0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2"
 
