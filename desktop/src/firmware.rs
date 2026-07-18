@@ -76,10 +76,10 @@ pub static FIRMWARE: &[BundledFirmware] = &[
 /// The firmware version new saves are guided to.
 pub const RECOMMENDED_VERSION: &str = "1.09.03";
 
-/// The characters offered by the new-save flow, in display order.
-/// Monsterz first, then the Bratz pair, matching how the line was sold.
+/// The characters offered by the new-save flow, in display order:
+/// the Bratz pair in pinks, then the Monsterz grouped by accent.
 pub const CHARACTERS: &[&str] = &[
-    "Spike", "Inferno", "Creeper", "Dash", "Roc", "Cloe", "Yasmin",
+    "Cloe", "Yasmin", "Spike", "Dash", "Roc", "Creeper", "Inferno",
 ];
 
 pub fn find(character: &str, version: &str) -> Option<&'static BundledFirmware> {
