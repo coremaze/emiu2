@@ -61,11 +61,11 @@ pub const ON_ACCENT: Color32 = Color32::from_rgb(0xfb, 0xfe, 0xff);
 /// Each character's accent, used for gallery placeholders and chips.
 pub fn character_color(character: &str) -> Color32 {
     match character {
-        "Cloe" => Color32::from_rgb(0xf8, 0x7e, 0xc0),   // bubblegum pink
+        "Cloe" => Color32::from_rgb(0xf8, 0x7e, 0xc0), // bubblegum pink
         "Yasmin" => Color32::from_rgb(0xd2, 0x35, 0x8c), // darker pink
-        "Spike" => Color32::from_rgb(0xf2, 0xc3, 0x12),  // yellow
-        "Dash" => Color32::from_rgb(0xf0, 0x7d, 0x1a),   // orange
-        "Roc" => Color32::from_rgb(0x3a, 0x8f, 0xe8),    // blue
+        "Spike" => Color32::from_rgb(0xf2, 0xc3, 0x12), // yellow
+        "Dash" => Color32::from_rgb(0xf0, 0x7d, 0x1a), // orange
+        "Roc" => Color32::from_rgb(0x3a, 0x8f, 0xe8),  // blue
         "Creeper" => Color32::from_rgb(0x35, 0xa5, 0x3e), // green
         "Inferno" => Color32::from_rgb(0xe3, 0x35, 0x2d), // red
         _ => ACCENT,
