@@ -170,6 +170,10 @@ pub fn apply(ctx: &egui::Context) {
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.window_margin = egui::Margin::same(18);
 
+    // This is an appliance, not a document: labels shouldn't highlight on
+    // drag. Text fields still select fine.
+    style.interaction.selectable_labels = false;
+
     let mut visuals = Visuals::light();
     visuals.override_text_color = Some(TEXT);
     // Modals sit over a dimmed backdrop: a near-solid cold white pane so the
