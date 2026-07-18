@@ -349,11 +349,14 @@ fn save_card(
         4.5,
         dot_c,
     );
+    // Elide the name short of the "more" button's corner.
+    let name_font = FontId::new(15.5, theme::display_family());
+    let name_max = (rect.right() - 34.0) - (text_x + 15.0);
     painter.text(
         egui::pos2(text_x + 15.0, thumb_rect.bottom() + 10.0),
         Align2::LEFT_TOP,
-        &slot.meta.name,
-        FontId::new(15.5, theme::display_family()),
+        theme::elide(ui, &slot.meta.name, &name_font, name_max),
+        name_font,
         theme::TEXT,
     );
     let detail = format!(
@@ -500,6 +503,7 @@ pub fn new_save_form(
         ui.label(egui::RichText::new("Name").color(theme::TEXT_DIM));
         let edit = egui::TextEdit::singleline(&mut state.name)
             .hint_text("Name this save")
+            .char_limit(saves::NAME_MAX_CHARS)
             .desired_width(220.0);
         if ui.add(edit).changed() {
             state.name_edited = !state.name.trim().is_empty();

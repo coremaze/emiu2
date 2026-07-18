@@ -23,6 +23,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+/// The longest a save's name can be typed (new-save form, rename). Older
+/// or hand-edited saves may exceed it; every display site elides.
+pub const NAME_MAX_CHARS: usize = 40;
+
 pub const META_FILE: &str = "save.toml";
 pub const OTP_FILE: &str = "otp.bin";
 pub const FLASH_FILE: &str = "flash.bin";

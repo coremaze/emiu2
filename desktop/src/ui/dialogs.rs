@@ -418,7 +418,9 @@ fn rename(app: &mut DesktopApp, ctx: &egui::Context, save_id: String, mut name: 
         ui.heading("Rename save");
         ui.add_space(10.0);
         let edit = ui.add(
-            egui::TextEdit::singleline(&mut name).desired_width(f32::INFINITY),
+            egui::TextEdit::singleline(&mut name)
+                .char_limit(crate::saves::NAME_MAX_CHARS)
+                .desired_width(f32::INFINITY),
         );
         if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
             outcome = Some(true);

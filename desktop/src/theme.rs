@@ -97,6 +97,33 @@ pub fn caps(size: f32, text: &str) -> RichText {
         .font(FontId::new(size, display_family()))
         .extra_letter_spacing(0.6)
 }
+
+/// `text` cut to fit `max_width` in `font`, with an ellipsis when cut.
+/// For painter-drawn text, which never wraps or clips on its own; labels
+/// should use `Label::truncate` instead.
+pub fn elide(ui: &egui::Ui, text: &str, font: &FontId, max_width: f32) -> String {
+    let fits = |s: &str| {
+        ui.painter()
+            .layout_no_wrap(s.to_owned(), font.clone(), Color32::WHITE)
+            .size()
+            .x
+            <= max_width
+    };
+    if fits(text) {
+        return text.to_owned();
+    }
+    let mut kept = String::new();
+    let mut out = "…".to_owned();
+    for ch in text.chars() {
+        kept.push(ch);
+        let candidate = format!("{kept}…");
+        if !fits(&candidate) {
+            break;
+        }
+        out = candidate;
+    }
+    out
+}
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert(

@@ -284,8 +284,12 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                             );
                             ui.painter()
                                 .circle_filled(dot.center(), 4.0, character_color);
-                            ui.label(
-                                egui::RichText::new(&save_name).color(theme::TEXT_DIM),
+                            // Elide rather than spill over the status chips.
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&save_name).color(theme::TEXT_DIM),
+                                )
+                                .truncate(),
                             );
                         },
                     );
