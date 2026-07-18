@@ -7,7 +7,6 @@ use eframe::egui::{self, Color32, CornerRadius, Id, Key, RichText, Stroke};
 use emiu2_netplay::FriendCode;
 
 use crate::app::{DesktopApp, Dialog, ToastKind};
-use crate::emu::EmuCmd;
 use crate::theme;
 use crate::ui::library;
 
@@ -381,15 +380,7 @@ fn confirm_reset(app: &mut DesktopApp, ctx: &egui::Context, connect_mode: bool) 
     };
     match confirm_modal(ctx, "confirm_reset", title, body, confirm) {
         Some(true) => {
-            if let Some(session) = &app.session {
-                session.emu.send(EmuCmd::Reset { connect_mode });
-                if connect_mode {
-                    // Connect mode exists to talk to a host; imply the cable.
-                    session.emu.cable.set_plugged(true);
-                    app.config.usb.plugged = true;
-                    app.save_config();
-                }
-            }
+            app.restart_session(ctx, connect_mode);
             app.dialog = Dialog::None;
         }
         Some(false) => app.dialog = Dialog::None,

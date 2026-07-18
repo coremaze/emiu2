@@ -66,16 +66,12 @@ pub struct SessionSpec {
     pub usb_plugged: bool,
     /// IR relay `host:port`; `None` leaves the IR port disconnected.
     pub relay_addr: Option<String>,
+    /// Hold Left+Menu through early boot so the device starts in its
+    /// "Please Connect to PC" mode.
+    pub connect_mode: bool,
 }
 
 pub enum EmuCmd {
-    /// Restart the device (keeps flash, loses unsaved RAM state — exactly
-    /// like pulling the batteries).
-    Reset {
-        /// Hold Left+Menu through boot so the device starts in its
-        /// "Please Connect to PC" mode.
-        connect_mode: bool,
-    },
     SaveNow,
     Shutdown,
 }
@@ -391,6 +387,15 @@ fn run_session(
         }
     }
 
+    if spec.connect_mode {
+        // get_inputs is handed oscillator cycles, so the deadline must be
+        // in that clock (2x core.cycles).
+        boot_hold_until.store(
+            handheld.mcu.core.oscillator_cycles() + CONNECT_MODE_HOLD_CYCLES,
+            Ordering::Relaxed,
+        );
+    }
+
     let mut rollback_driver = ir_rollback.map(RollbackDriver::new);
     let mut saver = SaveWriter {
         dir: spec.save_dir,
@@ -438,17 +443,6 @@ fn run_session(
         let mut shutdown = false;
         loop {
             match cmd_rx.try_recv() {
-                Ok(EmuCmd::Reset { connect_mode }) => {
-                    if connect_mode {
-                        // get_inputs is handed oscillator cycles, so the
-                        // deadline must be in that clock (2x core.cycles).
-                        boot_hold_until.store(
-                            handheld.mcu.core.oscillator_cycles() + CONNECT_MODE_HOLD_CYCLES,
-                            Ordering::Relaxed,
-                        );
-                    }
-                    handheld.mcu.reset();
-                }
                 Ok(EmuCmd::SaveNow) => match saver.save(&mut handheld) {
                     Ok(()) => {
                         events.send(EmuEvent::Saved).ok();

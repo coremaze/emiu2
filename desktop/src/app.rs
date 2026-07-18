@@ -182,6 +182,12 @@ impl DesktopApp {
 
     /// Starts playing a save slot; on failure stays in the library.
     pub fn start_session(&mut self, ctx: &egui::Context, slot: SaveSlot) {
+        self.boot_session(ctx, slot, false);
+    }
+
+    /// The shared boot path. `connect_mode` holds Left+Menu through early
+    /// boot so the device starts in "Please Connect to PC".
+    fn boot_session(&mut self, ctx: &egui::Context, slot: SaveSlot, connect_mode: bool) {
         let read = |file: &str| std::fs::read(slot.path(file));
         let otp = match read(saves::OTP_FILE) {
             Ok(data) => data,
@@ -218,6 +224,7 @@ impl DesktopApp {
             snapshot,
             usb_plugged: self.config.usb.plugged,
             relay_addr,
+            connect_mode,
         };
 
         let emu = EmuSession::start(spec, ctx.clone());
@@ -344,6 +351,45 @@ impl DesktopApp {
         }
         session.emu.shutdown();
         self.relay = None;
+    }
+
+    /// A battery pull: saves and stops the running session, drops the RAM
+    /// snapshot so only what the game wrote to flash survives, and boots
+    /// the same save again cold from that flash.
+    pub fn restart_session(&mut self, ctx: &egui::Context, connect_mode: bool) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        let fullscreen = session.fullscreen;
+        let save_id = session.slot.id.clone();
+        let snapshot_path = session.slot.path(saves::SNAPSHOT_FILE);
+        if connect_mode {
+            // Connect mode exists to talk to a host; imply the cable.
+            self.config.usb.plugged = true;
+            self.save_config();
+        }
+        self.shutdown_session();
+        // The final save just wrote a snapshot; a pulled battery keeps no
+        // RAM, so drop it — the reboot (and any later resume) must be a
+        // cold boot from flash.
+        if let Err(why) = std::fs::remove_file(&snapshot_path) {
+            if why.kind() != std::io::ErrorKind::NotFound {
+                self.toast(
+                    ToastKind::Error,
+                    format!("Could not drop the old snapshot: {why}"),
+                );
+            }
+        }
+        self.refresh_saves();
+        let Some(slot) = self.library.get(&save_id) else {
+            self.toast(ToastKind::Error, "The save disappeared during the restart".to_owned());
+            self.view = View::Library;
+            return;
+        };
+        self.boot_session(ctx, slot, connect_mode);
+        if let Some(session) = &mut self.session {
+            session.fullscreen = fullscreen;
+        }
     }
 
     /// Stops the running session (final save included) and returns to the
