@@ -112,6 +112,13 @@ fn top_bar(app: &mut DesktopApp, root: &mut egui::Ui) {
         )
         .show(root, |ui| {
             ui.horizontal(|ui| {
+                // Fix the row at the button's height up front: egui centers
+                // each widget against the row height at placement time, so
+                // letting the trailing button grow the row afterwards would
+                // leave the wordmark sitting high.
+                let row = ui.text_style_height(&egui::TextStyle::Button)
+                    + 2.0 * ui.spacing().button_padding.y;
+                ui.set_height(row);
                 wordmark(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Controls").clicked() {
