@@ -255,6 +255,19 @@ pub fn vgrad(painter: &egui::Painter, rect: Rect, top: Color32, bot: Color32) {
     painter.add(egui::Shape::mesh(vgrad_mesh(rect, top, bot)));
 }
 
+/// Steel fills for a scrollbar. egui paints a scroll area's bar from the
+/// host ui's widget fills — card-white in this skin, invisible on the pale
+/// field — so call this on the ui that hosts a `ScrollArea`, and
+/// `ui.reset_style()` at the top of the content closure so the widgets
+/// inside keep their normal glass look.
+pub fn scrollbar_fills(ui: &mut egui::Ui) {
+    ui.visuals_mut().extreme_bg_color = with_alpha(OUTLINE, 60);
+    let widgets = &mut ui.visuals_mut().widgets;
+    widgets.inactive.bg_fill = TEXT_FAINT;
+    widgets.hovered.bg_fill = TEXT_DIM;
+    widgets.active.bg_fill = ACCENT;
+}
+
 /// A frost veil over a vertical scroll area's clipped edges: content
 /// dissolves into the light instead of hard-clipping, and the veil only
 /// appears on an edge with more content beyond it. egui's built-in scroll

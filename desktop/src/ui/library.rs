@@ -162,11 +162,18 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     let mut show_files: Option<std::path::PathBuf> = None;
     let mut want_new_save = false;
 
-    let scrolled = egui::ScrollArea::vertical().show(ui, |ui| {
+    // Float the scrollbar a little off the window edges: an outer margin
+    // keeps it off the right edge, and a shrunk track keeps its ends clear
+    // of the top-bar seam and the bottom lip.
+    ui.spacing_mut().scroll.bar_outer_margin = 6.0;
+    theme::scrollbar_fills(ui);
+    let track = ui.max_rect().shrink2(egui::vec2(0.0, 12.0));
+    let scrolled = egui::ScrollArea::vertical().scroll_bar_rect(track).show(ui, |ui| {
         // The screen's padding lives in here, not on the panel, so content
         // clips at the true panel edges, under the frost fade.
         let pad = egui::Frame::new().inner_margin(egui::Margin::same(28));
         pad.show(ui, |ui| {
+            ui.reset_style();
             ui.horizontal(|ui| {
                 ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
