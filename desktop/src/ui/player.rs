@@ -39,8 +39,12 @@ const OUTER_PAD: f32 = 14.0;
 /// The menu bar's height (fill + margins + text), for the presets.
 const MENU_BAR_H: f32 = 30.0;
 
+/// The smallest View > Screen size preset. The window's minimum inner
+/// size derives from this, so every preset stays reachable by resizing.
+pub const MIN_SCALE: u32 = 3;
+
 /// The window inner size that gives the LCD exactly `scale`x pixels.
-fn window_size_for_scale(scale: u32) -> egui::Vec2 {
+pub fn window_size_for_scale(scale: u32) -> egui::Vec2 {
     let glass = egui::vec2(
         LCD_WIDTH as f32 * scale as f32,
         LCD_HEIGHT as f32 * scale as f32,
@@ -219,7 +223,7 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                     }
                     ui.separator();
                     ui.menu_button("Screen size", |ui| {
-                        for scale in 3..=8u32 {
+                        for scale in MIN_SCALE..=8u32 {
                             if ui
                                 .button(format!("{scale}×  ({}×{})",
                                     LCD_WIDTH as u32 * scale,

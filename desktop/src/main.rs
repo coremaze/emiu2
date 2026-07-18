@@ -78,15 +78,17 @@ fn main() {
         }
     };
 
-    // An explicit --shot-size may be smaller than the normal floor; let it
-    // win so low-resolution layouts can be exercised.
+    // The floor is the smallest View > Screen size preset, so every preset
+    // stays reachable by resizing. An explicit --shot-size may be smaller
+    // still; let it win so low-resolution layouts can be exercised.
+    let floor = ui::player::window_size_for_scale(ui::player::MIN_SCALE);
     let size = options.window_size.unwrap_or([960.0, 640.0]);
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Emiu2 Desktop")
             .with_app_id("emiu2-desktop")
             .with_inner_size(size)
-            .with_min_inner_size([size[0].min(720.0), size[1].min(520.0)]),
+            .with_min_inner_size([size[0].min(floor.x), size[1].min(floor.y)]),
         ..Default::default()
     };
 
