@@ -91,7 +91,15 @@ fn controls(app: &mut DesktopApp, ctx: &egui::Context, mut state: RemapState) {
 
     let capturing = state.capture.is_some();
     let modal = egui::Modal::new(Id::new("controls")).show(ctx, |ui| {
-        ui.set_width(400.0);
+        // Fit inside the window with a clear gap of backdrop all around;
+        // when the window is too short for the list, the bindings scroll
+        // between the fixed header and footer.
+        const GAP: f32 = 16.0;
+        let max = ctx.content_rect().shrink(GAP).size()
+            - egui::Frame::popup(ui.style()).total_margin().sum();
+        ui.set_width(400.0_f32.min(max.x));
+        ui.set_max_height(max.y);
+
         ui.heading("Controls");
         ui.add_space(2.0);
         ui.label(
@@ -101,48 +109,58 @@ fn controls(app: &mut DesktopApp, ctx: &egui::Context, mut state: RemapState) {
         ui.add_space(12.0);
 
         let mut done = false;
-        egui::Grid::new("bindings")
-            .num_columns(3)
-            .spacing(egui::vec2(14.0, 7.0))
+        // Keep room below the list for the spacer + footer buttons.
+        let footer = 12.0 + 26.0 + ui.spacing().item_spacing.y;
+        // A solid, always-there scrollbar: on a cramped window it is the
+        // only hint that the rest of the bindings are below.
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, true])
+            .max_height((ui.available_height() - footer).max(48.0))
             .show(ui, |ui| {
-                for index in 0..app.bindings.len() {
-                    let binding = app.bindings.get(index).clone();
-                    ui.label(RichText::new(binding.label).color(theme::TEXT));
+                egui::Grid::new("bindings")
+                    .num_columns(3)
+                    .spacing(egui::vec2(14.0, 7.0))
+                    .show(ui, |ui| {
+                        for index in 0..app.bindings.len() {
+                            let binding = app.bindings.get(index).clone();
+                            ui.label(RichText::new(binding.label).color(theme::TEXT));
 
-                    let capturing_this = state.capture == Some(index);
-                    let key_text = if capturing_this {
-                        RichText::new("Press a key…")
-                            .color(theme::ACCENT)
-                            .italics()
-                    } else {
-                        match binding.key {
-                            Some(key) => RichText::new(key.name()).strong(),
-                            None => RichText::new("unbound").color(theme::TEXT_FAINT),
+                            let capturing_this = state.capture == Some(index);
+                            let key_text = if capturing_this {
+                                RichText::new("Press a key…")
+                                    .color(theme::ACCENT)
+                                    .italics()
+                            } else {
+                                match binding.key {
+                                    Some(key) => RichText::new(key.name()).strong(),
+                                    None => RichText::new("unbound").color(theme::TEXT_FAINT),
+                                }
+                            };
+                            let button = egui::Button::new(key_text)
+                                .min_size(egui::vec2(120.0, 24.0))
+                                .stroke(if capturing_this {
+                                    Stroke::new(1.0, theme::ACCENT)
+                                } else {
+                                    Stroke::new(1.0, theme::OUTLINE)
+                                });
+                            if ui.add(button).clicked() {
+                                state.capture = Some(index);
+                            }
+
+                            let clear = ui
+                                .add_enabled(
+                                    binding.key.is_some(),
+                                    egui::Button::new(RichText::new("×").size(11.0)).frame(false),
+                                )
+                                .on_hover_text("Unbind");
+                            if clear.clicked() {
+                                app.bindings.clear(index);
+                                app.save_config();
+                            }
+                            ui.end_row();
                         }
-                    };
-                    let button = egui::Button::new(key_text)
-                        .min_size(egui::vec2(120.0, 24.0))
-                        .stroke(if capturing_this {
-                            Stroke::new(1.0, theme::ACCENT)
-                        } else {
-                            Stroke::new(1.0, theme::OUTLINE)
-                        });
-                    if ui.add(button).clicked() {
-                        state.capture = Some(index);
-                    }
-
-                    let clear = ui
-                        .add_enabled(
-                            binding.key.is_some(),
-                            egui::Button::new(RichText::new("×").size(11.0)).frame(false),
-                        )
-                        .on_hover_text("Unbind");
-                    if clear.clicked() {
-                        app.bindings.clear(index);
-                        app.save_config();
-                    }
-                    ui.end_row();
-                }
+                    });
             });
 
         ui.add_space(12.0);

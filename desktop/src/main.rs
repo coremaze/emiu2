@@ -78,12 +78,15 @@ fn main() {
         }
     };
 
+    // An explicit --shot-size may be smaller than the normal floor; let it
+    // win so low-resolution layouts can be exercised.
+    let size = options.window_size.unwrap_or([960.0, 640.0]);
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Emiu2 Desktop")
             .with_app_id("emiu2-desktop")
-            .with_inner_size(options.window_size.unwrap_or([960.0, 640.0]))
-            .with_min_inner_size([720.0, 520.0]),
+            .with_inner_size(size)
+            .with_min_inner_size([size[0].min(720.0), size[1].min(520.0)]),
         ..Default::default()
     };
 

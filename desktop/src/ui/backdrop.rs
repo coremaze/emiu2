@@ -1,9 +1,8 @@
 //! The "Prism" backdrop: glacier light. A pale ice-blue/white field is
 //! crossed by broad diagonal prismatic light shafts that slowly sweep and
 //! overlap; where two shafts cross, a faint rainbow dispersion bloom opens
-//! (spectral rose/gold/sky glows split along the crossing); and tiny sparkle
-//! glints pop in and out across the ice. Painter-only (no shader) — meshes
-//! with vertex-alpha falloff keep it smooth and calm.
+//! (spectral rose/gold/sky glows split along the crossing). Painter-only
+//! (no shader) — meshes with vertex-alpha falloff keep it smooth and calm.
 
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{self, Color32, Mesh, Rect};
@@ -82,11 +81,6 @@ fn shaft_mesh(rect: &Rect, core_x: f32, slope: f32, half_w: f32, color: Color32,
         m.indices.extend_from_slice(&[b, b + 2, b + 1, b + 2, b + 3, b + 1]);
     }
     m
-}
-
-/// Deterministic 0..1 hash, so the sparkle field stays put across frames.
-fn hash01(n: f32) -> f32 {
-    (n.sin() * 43758.5453).fract().abs()
 }
 
 /// Paint the glacier into `rect`. Call once, first thing, so the chrome
@@ -171,53 +165,6 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
                 )));
             }
         }
-    }
-
-    // Sparkle glints: tiny four-point stars popping in and out over the ice.
-    const SPARKS: u32 = 34;
-    for k in 0..SPARKS {
-        let fk = k as f32;
-        let x = rect.left() + hash01(fk * 12.9898 + 78.233) * w;
-        let y = rect.top() + hash01(fk * 39.3468 + 11.135) * h;
-        let period = 2.6 + hash01(fk * 3.7 + 0.5) * 3.4;
-        let phase = hash01(fk * 7.3 + 2.2);
-        let cycle = (t / period + phase).fract();
-        // Visible for the first ~30% of its cycle, easing in and out.
-        if cycle > 0.30 {
-            continue;
-        }
-        let pulse = (cycle / 0.30 * std::f32::consts::PI).sin();
-        let size = 2.6 + hash01(fk * 5.1 + 9.0) * 4.2;
-        let c = egui::pos2(x, y);
-        // An icy halo so the white star reads on the pale field...
-        p.add(egui::Shape::mesh(theme::radial_mesh(
-            c,
-            size * 4.4,
-            size * 4.4,
-            Color32::from_rgb(0x2f, 0xa8, 0xea),
-            (78.0 * pulse) as u8,
-        )));
-        // ...then the glint itself: a little 4-point star, with short
-        // diagonal arms on the larger ones.
-        let white = theme::with_alpha(Color32::WHITE, (245.0 * pulse) as u8);
-        let arm = size * (0.8 + 0.4 * pulse);
-        p.line_segment(
-            [c - egui::vec2(arm, 0.0), c + egui::vec2(arm, 0.0)],
-            egui::Stroke::new(1.5, white),
-        );
-        p.line_segment(
-            [c - egui::vec2(0.0, arm), c + egui::vec2(0.0, arm)],
-            egui::Stroke::new(1.5, white),
-        );
-        if size > 4.6 {
-            let d = arm * 0.45;
-            let faint = theme::with_alpha(Color32::WHITE, (150.0 * pulse) as u8);
-            p.line_segment([c - egui::vec2(d, d), c + egui::vec2(d, d)],
-                           egui::Stroke::new(1.0, faint));
-            p.line_segment([c - egui::vec2(d, -d), c + egui::vec2(d, -d)],
-                           egui::Stroke::new(1.0, faint));
-        }
-        p.circle_filled(c, size * 0.32, white);
     }
 
     // Ground the floor: the ice deepens toward the bottom lip.

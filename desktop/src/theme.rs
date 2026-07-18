@@ -1,7 +1,7 @@
 //! Skin: "Prism" — frost turned crystalline. A pale ice-blue/white glacier
 //! field (see [`crate::ui::backdrop`]) is crossed by broad prismatic light
-//! shafts with faint rainbow dispersion where they meet, and tiny sparkle
-//! glints pop in and out. The chrome is ui-9's frosted acrylic sharpened:
+//! shafts with faint rainbow dispersion where they meet.
+//! The chrome is ui-9's frosted acrylic sharpened:
 //! colder white panels with crisp edges and chrome hairlines, ice-blue gel
 //! buttons, and a handheld that reads as a frosted translucent white shell.
 //! Everything visual that more than one screen uses lives here: the font
@@ -97,11 +97,6 @@ pub fn caps(size: f32, text: &str) -> RichText {
         .font(FontId::new(size, display_family()))
         .extra_letter_spacing(0.6)
 }
-/// JetBrains Mono at `size` — dates, codes, status read-outs.
-pub fn mono(size: f32, text: impl Into<String>) -> RichText {
-    RichText::new(text).font(FontId::new(size, mono_family()))
-}
-
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert(

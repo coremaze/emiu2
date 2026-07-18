@@ -106,8 +106,6 @@ fn top_bar(app: &mut DesktopApp, root: &mut egui::Ui) {
             ui.horizontal(|ui| {
                 wordmark(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(theme::mono(10.5, "PLANET MION").color(theme::TEXT_FAINT));
-                    ui.add_space(6.0);
                     if ui.button("Controls").clicked() {
                         app.dialog = Dialog::Controls(crate::ui::dialogs::RemapState::default());
                     }
