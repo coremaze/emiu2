@@ -112,12 +112,21 @@ fn controls(app: &mut DesktopApp, ctx: &egui::Context, mut state: RemapState) {
         // Keep room below the list for the spacer + footer buttons.
         let footer = 12.0 + 26.0 + ui.spacing().item_spacing.y;
         // A solid, always-there scrollbar: on a cramped window it is the
-        // only hint that the rest of the bindings are below.
+        // only hint that the rest of the bindings are below. The bar is
+        // painted from this ui's widget fills — card-white here, invisible
+        // on the white modal — so swap in steel and accent, then reset the
+        // style for everything drawn after (the rows and the footer).
         ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        ui.visuals_mut().extreme_bg_color = theme::with_alpha(theme::OUTLINE, 60);
+        let widgets = &mut ui.visuals_mut().widgets;
+        widgets.inactive.bg_fill = theme::TEXT_FAINT;
+        widgets.hovered.bg_fill = theme::TEXT_DIM;
+        widgets.active.bg_fill = theme::ACCENT;
         egui::ScrollArea::vertical()
             .auto_shrink([false, true])
             .max_height((ui.available_height() - footer).max(48.0))
             .show(ui, |ui| {
+                ui.reset_style();
                 egui::Grid::new("bindings")
                     .num_columns(3)
                     .spacing(egui::vec2(14.0, 7.0))
@@ -162,6 +171,7 @@ fn controls(app: &mut DesktopApp, ctx: &egui::Context, mut state: RemapState) {
                         }
                     });
             });
+        ui.reset_style();
 
         ui.add_space(12.0);
         ui.horizontal(|ui| {
