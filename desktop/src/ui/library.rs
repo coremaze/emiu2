@@ -61,11 +61,19 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
 
     let first_run = app.saves.is_empty();
 
+    // The gallery carries its padding inside its scroll area so the scroll
+    // viewport (and its frost fade) reaches the panel edges; the first-run
+    // hero keeps the padding on the panel.
+    let margin = if first_run {
+        egui::Margin::same(28)
+    } else {
+        egui::Margin::ZERO
+    };
     egui::CentralPanel::default_margins()
         .frame(
             egui::Frame::new()
                 .fill(Color32::TRANSPARENT)
-                .inner_margin(egui::Margin::same(28)),
+                .inner_margin(margin),
         )
         .show(root, |ui| {
             if first_run {
@@ -155,55 +163,60 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     let mut want_new_save = false;
 
     let scrolled = egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let new_save = egui::Button::new(
-                    egui::RichText::new("+  New save").color(theme::ON_ACCENT).strong(),
-                )
-                .fill(theme::ACCENT)
-                .corner_radius(CornerRadius::same(10));
-                if ui.add(new_save).clicked() {
+        // The screen's padding lives in here, not on the panel, so content
+        // clips at the true panel edges, under the frost fade.
+        let pad = egui::Frame::new().inner_margin(egui::Margin::same(28));
+        pad.show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let new_save = egui::Button::new(
+                        egui::RichText::new("+  New save").color(theme::ON_ACCENT).strong(),
+                    )
+                    .fill(theme::ACCENT)
+                    .corner_radius(CornerRadius::same(10));
+                    if ui.add(new_save).clicked() {
+                        want_new_save = true;
+                    }
+                });
+            });
+            ui.add_space(16.0);
+
+            // Make sure thumbnails are loaded (once per refresh).
+            let ids: Vec<String> = app.saves.iter().map(|s| s.id.clone()).collect();
+            for slot in &app.saves {
+                if !app.thumbs.contains_key(&slot.id) {
+                    let texture = load_thumb(ctx, slot);
+                    app.thumbs.insert(slot.id.clone(), texture);
+                }
+            }
+            app.thumbs.retain(|id, _| ids.contains(id));
+
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(16.0, 16.0);
+                for slot in &app.saves {
+                    let thumb = app.thumbs.get(&slot.id).and_then(|t| t.as_ref());
+                    match save_card(ui, slot, thumb, now) {
+                        CardAction::None => {}
+                        CardAction::Play => play = Some(slot.clone()),
+                        CardAction::Rename => {
+                            open_dialog = Some(Dialog::Rename {
+                                save_id: slot.id.clone(),
+                                name: slot.meta.name.clone(),
+                            });
+                        }
+                        CardAction::ShowFiles => show_files = Some(slot.dir.clone()),
+                        CardAction::Delete => {
+                            open_dialog = Some(Dialog::ConfirmDelete {
+                                save_id: slot.id.clone(),
+                            });
+                        }
+                    }
+                }
+                if new_save_tile(ui) {
                     want_new_save = true;
                 }
             });
-        });
-        ui.add_space(16.0);
-
-        // Make sure thumbnails are loaded (once per refresh).
-        let ids: Vec<String> = app.saves.iter().map(|s| s.id.clone()).collect();
-        for slot in &app.saves {
-            if !app.thumbs.contains_key(&slot.id) {
-                let texture = load_thumb(ctx, slot);
-                app.thumbs.insert(slot.id.clone(), texture);
-            }
-        }
-        app.thumbs.retain(|id, _| ids.contains(id));
-
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(16.0, 16.0);
-            for slot in &app.saves {
-                let thumb = app.thumbs.get(&slot.id).and_then(|t| t.as_ref());
-                match save_card(ui, slot, thumb, now) {
-                    CardAction::None => {}
-                    CardAction::Play => play = Some(slot.clone()),
-                    CardAction::Rename => {
-                        open_dialog = Some(Dialog::Rename {
-                            save_id: slot.id.clone(),
-                            name: slot.meta.name.clone(),
-                        });
-                    }
-                    CardAction::ShowFiles => show_files = Some(slot.dir.clone()),
-                    CardAction::Delete => {
-                        open_dialog = Some(Dialog::ConfirmDelete {
-                            save_id: slot.id.clone(),
-                        });
-                    }
-                }
-            }
-            if new_save_tile(ui) {
-                want_new_save = true;
-            }
         });
     });
     theme::scroll_edge_fade(
