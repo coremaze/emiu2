@@ -255,6 +255,34 @@ pub fn vgrad(painter: &egui::Painter, rect: Rect, top: Color32, bot: Color32) {
     painter.add(egui::Shape::mesh(vgrad_mesh(rect, top, bot)));
 }
 
+/// A frost veil over a vertical scroll area's clipped edges: content
+/// dissolves into the light instead of hard-clipping, and the veil only
+/// appears on an edge with more content beyond it. egui's built-in scroll
+/// fade paints the surrounding frame's fill — transparent in this skin,
+/// where screens sit straight on the backdrop — so the skin paints its
+/// own. Call right after `ScrollArea::show` with its output's viewport
+/// rect, content size, and offset.
+pub fn scroll_edge_fade(ui: &egui::Ui, viewport: Rect, content_size: egui::Vec2, offset: egui::Vec2) {
+    const SIZE: f32 = 30.0;
+    const VEIL: Color32 = Color32::from_rgb(0xf2, 0xfa, 0xff);
+    const MAX_ALPHA: f32 = 230.0;
+    // Content may overhang the viewport by the clip margin; cover it too.
+    let rect = viewport.expand(ui.visuals().clip_rect_margin);
+    let painter = ui.painter();
+    if offset.y > 0.0 {
+        let t = (offset.y / SIZE).min(1.0);
+        let top = Rect::from_min_max(rect.left_top(), egui::pos2(rect.right(), rect.top() + SIZE));
+        vgrad(painter, top, with_alpha(VEIL, (MAX_ALPHA * t) as u8), with_alpha(VEIL, 0));
+    }
+    let below = content_size.y - viewport.height() - offset.y;
+    if below > 0.0 {
+        let t = (below / SIZE).min(1.0);
+        let bot =
+            Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - SIZE), rect.right_bottom());
+        vgrad(painter, bot, with_alpha(VEIL, 0), with_alpha(VEIL, (MAX_ALPHA * t) as u8));
+    }
+}
+
 /// A rounded-rect vertical gradient mesh (corners follow the outline), used
 /// for gel buttons and glossy fills. Interpolates in premultiplied space so a
 /// fade to transparent stays hue-stable.

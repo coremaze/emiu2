@@ -154,7 +154,7 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     let mut show_files: Option<std::path::PathBuf> = None;
     let mut want_new_save = false;
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
+    let scrolled = egui::ScrollArea::vertical().show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -206,6 +206,12 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
             }
         });
     });
+    theme::scroll_edge_fade(
+        ui,
+        scrolled.inner_rect,
+        scrolled.content_size,
+        scrolled.state.offset,
+    );
 
     if want_new_save {
         open_dialog = Some(Dialog::NewSave(NewSaveState::default()));
