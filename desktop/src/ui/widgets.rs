@@ -68,7 +68,11 @@ pub fn device_button(
     };
     let top_c = base.gamma_multiply(1.16);
     let bot_c = base.gamma_multiply(0.84);
-    let glyph_color = if pressed { theme::ON_ACCENT } else { theme::TEXT };
+    let glyph_color = if pressed {
+        theme::ON_ACCENT
+    } else {
+        theme::TEXT
+    };
     let edge = if pressed {
         Stroke::new(1.2, theme::with_alpha(theme::ACCENT, 0xf0))
     } else {
@@ -94,7 +98,9 @@ pub fn device_button(
     }
     // Frosted pill body: contact shadow, translucent gradient, rim, top sheen.
     if !pressed {
-        painter.add(egui::Shape::from(theme::fx::button().as_shape(draw_rect, corner)));
+        painter.add(egui::Shape::from(
+            theme::fx::button().as_shape(draw_rect, corner),
+        ));
     }
     painter.add(egui::Shape::mesh(theme::rounded_vgrad_mesh(
         draw_rect, corner, top_c, bot_c,

@@ -44,17 +44,49 @@ struct Shaft {
 
 const SHAFTS: &[Shaft] = &[
     // The hero shaft: broad, bright, leaning hard from the upper light.
-    Shaft { x: 0.16, slope: 0.62, half_w: 0.16, color: SHAFT_WHITE, alpha: 196,
-            amp: 0.070, speed: 0.051, phase: 0.0 },
+    Shaft {
+        x: 0.16,
+        slope: 0.62,
+        half_w: 0.16,
+        color: SHAFT_WHITE,
+        alpha: 196,
+        amp: 0.070,
+        speed: 0.051,
+        phase: 0.0,
+    },
     // A wide, softer ice-tinted companion further right.
-    Shaft { x: 0.52, slope: 0.34, half_w: 0.21, color: SHAFT_ICE, alpha: 142,
-            amp: 0.095, speed: 0.037, phase: 2.1 },
+    Shaft {
+        x: 0.52,
+        slope: 0.34,
+        half_w: 0.21,
+        color: SHAFT_ICE,
+        alpha: 142,
+        amp: 0.095,
+        speed: 0.037,
+        phase: 2.1,
+    },
     // A steep bright sliver near the right edge.
-    Shaft { x: 0.86, slope: 0.78, half_w: 0.10, color: SHAFT_WHITE, alpha: 170,
-            amp: 0.060, speed: 0.066, phase: 4.0 },
+    Shaft {
+        x: 0.86,
+        slope: 0.78,
+        half_w: 0.10,
+        color: SHAFT_WHITE,
+        alpha: 170,
+        amp: 0.060,
+        speed: 0.066,
+        phase: 4.0,
+    },
     // One fainter counter-leaning shaft, so crossings actually happen.
-    Shaft { x: 0.66, slope: -0.30, half_w: 0.13, color: SHAFT_ICE, alpha: 108,
-            amp: 0.110, speed: 0.044, phase: 1.2 },
+    Shaft {
+        x: 0.66,
+        slope: -0.30,
+        half_w: 0.13,
+        color: SHAFT_ICE,
+        alpha: 108,
+        amp: 0.110,
+        speed: 0.044,
+        phase: 1.2,
+    },
 ];
 
 /// Where the shaft's core crosses the top edge right now, in pixels.
@@ -65,20 +97,37 @@ fn shaft_core_x(s: &Shaft, t: f32, rect: &Rect) -> f32 {
 /// A diagonal band with a smooth alpha bump across its width: transparent
 /// edge → bright core → transparent edge, as vertex columns spanning the
 /// rect top-to-bottom (the clip rect trims the overhang).
-fn shaft_mesh(rect: &Rect, core_x: f32, slope: f32, half_w: f32, color: Color32, alpha: u8) -> Mesh {
-    const STOPS: [(f32, f32); 5] = [(-1.0, 0.0), (-0.30, 0.48), (0.0, 1.0), (0.30, 0.48), (1.0, 0.0)];
+fn shaft_mesh(
+    rect: &Rect,
+    core_x: f32,
+    slope: f32,
+    half_w: f32,
+    color: Color32,
+    alpha: u8,
+) -> Mesh {
+    const STOPS: [(f32, f32); 5] = [
+        (-1.0, 0.0),
+        (-0.30, 0.48),
+        (0.0, 1.0),
+        (0.30, 0.48),
+        (1.0, 0.0),
+    ];
     let h = rect.height();
     let mut m = Mesh::default();
     for (off, k) in STOPS {
         let c = theme::with_alpha(color, (alpha as f32 * k) as u8);
         let xt = core_x + off * half_w;
-        m.vertices.push(Vertex::untextured(egui::pos2(xt, rect.top()), c));
         m.vertices
-            .push(Vertex::untextured(egui::pos2(xt + slope * h, rect.bottom()), c));
+            .push(Vertex::untextured(egui::pos2(xt, rect.top()), c));
+        m.vertices.push(Vertex::untextured(
+            egui::pos2(xt + slope * h, rect.bottom()),
+            c,
+        ));
     }
     for i in 0..STOPS.len() as u32 - 1 {
         let b = i * 2;
-        m.indices.extend_from_slice(&[b, b + 2, b + 1, b + 2, b + 3, b + 1]);
+        m.indices
+            .extend_from_slice(&[b, b + 2, b + 1, b + 2, b + 3, b + 1]);
     }
     m
 }
@@ -103,10 +152,18 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
 
     // Pale ice base: near-white light at the top, deeper glacier blue below.
     let mid_y = rect.top() + rect.height() * 0.42;
-    theme::vgrad(&p, Rect::from_min_max(rect.left_top(), egui::pos2(rect.right(), mid_y)),
-                 BASE_TOP, BASE_MID);
-    theme::vgrad(&p, Rect::from_min_max(egui::pos2(rect.left(), mid_y), rect.right_bottom()),
-                 BASE_MID, BASE_BOT);
+    theme::vgrad(
+        &p,
+        Rect::from_min_max(rect.left_top(), egui::pos2(rect.right(), mid_y)),
+        BASE_TOP,
+        BASE_MID,
+    );
+    theme::vgrad(
+        &p,
+        Rect::from_min_max(egui::pos2(rect.left(), mid_y), rect.right_bottom()),
+        BASE_MID,
+        BASE_BOT,
+    );
 
     let w = rect.width();
     let h = rect.height();
@@ -128,17 +185,30 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
     let cores: Vec<f32> = SHAFTS.iter().map(|s| shaft_core_x(s, t, &rect)).collect();
     for (i, (s, &core)) in SHAFTS.iter().zip(&cores).enumerate() {
         p.add(egui::Shape::mesh(shaft_mesh(
-            &rect, core, s.slope, s.half_w * w, s.color, s.alpha,
+            &rect,
+            core,
+            s.slope,
+            s.half_w * w,
+            s.color,
+            s.alpha,
         )));
         if i == 0 {
             let hw = s.half_w * w;
             p.add(egui::Shape::mesh(shaft_mesh(
-                &rect, core - hw * 0.92, s.slope, hw * 0.30,
-                Color32::from_rgb(0xff, 0xa8, 0x96), 30,
+                &rect,
+                core - hw * 0.92,
+                s.slope,
+                hw * 0.30,
+                Color32::from_rgb(0xff, 0xa8, 0x96),
+                30,
             )));
             p.add(egui::Shape::mesh(shaft_mesh(
-                &rect, core + hw * 0.92, s.slope, hw * 0.30,
-                Color32::from_rgb(0x66, 0xc2, 0xff), 34,
+                &rect,
+                core + hw * 0.92,
+                s.slope,
+                hw * 0.30,
+                Color32::from_rgb(0x66, 0xc2, 0xff),
+                34,
             )));
         }
     }
@@ -164,7 +234,11 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
                 continue;
             }
             // Split the spectrum along the steeper shaft's normal.
-            let steep = if si.slope.abs() > sj.slope.abs() { si } else { sj };
+            let steep = if si.slope.abs() > sj.slope.abs() {
+                si
+            } else {
+                sj
+            };
             let norm = egui::vec2(1.0, -steep.slope).normalized();
             let spread = (si.half_w.min(sj.half_w)) * w * 0.80;
             for (color, offset, alpha) in SPECTRUM {
@@ -182,7 +256,10 @@ pub fn paint(ui: &mut egui::Ui, rect: Rect) {
     // Ground the floor: the ice deepens toward the bottom lip.
     let fade = (h * 0.18).min(130.0);
     p.add(egui::Shape::mesh(theme::vgrad_mesh(
-        Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - fade), rect.right_bottom()),
+        Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - fade),
+            rect.right_bottom(),
+        ),
         theme::with_alpha(Color32::from_rgb(0x8e, 0xba, 0xdd), 0),
         theme::with_alpha(Color32::from_rgb(0x8e, 0xba, 0xdd), 120),
     )));

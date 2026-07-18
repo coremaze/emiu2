@@ -89,7 +89,7 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
 pub fn wordmark(ui: &mut egui::Ui) {
     ui.add(
         egui::Image::new(egui::include_image!("../../assets/emiu2.svg"))
-            .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+            .fit_to_exact_size(egui::vec2(40.0, 40.0)),
     );
     ui.add_space(2.0);
     ui.label(theme::display(18.0, "EMIU2").color(theme::ACCENT));
@@ -170,64 +170,68 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
     ui.spacing_mut().scroll.bar_outer_margin = 6.0;
     theme::scrollbar_fills(ui);
     let track = ui.max_rect().shrink2(egui::vec2(0.0, 12.0));
-    let scrolled = egui::ScrollArea::vertical().scroll_bar_rect(track).show(ui, |ui| {
-        // The screen's padding lives in here, not on the panel, so content
-        // clips at the true panel edges, under the frost fade.
-        let pad = egui::Frame::new().inner_margin(egui::Margin::same(28));
-        pad.show(ui, |ui| {
-            ui.reset_style();
-            ui.horizontal(|ui| {
-                ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let new_save = egui::Button::new(
-                        egui::RichText::new("+  New save").color(theme::ON_ACCENT).strong(),
-                    )
-                    .fill(theme::ACCENT)
-                    .corner_radius(CornerRadius::same(10));
-                    if ui.add(new_save).clicked() {
+    let scrolled = egui::ScrollArea::vertical()
+        .scroll_bar_rect(track)
+        .show(ui, |ui| {
+            // The screen's padding lives in here, not on the panel, so content
+            // clips at the true panel edges, under the frost fade.
+            let pad = egui::Frame::new().inner_margin(egui::Margin::same(28));
+            pad.show(ui, |ui| {
+                ui.reset_style();
+                ui.horizontal(|ui| {
+                    ui.label(theme::display(24.0, "Your saves").color(theme::TEXT));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let new_save = egui::Button::new(
+                            egui::RichText::new("+  New save")
+                                .color(theme::ON_ACCENT)
+                                .strong(),
+                        )
+                        .fill(theme::ACCENT)
+                        .corner_radius(CornerRadius::same(10));
+                        if ui.add(new_save).clicked() {
+                            want_new_save = true;
+                        }
+                    });
+                });
+                ui.add_space(16.0);
+
+                // Make sure thumbnails are loaded (once per refresh).
+                let ids: Vec<String> = app.saves.iter().map(|s| s.id.clone()).collect();
+                for slot in &app.saves {
+                    if !app.thumbs.contains_key(&slot.id) {
+                        let texture = load_thumb(ctx, slot);
+                        app.thumbs.insert(slot.id.clone(), texture);
+                    }
+                }
+                app.thumbs.retain(|id, _| ids.contains(id));
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(16.0, 16.0);
+                    for slot in &app.saves {
+                        let thumb = app.thumbs.get(&slot.id).and_then(|t| t.as_ref());
+                        match save_card(ui, slot, thumb, now) {
+                            CardAction::None => {}
+                            CardAction::Play => play = Some(slot.clone()),
+                            CardAction::Rename => {
+                                open_dialog = Some(Dialog::Rename {
+                                    save_id: slot.id.clone(),
+                                    name: slot.meta.name.clone(),
+                                });
+                            }
+                            CardAction::ShowFiles => show_files = Some(slot.dir.clone()),
+                            CardAction::Delete => {
+                                open_dialog = Some(Dialog::ConfirmDelete {
+                                    save_id: slot.id.clone(),
+                                });
+                            }
+                        }
+                    }
+                    if new_save_tile(ui) {
                         want_new_save = true;
                     }
                 });
             });
-            ui.add_space(16.0);
-
-            // Make sure thumbnails are loaded (once per refresh).
-            let ids: Vec<String> = app.saves.iter().map(|s| s.id.clone()).collect();
-            for slot in &app.saves {
-                if !app.thumbs.contains_key(&slot.id) {
-                    let texture = load_thumb(ctx, slot);
-                    app.thumbs.insert(slot.id.clone(), texture);
-                }
-            }
-            app.thumbs.retain(|id, _| ids.contains(id));
-
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(16.0, 16.0);
-                for slot in &app.saves {
-                    let thumb = app.thumbs.get(&slot.id).and_then(|t| t.as_ref());
-                    match save_card(ui, slot, thumb, now) {
-                        CardAction::None => {}
-                        CardAction::Play => play = Some(slot.clone()),
-                        CardAction::Rename => {
-                            open_dialog = Some(Dialog::Rename {
-                                save_id: slot.id.clone(),
-                                name: slot.meta.name.clone(),
-                            });
-                        }
-                        CardAction::ShowFiles => show_files = Some(slot.dir.clone()),
-                        CardAction::Delete => {
-                            open_dialog = Some(Dialog::ConfirmDelete {
-                                save_id: slot.id.clone(),
-                            });
-                        }
-                    }
-                }
-                if new_save_tile(ui) {
-                    want_new_save = true;
-                }
-            });
         });
-    });
     theme::scroll_edge_fade(
         ui,
         scrolled.inner_rect,
@@ -261,8 +265,7 @@ fn save_card(
 ) -> CardAction {
     let mut action = CardAction::None;
     let card_h = THUMB_H + 64.0;
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(CARD_W, card_h), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(CARD_W, card_h), Sense::click());
 
     let hovered = response.hovered();
     let painter = ui.painter();
@@ -272,8 +275,16 @@ fn save_card(
         painter,
         rect,
         cr,
-        if hovered { theme::CARD_HOVER } else { theme::CARD },
-        if hovered { theme::with_alpha(theme::ACCENT, 0xcc) } else { theme::OUTLINE },
+        if hovered {
+            theme::CARD_HOVER
+        } else {
+            theme::CARD
+        },
+        if hovered {
+            theme::with_alpha(theme::ACCENT, 0xcc)
+        } else {
+            theme::OUTLINE
+        },
     );
     theme::gloss_cap(painter, rect, 30);
 
@@ -292,7 +303,11 @@ fn save_card(
         if hovered { 105 } else { 78 },
     )));
     // A dark glossy bezel behind the LCD thumbnail.
-    painter.rect_filled(thumb_rect.expand(2.0), CornerRadius::same(8), theme::LCD_BEZEL);
+    painter.rect_filled(
+        thumb_rect.expand(2.0),
+        CornerRadius::same(8),
+        theme::LCD_BEZEL,
+    );
     match thumb {
         Some(texture) => {
             let image = egui::Image::from_texture((texture.id(), thumb_rect.size()))
@@ -387,7 +402,11 @@ fn save_card(
             Align2::CENTER_CENTER,
             "…",
             FontId::proportional(16.0),
-            if more.hovered() { theme::TEXT } else { theme::TEXT_DIM },
+            if more.hovered() {
+                theme::TEXT
+            } else {
+                theme::TEXT_DIM
+            },
         );
     }
 
@@ -418,8 +437,7 @@ fn save_card(
 /// The trailing "start another save" tile.
 fn new_save_tile(ui: &mut egui::Ui) -> bool {
     let card_h = THUMB_H + 64.0;
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(CARD_W, card_h), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(CARD_W, card_h), Sense::click());
     let hovered = response.hovered();
     let painter = ui.painter();
     let cr = CornerRadius::same(16);
@@ -432,14 +450,26 @@ fn new_save_tile(ui: &mut egui::Ui) -> bool {
         } else {
             theme::with_alpha(Color32::WHITE, 96)
         },
-        if hovered { theme::with_alpha(theme::ACCENT, 0xcc) } else { theme::OUTLINE },
+        if hovered {
+            theme::with_alpha(theme::ACCENT, 0xcc)
+        } else {
+            theme::OUTLINE
+        },
     );
     // A soft "+" plate that lights up on hover.
     let plate = rect.center() - egui::vec2(0.0, 12.0);
-    let pc = if hovered { theme::ACCENT } else { theme::TEXT_FAINT };
+    let pc = if hovered {
+        theme::ACCENT
+    } else {
+        theme::TEXT_FAINT
+    };
     if hovered {
         painter.add(egui::Shape::mesh(theme::radial_mesh(
-            plate, 40.0, 40.0, theme::ACCENT, 70,
+            plate,
+            40.0,
+            40.0,
+            theme::ACCENT,
+            70,
         )));
     }
     painter.circle_filled(plate, 20.0, theme::with_alpha(pc, 34));
@@ -457,7 +487,11 @@ fn new_save_tile(ui: &mut egui::Ui) -> bool {
         Align2::CENTER_CENTER,
         "New save",
         FontId::new(13.0, theme::display_family()),
-        if hovered { theme::TEXT } else { theme::TEXT_DIM },
+        if hovered {
+            theme::TEXT
+        } else {
+            theme::TEXT_DIM
+        },
     );
     response.clicked()
 }
@@ -476,11 +510,7 @@ fn load_thumb(ctx: &egui::Context, slot: &SaveSlot) -> Option<TextureHandle> {
 }
 
 /// The shared new-save form (hero and modal). Returns what the player chose.
-pub fn new_save_form(
-    ui: &mut egui::Ui,
-    state: &mut NewSaveState,
-    show_cancel: bool,
-) -> FormAction {
+pub fn new_save_form(ui: &mut egui::Ui, state: &mut NewSaveState, show_cancel: bool) -> FormAction {
     let mut action = FormAction::None;
 
     // Character picker: a row of colored tiles.
@@ -515,8 +545,7 @@ pub fn new_save_form(
     ui.add_space(16.0);
 
     let has_custom_flash = !state.custom_flash.trim().is_empty();
-    let ready = (state.character.is_some() || has_custom_flash)
-        && !state.name.trim().is_empty();
+    let ready = (state.character.is_some() || has_custom_flash) && !state.name.trim().is_empty();
 
     ui.horizontal(|ui| {
         // A gray resting state until the form is complete; the accent only
@@ -529,10 +558,8 @@ pub fn new_save_form(
             )
             .fill(theme::ACCENT)
         } else {
-            egui::Button::new(
-                egui::RichText::new("Create & Play").color(theme::TEXT_FAINT),
-            )
-            .fill(theme::CARD)
+            egui::Button::new(egui::RichText::new("Create & Play").color(theme::TEXT_FAINT))
+                .fill(theme::CARD)
         }
         .corner_radius(CornerRadius::same(10))
         .min_size(egui::vec2(160.0, 36.0));
@@ -626,8 +653,7 @@ pub fn new_save_form(
 }
 
 fn character_tile(ui: &mut egui::Ui, character: &str, selected: bool) -> bool {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(72.0, 78.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(72.0, 78.0), Sense::click());
     let hovered = response.hovered();
     let color = theme::character_color(character);
     let painter = ui.painter();
@@ -642,9 +668,19 @@ fn character_tile(ui: &mut egui::Ui, character: &str, selected: bool) -> bool {
         30.0,
         34.0,
         color,
-        if selected { 150 } else if hovered { 104 } else { 74 },
+        if selected {
+            150
+        } else if hovered {
+            104
+        } else {
+            74
+        },
     )));
-    let fill = if selected { theme::CARD_HOVER } else { theme::CARD };
+    let fill = if selected {
+        theme::CARD_HOVER
+    } else {
+        theme::CARD
+    };
     theme::acrylic(
         painter,
         rect,
@@ -665,7 +701,11 @@ fn character_tile(ui: &mut egui::Ui, character: &str, selected: bool) -> bool {
         13.0,
         theme::with_alpha(Color32::WHITE, 55),
     );
-    painter.circle_stroke(disc_center, 18.0, Stroke::new(1.5, color.gamma_multiply(0.7)));
+    painter.circle_stroke(
+        disc_center,
+        18.0,
+        Stroke::new(1.5, color.gamma_multiply(0.7)),
+    );
     painter.text(
         disc_center,
         Align2::CENTER_CENTER,
@@ -678,7 +718,11 @@ fn character_tile(ui: &mut egui::Ui, character: &str, selected: bool) -> bool {
         Align2::CENTER_CENTER,
         character,
         FontId::new(11.5, theme::display_family()),
-        if selected { theme::TEXT } else { theme::TEXT_DIM },
+        if selected {
+            theme::TEXT
+        } else {
+            theme::TEXT_DIM
+        },
     );
     response.clicked()
 }
@@ -689,9 +733,7 @@ pub fn apply_form_action(app: &mut DesktopApp, ctx: &egui::Context, action: Form
         FormAction::None => {}
         FormAction::Cancel => app.dialog = Dialog::None,
         FormAction::Create => {
-            let Dialog::NewSave(state) =
-                std::mem::replace(&mut app.dialog, Dialog::None)
-            else {
+            let Dialog::NewSave(state) = std::mem::replace(&mut app.dialog, Dialog::None) else {
                 return;
             };
             let read_custom = |path: &str| -> Result<Option<Vec<u8>>, String> {

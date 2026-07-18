@@ -183,8 +183,14 @@ pub fn apply(ctx: &egui::Context) {
     style.text_styles = [
         (TextStyle::Heading, FontId::new(23.0, display_family())),
         (TextStyle::Body, FontId::new(14.5, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(14.5, FontFamily::Proportional)),
-        (TextStyle::Small, FontId::new(11.5, FontFamily::Proportional)),
+        (
+            TextStyle::Button,
+            FontId::new(14.5, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Small,
+            FontId::new(11.5, FontFamily::Proportional),
+        ),
         (TextStyle::Monospace, FontId::new(13.5, mono_family())),
     ]
     .into();
@@ -272,7 +278,8 @@ pub fn vgrad_mesh(rect: Rect, top: Color32, bot: Color32) -> Mesh {
     let mut m = Mesh::default();
     m.vertices.push(Vertex::untextured(rect.left_top(), top));
     m.vertices.push(Vertex::untextured(rect.right_top(), top));
-    m.vertices.push(Vertex::untextured(rect.right_bottom(), bot));
+    m.vertices
+        .push(Vertex::untextured(rect.right_bottom(), bot));
     m.vertices.push(Vertex::untextured(rect.left_bottom(), bot));
     m.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
     m
@@ -303,7 +310,12 @@ pub fn scrollbar_fills(ui: &mut egui::Ui) {
 /// where screens sit straight on the backdrop — so the skin paints its
 /// own. Call right after `ScrollArea::show` with its output's viewport
 /// rect, content size, and offset.
-pub fn scroll_edge_fade(ui: &egui::Ui, viewport: Rect, content_size: egui::Vec2, offset: egui::Vec2) {
+pub fn scroll_edge_fade(
+    ui: &egui::Ui,
+    viewport: Rect,
+    content_size: egui::Vec2,
+    offset: egui::Vec2,
+) {
     const SIZE: f32 = 30.0;
     const VEIL: Color32 = Color32::from_rgb(0xf2, 0xfa, 0xff);
     const MAX_ALPHA: f32 = 230.0;
@@ -313,14 +325,26 @@ pub fn scroll_edge_fade(ui: &egui::Ui, viewport: Rect, content_size: egui::Vec2,
     if offset.y > 0.0 {
         let t = (offset.y / SIZE).min(1.0);
         let top = Rect::from_min_max(rect.left_top(), egui::pos2(rect.right(), rect.top() + SIZE));
-        vgrad(painter, top, with_alpha(VEIL, (MAX_ALPHA * t) as u8), with_alpha(VEIL, 0));
+        vgrad(
+            painter,
+            top,
+            with_alpha(VEIL, (MAX_ALPHA * t) as u8),
+            with_alpha(VEIL, 0),
+        );
     }
     let below = content_size.y - viewport.height() - offset.y;
     if below > 0.0 {
         let t = (below / SIZE).min(1.0);
-        let bot =
-            Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - SIZE), rect.right_bottom());
-        vgrad(painter, bot, with_alpha(VEIL, 0), with_alpha(VEIL, (MAX_ALPHA * t) as u8));
+        let bot = Rect::from_min_max(
+            egui::pos2(rect.left(), rect.bottom() - SIZE),
+            rect.right_bottom(),
+        );
+        vgrad(
+            painter,
+            bot,
+            with_alpha(VEIL, 0),
+            with_alpha(VEIL, (MAX_ALPHA * t) as u8),
+        );
     }
 }
 

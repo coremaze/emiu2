@@ -115,9 +115,7 @@ mod tests {
     fn round_trips_through_toml() {
         let mut config = Config::default();
         config.usb.plugged = false;
-        config
-            .controls
-            .insert("up".to_owned(), "W".to_owned());
+        config.controls.insert("up".to_owned(), "W".to_owned());
         let text = toml::to_string_pretty(&config).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert!(!back.usb.plugged);

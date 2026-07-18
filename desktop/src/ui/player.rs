@@ -19,7 +19,9 @@ use crate::ui::widgets::{self, ButtonFace};
 enum MenuAction {
     BackToLibrary,
     SaveNow,
-    ConfirmReset { connect_mode: bool },
+    ConfirmReset {
+        connect_mode: bool,
+    },
     ToggleUsb,
     ToggleFullscreen,
     ToggleIntegerScaling,
@@ -65,16 +67,20 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
 
     // Keys light the drawn buttons only when the game actually receives
     // them (no dialog open, no text field focused).
-    let keys_down: Option<HashSet<Key>> = if matches!(app.dialog, Dialog::None)
-        && !ctx.egui_wants_keyboard_input()
-    {
-        Some(ctx.input(|i| i.keys_down.clone()))
-    } else {
-        None
-    };
+    let keys_down: Option<HashSet<Key>> =
+        if matches!(app.dialog, Dialog::None) && !ctx.egui_wants_keyboard_input() {
+            Some(ctx.input(|i| i.keys_down.clone()))
+        } else {
+            None
+        };
 
     if session.fullscreen {
-        fullscreen_lcd(root, session, &app.bindings, app.config.video.integer_scaling);
+        fullscreen_lcd(
+            root,
+            session,
+            &app.bindings,
+            app.config.video.integer_scaling,
+        );
         return;
     }
 
@@ -128,9 +134,9 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
                 app.save_config();
             }
             MenuAction::SetWindowScale(scale) => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
-                    window_size_for_scale(scale),
-                ));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(window_size_for_scale(
+                    scale,
+                )));
             }
             MenuAction::OpenControls => {
                 app.dialog = Dialog::Controls(crate::ui::dialogs::RemapState::default());
@@ -163,7 +169,11 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
         )
         .show(root, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                if ui.button("‹ Saves").on_hover_text("Save and return to your saves").clicked() {
+                if ui
+                    .button("‹ Saves")
+                    .on_hover_text("Save and return to your saves")
+                    .clicked()
+                {
                     actions.push(MenuAction::BackToLibrary);
                 }
 
@@ -202,21 +212,17 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
 
                 ui.menu_button("View", |ui| {
                     if ui
-                        .add(
-                            egui::Button::new("Fullscreen screen")
-                                .shortcut_text("F11"),
-                        )
+                        .add(egui::Button::new("Fullscreen screen").shortcut_text("F11"))
                         .on_hover_text("Show only the device screen")
                         .clicked()
                     {
                         actions.push(MenuAction::ToggleFullscreen);
                     }
                     if ui
-                        .checkbox(
-                            &mut { app.config.video.integer_scaling },
-                            "Integer scaling",
+                        .checkbox(&mut { app.config.video.integer_scaling }, "Integer scaling")
+                        .on_hover_text(
+                            "Scale the screen only by whole pixels, keeping it razor sharp",
                         )
-                        .on_hover_text("Scale the screen only by whole pixels, keeping it razor sharp")
                         .clicked()
                     {
                         actions.push(MenuAction::ToggleIntegerScaling);
@@ -225,9 +231,11 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                     ui.menu_button("Screen size", |ui| {
                         for scale in MIN_SCALE..=8u32 {
                             if ui
-                                .button(format!("{scale}×  ({}×{})",
+                                .button(format!(
+                                    "{scale}×  ({}×{})",
                                     LCD_WIDTH as u32 * scale,
-                                    LCD_HEIGHT as u32 * scale))
+                                    LCD_HEIGHT as u32 * scale
+                                ))
                                 .clicked()
                             {
                                 actions.push(MenuAction::SetWindowScale(scale));
@@ -265,34 +273,25 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                         actions.push(MenuAction::OpenFriends);
                     }
                     if saved_recently {
-                        ui.label(
-                            egui::RichText::new("Saved ✓")
-                                .color(theme::GOOD)
-                                .size(12.0),
-                        );
+                        ui.label(egui::RichText::new("Saved ✓").color(theme::GOOD).size(12.0));
                     }
 
                     // The save's name, pushed to the far left of this
                     // right-to-left region so it reads as a title.
-                    ui.with_layout(
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.add_space(12.0);
-                            let (dot, _) = ui.allocate_exact_size(
-                                egui::vec2(8.0, 8.0),
-                                egui::Sense::hover(),
-                            );
-                            ui.painter()
-                                .circle_filled(dot.center(), 4.0, character_color);
-                            // Elide rather than spill over the status chips.
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(&save_name).color(theme::TEXT_DIM),
-                                )
-                                .truncate(),
-                            );
-                        },
-                    );
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add_space(12.0);
+                        let (dot, _) =
+                            ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                        ui.painter()
+                            .circle_filled(dot.center(), 4.0, character_color);
+                        // Elide rather than spill over the status chips.
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&save_name).color(theme::TEXT_DIM),
+                            )
+                            .truncate(),
+                        );
+                    });
                 });
             });
         });
@@ -409,12 +408,13 @@ fn device_panel(
         .add(egui::Shape::from(theme::fx::shell().as_shape(shell, cr)));
     ui.painter()
         .add(egui::Shape::from(theme::fx::glow().as_shape(shell, cr)));
-    ui.painter().add(egui::Shape::mesh(theme::rounded_vgrad_mesh(
-        shell,
-        cr,
-        theme::with_alpha(Color32::WHITE, 214),
-        theme::with_alpha(Color32::from_rgb(0xdb, 0xec, 0xf8), 182),
-    )));
+    ui.painter()
+        .add(egui::Shape::mesh(theme::rounded_vgrad_mesh(
+            shell,
+            cr,
+            theme::with_alpha(Color32::WHITE, 214),
+            theme::with_alpha(Color32::from_rgb(0xdb, 0xec, 0xf8), 182),
+        )));
     // A faint ground-glass dither over the slab.
     theme::dither(ui.painter(), shell, 110, 2.0, 26);
     // Chrome hairline rim, with a white inner hairline: polished edge work.
@@ -457,18 +457,11 @@ fn device_panel(
         54.0,
         theme::with_alpha(Color32::from_rgb(0x93, 0xb6, 0xd0), 70),
     );
-    ui.painter().circle_stroke(
-        dpad_center,
-        54.0,
-        Stroke::new(1.0, theme::SHELL_EDGE),
-    );
     ui.painter()
-        .circle_filled(dpad_center, 24.0, theme::BUTTON);
-    ui.painter().circle_stroke(
-        dpad_center,
-        24.0,
-        Stroke::new(1.0, theme::SHELL_EDGE),
-    );
+        .circle_stroke(dpad_center, 54.0, Stroke::new(1.0, theme::SHELL_EDGE));
+    ui.painter().circle_filled(dpad_center, 24.0, theme::BUTTON);
+    ui.painter()
+        .circle_stroke(dpad_center, 24.0, Stroke::new(1.0, theme::SHELL_EDGE));
 
     let right_x = bezel_rect.right() + SIDE_W / 2.0 + 8.0;
     // A recessed molded ring around the Action button, like the rim on the
@@ -584,7 +577,10 @@ fn device_panel(
             gpio: MiuchizGpio::Power,
             label: "Power",
             rect: Rect::from_center_size(
-                egui::pos2(glass.center().x - 55.0, bezel_rect.bottom() + BOTTOM_H / 2.0),
+                egui::pos2(
+                    glass.center().x - 55.0,
+                    bezel_rect.bottom() + BOTTOM_H / 2.0,
+                ),
                 egui::vec2(72.0, 26.0),
             ),
             face: ButtonFace::Rounded(13.0),
@@ -595,7 +591,10 @@ fn device_panel(
             gpio: MiuchizGpio::Mute,
             label: "Mute",
             rect: Rect::from_center_size(
-                egui::pos2(glass.center().x + 55.0, bezel_rect.bottom() + BOTTOM_H / 2.0),
+                egui::pos2(
+                    glass.center().x + 55.0,
+                    bezel_rect.bottom() + BOTTOM_H / 2.0,
+                ),
                 egui::vec2(72.0, 26.0),
             ),
             face: ButtonFace::Rounded(13.0),

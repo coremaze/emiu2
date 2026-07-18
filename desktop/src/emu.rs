@@ -271,7 +271,10 @@ struct SaveWriter {
 impl SaveWriter {
     fn save(&mut self, handheld: &mut miuchiz::Handheld) -> std::io::Result<()> {
         saves::write_atomic(&self.dir.join(saves::SNAPSHOT_FILE), &handheld.snapshot())?;
-        saves::write_atomic(&self.dir.join(saves::FLASH_FILE), &handheld.make_flash_dump())?;
+        saves::write_atomic(
+            &self.dir.join(saves::FLASH_FILE),
+            &handheld.make_flash_dump(),
+        )?;
 
         // Refresh the thumbnail, but never replace a good one with a blank
         // panel (sleep, transitions): the gallery should show the game.

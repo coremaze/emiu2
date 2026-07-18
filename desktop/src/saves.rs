@@ -231,8 +231,8 @@ mod tests {
     use super::*;
 
     fn temp_library(name: &str) -> Library {
-        let root = std::env::temp_dir()
-            .join(format!("emiu2-desktop-test-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("emiu2-desktop-test-{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         Library::open_at(root)
     }

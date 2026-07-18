@@ -35,10 +35,7 @@ fn parse_args() -> Result<StartupOptions, String> {
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
-        let mut value = |name: &str| {
-            args.next()
-                .ok_or_else(|| format!("{name} needs a value"))
-        };
+        let mut value = |name: &str| args.next().ok_or_else(|| format!("{name} needs a value"));
         match arg.as_str() {
             "--play" => play = Some(value("--play")?),
             "--shot" => shot_path = Some(value("--shot")?.into()),
@@ -54,8 +51,10 @@ fn parse_args() -> Result<StartupOptions, String> {
                     .split_once('x')
                     .ok_or_else(|| "--shot-size needs WxH".to_owned())?;
                 window_size = Some([
-                    w.parse().map_err(|_| "--shot-size needs numbers".to_owned())?,
-                    h.parse().map_err(|_| "--shot-size needs numbers".to_owned())?,
+                    w.parse()
+                        .map_err(|_| "--shot-size needs numbers".to_owned())?,
+                    h.parse()
+                        .map_err(|_| "--shot-size needs numbers".to_owned())?,
                 ]);
             }
             other => return Err(format!("Unknown argument {other:?}")),

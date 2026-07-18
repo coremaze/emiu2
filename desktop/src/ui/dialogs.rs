@@ -49,10 +49,7 @@ fn new_save(app: &mut DesktopApp, ctx: &egui::Context, mut state: library::NewSa
         ui.set_width(580.0);
         ui.heading("New save");
         ui.add_space(2.0);
-        ui.label(
-            RichText::new("Pick a character; the game is built in.")
-                .color(theme::TEXT_DIM),
-        );
+        ui.label(RichText::new("Pick a character; the game is built in.").color(theme::TEXT_DIM));
         ui.add_space(12.0);
         library::new_save_form(ui, &mut state, true)
     });
@@ -197,8 +194,7 @@ fn friends(app: &mut DesktopApp, ctx: &egui::Context, mut state: FriendsState) {
         ui.heading("Friends");
         ui.add_space(2.0);
         ui.label(
-            RichText::new("Play and trade over IR, through the internet.")
-                .color(theme::TEXT_DIM),
+            RichText::new("Play and trade over IR, through the internet.").color(theme::TEXT_DIM),
         );
         ui.add_space(10.0);
 
@@ -224,11 +220,14 @@ fn friends(app: &mut DesktopApp, ctx: &egui::Context, mut state: FriendsState) {
                     } else if relay.connected() {
                         (theme::GOOD, "Connected".to_owned())
                     } else {
-                        (theme::ACCENT, format!("Connecting to {}…", app.config.ir.relay))
+                        (
+                            theme::ACCENT,
+                            format!("Connecting to {}…", app.config.ir.relay),
+                        )
                     };
                     ui.horizontal(|ui| {
-                        let (rect, _) = ui
-                            .allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
                         ui.painter().circle_filled(rect.center(), 4.0, dot);
                         ui.label(label);
                     });
@@ -313,10 +312,16 @@ fn friends(app: &mut DesktopApp, ctx: &egui::Context, mut state: FriendsState) {
         ui.add_space(12.0);
         match &mut state.relay_edit {
             None => {
-                let label = RichText::new(format!("Relay: {}",
-                    if app.config.ir.relay.trim().is_empty() { "none" } else { app.config.ir.relay.as_str() }))
-                    .small()
-                    .color(theme::TEXT_FAINT);
+                let label = RichText::new(format!(
+                    "Relay: {}",
+                    if app.config.ir.relay.trim().is_empty() {
+                        "none"
+                    } else {
+                        app.config.ir.relay.as_str()
+                    }
+                ))
+                .small()
+                .color(theme::TEXT_FAINT);
                 if ui
                     .add(egui::Label::new(label).sense(egui::Sense::click()))
                     .on_hover_text("Click to change the relay server")
@@ -401,7 +406,10 @@ fn confirm_delete(app: &mut DesktopApp, ctx: &egui::Context, save_id: String) {
     match confirm_modal(ctx, "confirm_delete", "Delete this save?", &body, "Delete") {
         Some(true) => {
             if let Err(why) = app.library.delete(&slot) {
-                app.toast(ToastKind::Error, format!("Could not delete the save: {why}"));
+                app.toast(
+                    ToastKind::Error,
+                    format!("Could not delete the save: {why}"),
+                );
             }
             app.refresh_saves();
             app.dialog = Dialog::None;
@@ -475,12 +483,9 @@ fn confirm_modal(
         ui.label(RichText::new(body).color(theme::TEXT_DIM));
         ui.add_space(14.0);
         ui.horizontal(|ui| {
-            let danger = egui::Button::new(
-                RichText::new(confirm_label)
-                    .color(Color32::WHITE)
-                    .strong(),
-            )
-            .fill(theme::BAD);
+            let danger =
+                egui::Button::new(RichText::new(confirm_label).color(Color32::WHITE).strong())
+                    .fill(theme::BAD);
             if ui.add(danger).clicked() {
                 outcome = Some(true);
             }

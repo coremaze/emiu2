@@ -81,10 +81,8 @@ impl PlaySession {
         } else {
             self.blank_since = None;
         }
-        let image = egui::ColorImage::from_rgb(
-            [emu::LCD_WIDTH, emu::LCD_HEIGHT],
-            &self.rgb_scratch,
-        );
+        let image =
+            egui::ColorImage::from_rgb([emu::LCD_WIDTH, emu::LCD_HEIGHT], &self.rgb_scratch);
         self.texture.set(image, egui::TextureOptions::NEAREST);
     }
 
@@ -194,7 +192,10 @@ impl DesktopApp {
         let otp = match read(saves::OTP_FILE) {
             Ok(data) => data,
             Err(why) => {
-                self.toast(ToastKind::Error, format!("Could not read the save's OTP: {why}"));
+                self.toast(
+                    ToastKind::Error,
+                    format!("Could not read the save's OTP: {why}"),
+                );
                 return;
             }
         };
@@ -334,7 +335,10 @@ impl DesktopApp {
                 Some(slot)
             }
             Err(why) => {
-                self.toast(ToastKind::Error, format!("Could not create the save: {why}"));
+                self.toast(
+                    ToastKind::Error,
+                    format!("Could not create the save: {why}"),
+                );
                 None
             }
         }
@@ -349,7 +353,10 @@ impl DesktopApp {
         session.slot.meta.play_seconds = session.play_seconds();
         session.slot.meta.last_played_unix = saves::unix_now();
         if let Err(why) = session.slot.write_meta() {
-            self.toast(ToastKind::Error, format!("Could not update the save: {why}"));
+            self.toast(
+                ToastKind::Error,
+                format!("Could not update the save: {why}"),
+            );
         }
         session.emu.shutdown();
         self.relay = None;
@@ -384,7 +391,10 @@ impl DesktopApp {
         }
         self.refresh_saves();
         let Some(slot) = self.library.get(&save_id) else {
-            self.toast(ToastKind::Error, "The save disappeared during the restart".to_owned());
+            self.toast(
+                ToastKind::Error,
+                "The save disappeared during the restart".to_owned(),
+            );
             self.view = View::Library;
             return;
         };
@@ -437,8 +447,7 @@ impl DesktopApp {
         let Some(session) = &self.session else {
             return;
         };
-        let keys_allowed =
-            matches!(self.dialog, Dialog::None) && !ctx.egui_wants_keyboard_input();
+        let keys_allowed = matches!(self.dialog, Dialog::None) && !ctx.egui_wants_keyboard_input();
         let key_mask = if keys_allowed {
             ctx.input(|i| self.bindings.mask_from_keys(&i.keys_down))
         } else {

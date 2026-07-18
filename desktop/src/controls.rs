@@ -147,10 +147,7 @@ impl Bindings {
 
     /// The key currently bound to a button, for UI hints.
     pub fn key_for(&self, gpio: MiuchizGpio) -> Option<Key> {
-        self.0
-            .iter()
-            .find(|b| b.gpio == gpio)
-            .and_then(|b| b.key)
+        self.0.iter().find(|b| b.gpio == gpio).and_then(|b| b.key)
     }
 
     /// The button-mask contribution of the currently held keys.
