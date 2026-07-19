@@ -1,0 +1,18 @@
+# The developer frontend (formerly the `emiu2` binary): a bare-bones minifb
+# window driven entirely by command-line flags. Useful for firmware and
+# tooling work; players should use `emiu2-desktop`.
+[package]
+name = "emiu2-dev"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "emiu2-dev"
+path = "src/main.rs"
+
+[dependencies]
+emiu2 = { workspace = true }
+emiu2-netplay = { workspace = true }
+cpal = { workspace = true }
+minifb = "0.27.0"
+clap = { version = "4.0.32", features = ["derive"] }

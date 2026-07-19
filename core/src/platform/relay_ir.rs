@@ -62,15 +62,16 @@ impl Shared {
 }
 
 /// A friend code is six bytes from an alphabet that excludes 0, so it
-/// packs losslessly into an atomic; 0 means "none yet".
-fn pack_code(code: FriendCode) -> u64 {
+/// packs losslessly into an atomic; 0 means "none yet". Also used by
+/// [`crate::platform::link_ir`], which stores its code the same way.
+pub(crate) fn pack_code(code: FriendCode) -> u64 {
     let bytes = code.as_bytes();
     u64::from_le_bytes([
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], 0, 0,
     ])
 }
 
-fn unpack_code(packed: u64) -> Option<FriendCode> {
+pub(crate) fn unpack_code(packed: u64) -> Option<FriendCode> {
     if packed == 0 {
         return None;
     }

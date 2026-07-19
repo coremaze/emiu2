@@ -31,7 +31,9 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-const MAGIC: [u8; 8] = *b"EMIU2IR\x02";
+/// Shared with [`crate::platform::link_ir`], which speaks the same direct
+/// wire protocol and must stay connectable to a `SocketIr` peer.
+pub(crate) const MAGIC: [u8; 8] = *b"EMIU2IR\x02";
 
 /// How long a reconnect waits after a failed attempt or lost connection.
 const RETRY_INTERVAL: Duration = Duration::from_secs(1);

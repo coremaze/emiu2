@@ -1,18 +1,10 @@
-mod audio;
-mod ir;
-mod ir_replay;
-pub mod memory;
-mod miuchiz;
-mod platform;
-mod rollback;
-mod screen;
-pub mod snapshot;
-pub mod ssc;
-mod usb_interface;
+mod minifb_screen_gpio;
+
 use std::path::PathBuf;
 
 use clap::Parser;
 use cpal::traits::StreamTrait;
+use emiu2::{ir, miuchiz, platform, rollback, usb_interface};
 
 #[derive(Parser)]
 struct Args {
@@ -255,9 +247,9 @@ fn main() {
     let usb_cable_for_emulator = usb_cable.clone();
 
     let (screen, minifb_gpio, screen_tx, worker) =
-        platform::minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
+        minifb_screen_gpio::MiniFbScreen::open("emiu2", scale, show_gpio);
 
-    let minifb_screen = platform::minifb_screen_gpio::MiniFbScreenInterface::new(screen_tx);
+    let minifb_screen = minifb_screen_gpio::MiniFbScreenInterface::new(screen_tx);
 
     // The emulator runs on a background thread so that the minifb window can be
     // created and pumped on the main thread, which macOS's AppKit requires.
@@ -289,9 +281,9 @@ fn main() {
 fn run_emulator(
     otp_data: Vec<u8>,
     flash_data: Vec<u8>,
-    minifb_screen: platform::minifb_screen_gpio::MiniFbScreenInterface,
-    minifb_gpio: platform::minifb_screen_gpio::MiniFbGpioInternalInterface,
-    mut screen: platform::minifb_screen_gpio::MiniFbScreen,
+    minifb_screen: minifb_screen_gpio::MiniFbScreenInterface,
+    minifb_gpio: minifb_screen_gpio::MiniFbGpioInternalInterface,
+    mut screen: minifb_screen_gpio::MiniFbScreen,
     save_file: Option<PathBuf>,
     savestate_file: PathBuf,
     ir_plan: IrPlan,

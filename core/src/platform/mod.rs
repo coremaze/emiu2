@@ -10,7 +10,9 @@ pub mod web_screen;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cpal_audio;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod minifb_screen_gpio;
+pub mod ir_discovery;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod link_ir;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod relay_ir;
 #[cfg(not(target_arch = "wasm32"))]

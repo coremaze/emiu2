@@ -1,0 +1,47 @@
+# Emiu2 Desktop: the player-facing frontend. Guides the user into a save,
+# runs the machine, and wraps the emulator's features (savestates, USB,
+# IR friend codes) in a real UI.
+[package]
+name = "emiu2-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "emiu2-desktop"
+path = "src/main.rs"
+
+[dependencies]
+emiu2 = { workspace = true }
+emiu2-netplay = { workspace = true }
+cpal = { workspace = true }
+miuchiz-reborn-paths = { workspace = true }
+eframe = { version = "0.35.0", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+# For rendering the bundled SVG logo (the wordmark icon).
+egui_extras = { version = "0.35.0", default-features = false, features = [
+    "svg",
+] }
+# For rasterizing the same logo into the window icon at startup (matches
+# the version and features egui_extras already builds).
+resvg = { version = "0.45.1", default-features = false }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+# Native file pickers for the custom-image fields. Async + a tiny block_on
+# executor, run on a helper thread: the async macOS dialog is the one that
+# may be driven off the main thread, and the main window keeps rendering.
+rfd = { version = "0.15", default-features = false, features = [
+    "xdg-portal",
+    "async-std",
+] }
+pollster = "0.4"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
+fs4 = { version = "1.1.0", features = ["sync"] }
+
+[build-dependencies]
+# Embeds assets/emiu2.ico into the .exe when targeting Windows.
+winresource = "0.1"
