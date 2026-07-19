@@ -30,7 +30,7 @@ use cpal::traits::StreamTrait;
 use emiu2::audio::AudioInterface;
 use emiu2::ir::{IrInterface, IrRollbackControl};
 use emiu2::miuchiz::{self, GpioConnections, GpioInterfaceInternal, GpioState};
-use emiu2::platform::{relay_ir, usb_socket};
+use emiu2::platform::{link_ir, usb_socket};
 use emiu2::rollback::RollbackDriver;
 use emiu2::screen::{Pixel, Screen};
 use emiu2::usb_interface;
@@ -64,8 +64,9 @@ pub struct SessionSpec {
     /// Restored on boot when present; a fresh save cold-boots from flash.
     pub snapshot: Option<Vec<u8>>,
     pub usb_plugged: bool,
-    /// IR relay `host:port`; `None` leaves the IR port disconnected.
-    pub relay_addr: Option<String>,
+    /// Which IR link mode the session starts in; switchable at runtime
+    /// through the [`link_ir::LinkCommander`] sent back in [`EmuEvent::Link`].
+    pub link: link_ir::LinkMode,
     /// Hold Left+Menu through early boot so the device starts in its
     /// "Please Connect to PC" mode.
     pub connect_mode: bool,
@@ -79,8 +80,8 @@ pub enum EmuCmd {
 pub enum EmuEvent {
     /// A save (auto or manual) hit disk.
     Saved,
-    /// The IR relay control handle, sent once at startup when configured.
-    Relay(relay_ir::RelayCommander),
+    /// The IR link control handle, sent once at startup.
+    Link(link_ir::LinkCommander),
     /// Something non-fatal went wrong (shown as a toast).
     Error(String),
 }
@@ -332,18 +333,12 @@ fn run_session(
         }
     };
 
-    // IR: the relay transport must be created on this thread; only its
+    // IR: the link transport must be created on this thread; only its
     // commander crosses back to the UI.
-    let (ir, ir_rollback): (Box<dyn IrInterface>, Option<Box<dyn IrRollbackControl>>) =
-        match &spec.relay_addr {
-            Some(addr) => {
-                let relay = relay_ir::RelayIr::connect(addr.clone());
-                events.send(EmuEvent::Relay(relay.commander())).ok();
-                let rollback = relay.rollback_handle();
-                (Box::new(relay), Some(Box::new(rollback)))
-            }
-            None => (Box::new(emiu2::ir::DisconnectedIr), None),
-        };
+    let link = link_ir::LinkIr::start(spec.link.clone(), spec.identity.clone());
+    events.send(EmuEvent::Link(link.commander())).ok();
+    let ir_rollback: Box<dyn IrRollbackControl> = Box::new(link.rollback_handle());
+    let ir: Box<dyn IrInterface> = Box::new(link);
 
     // The USB discovery endpoint lives exactly as long as this session.
     let _endpoint = match usb_socket::create_discovery_endpoint(cable.clone()) {
@@ -399,7 +394,7 @@ fn run_session(
         );
     }
 
-    let mut rollback_driver = ir_rollback.map(RollbackDriver::new);
+    let mut rollback_driver = RollbackDriver::new(ir_rollback);
     let mut saver = SaveWriter {
         dir: spec.save_dir,
         frame,
@@ -436,11 +431,9 @@ fn run_session(
             handheld.mcu.step();
         }
 
-        if let Some(driver) = rollback_driver.as_mut() {
-            if driver.run(&mut handheld) {
-                anchor_time = Instant::now();
-                anchor_cycles = handheld.mcu.core.cycles;
-            }
+        if rollback_driver.run(&mut handheld) {
+            anchor_time = Instant::now();
+            anchor_cycles = handheld.mcu.core.cycles;
         }
 
         let mut shutdown = false;

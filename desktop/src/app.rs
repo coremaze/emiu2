@@ -8,9 +8,9 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, TextureHandle};
-use emiu2::platform::relay_ir::RelayCommander;
+use emiu2::platform::link_ir::{LinkCommander, LinkMode};
 
-use crate::config::Config;
+use crate::config::{Config, IrMode};
 use crate::controls::Bindings;
 use crate::emu::{self, EmuCmd, EmuEvent, EmuSession, SessionSpec};
 use crate::saves::{self, Library, SaveSlot};
@@ -105,8 +105,8 @@ pub struct DesktopApp {
     pub bindings: Bindings,
     pub view: View,
     pub session: Option<PlaySession>,
-    /// IR relay control, once the session's transport reports in.
-    pub relay: Option<RelayCommander>,
+    /// IR link control, once the session's transport reports in.
+    pub link: Option<LinkCommander>,
     pub dialog: Dialog,
     pub toasts: Vec<Toast>,
     pub shot: Option<crate::shot::ShotState>,
@@ -135,7 +135,7 @@ impl DesktopApp {
             bindings,
             view: View::Library,
             session: None,
-            relay: None,
+            link: None,
             dialog: Dialog::None,
             toasts: Vec::new(),
             shot: options.shot,
@@ -214,9 +214,16 @@ impl DesktopApp {
             .then(|| read(saves::SNAPSHOT_FILE).ok())
             .flatten();
 
-        let relay_addr = {
+        // Online mode needs a relay address; without one (or in local
+        // mode) the session links locally, which needs no configuration.
+        let link = {
             let relay = self.config.ir.relay.trim();
-            (!relay.is_empty()).then(|| relay.to_owned())
+            match self.config.ir.mode {
+                IrMode::Online if !relay.is_empty() => LinkMode::Online {
+                    relay: relay.to_owned(),
+                },
+                _ => LinkMode::Local,
+            }
         };
 
         let spec = SessionSpec {
@@ -226,7 +233,7 @@ impl DesktopApp {
             flash,
             snapshot,
             usb_plugged: self.config.usb.plugged,
-            relay_addr,
+            link,
             connect_mode,
         };
 
@@ -256,7 +263,7 @@ impl DesktopApp {
             click_mask: 0,
             blank_since: None,
         });
-        self.relay = None;
+        self.link = None;
         self.view = View::Playing;
     }
 
@@ -359,7 +366,7 @@ impl DesktopApp {
             );
         }
         session.emu.shutdown();
-        self.relay = None;
+        self.link = None;
     }
 
     /// A battery pull: saves and stops the running session, drops the RAM
@@ -432,7 +439,7 @@ impl DesktopApp {
                         errors.push(format!("Could not update the save: {why}"));
                     }
                 }
-                EmuEvent::Relay(commander) => self.relay = Some(commander),
+                EmuEvent::Link(commander) => self.link = Some(commander),
                 EmuEvent::Error(message) => errors.push(message),
             }
         }

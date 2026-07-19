@@ -38,12 +38,25 @@ pub struct IrConfig {
     /// The IR relay (`host:port`) used for friend-code play. Cleared, the
     /// Friends feature explains how to set one.
     pub relay: String,
+    /// Which link mode the Friends feature is in: `local` links with
+    /// another Emiu2 window on this computer, `online` through the relay.
+    pub mode: IrMode,
+}
+
+/// Serialized in the config and toggled by the Friends dialog's tabs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IrMode {
+    #[default]
+    Local,
+    Online,
 }
 
 impl Default for IrConfig {
     fn default() -> Self {
         Self {
             relay: "emiu2.miuchiz.com:5885".to_owned(),
+            mode: IrMode::default(),
         }
     }
 }

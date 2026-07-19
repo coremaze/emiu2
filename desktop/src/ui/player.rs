@@ -153,7 +153,7 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
         return;
     };
     let usb_plugged = session.emu.cable.plugged();
-    let ir_paired = app.relay.as_ref().is_some_and(|r| r.paired());
+    let ir_linked = app.link.as_ref().is_some_and(|link| link.linked());
     let saved_recently = session
         .last_saved
         .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(2500));
@@ -262,11 +262,11 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                     {
                         actions.push(MenuAction::ToggleUsb);
                     }
-                    if widgets::status_chip(ui, "IR", ir_paired, theme::GOOD)
-                        .on_hover_text(if ir_paired {
-                            "Paired with a friend"
+                    if widgets::status_chip(ui, "IR", ir_linked, theme::GOOD)
+                        .on_hover_text(if ir_linked {
+                            "Linked with a friend"
                         } else {
-                            "Not paired — click to open Friends"
+                            "Not linked. Click to open Friends"
                         })
                         .clicked()
                     {
