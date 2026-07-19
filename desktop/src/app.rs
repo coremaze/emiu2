@@ -271,7 +271,7 @@ impl DesktopApp {
 
         let base_play_seconds = slot.meta.play_seconds;
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{} — Emiu2 Desktop",
+            "Emiu2 Desktop: {}",
             slot.meta.name
         )));
 

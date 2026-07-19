@@ -193,13 +193,13 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                         actions.push(MenuAction::ToggleUsb);
                     }
                     ui.separator();
-                    if ui.button("Restart device…").clicked() {
+                    if ui.button("Restart device").clicked() {
                         actions.push(MenuAction::ConfirmReset {
                             connect_mode: false,
                         });
                     }
                     if ui
-                        .button("Restart to PC connection…")
+                        .button("Restart to PC connection")
                         .on_hover_text(
                             "Boot straight into \"Please Connect to PC\" mode \
                              so USB tools can manage the device",
@@ -254,9 +254,9 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if widgets::status_chip(ui, "USB", usb_plugged, theme::GOOD)
                         .on_hover_text(if usb_plugged {
-                            "USB cable plugged in — click to unplug"
+                            "USB cable plugged in. Click to unplug."
                         } else {
-                            "USB cable unplugged — click to plug in"
+                            "USB cable unplugged. click to plug in."
                         })
                         .clicked()
                     {
@@ -264,9 +264,9 @@ fn menu_bar(root: &mut egui::Ui, app: &mut DesktopApp, actions: &mut Vec<MenuAct
                     }
                     if widgets::status_chip(ui, "IR", ir_linked, theme::GOOD)
                         .on_hover_text(if ir_linked {
-                            "Linked with a friend"
+                            "Linked with a friend."
                         } else {
-                            "Not linked. Click to open Friends"
+                            "Not linked. Click to open Friends."
                         })
                         .clicked()
                     {
@@ -355,7 +355,7 @@ fn asleep_hint(ui: &egui::Ui, glass: Rect, bindings: &Bindings) {
     ui.painter().text(
         glass.center(),
         Align2::CENTER_CENTER,
-        format!("zZz   asleep — press POWER{key} to wake"),
+        format!("POWER{key} wakes the device."),
         FontId::proportional(13.0),
         Color32::from_white_alpha(90),
     );
@@ -622,8 +622,8 @@ fn device_panel(
             session.click_mask |= gpio_bit(spec.gpio);
         }
         let hint = match key {
-            Some(key) => format!("{} — key {}", spec.label, key.name()),
-            None => format!("{} — no key bound", spec.label),
+            Some(key) => format!("{}: {}", spec.label, key.name()),
+            None => format!("{}: no key bound", spec.label),
         };
         response.on_hover_text(hint);
     }
