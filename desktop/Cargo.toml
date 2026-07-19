@@ -40,6 +40,7 @@ rfd = { version = "0.15", default-features = false, features = [
 pollster = "0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2"
+fs4 = { version = "1.1.0", features = ["sync"] }
 
 [build-dependencies]
 # Embeds assets/emiu2.ico into the .exe when targeting Windows.

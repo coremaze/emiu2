@@ -63,6 +63,11 @@ pub struct PlaySession {
     /// Since when the LCD has shown nothing but black (device asleep, or
     /// powered-off screen). `None` while the panel shows anything.
     blank_since: Option<Instant>,
+    /// The exclusive lock on the save directory, held for as long as this
+    /// session is playing so no second instance opens the same save.
+    /// `None` when the lock could not be taken (a network filesystem that
+    /// does not honor it); play proceeds unguarded rather than blocked.
+    _lock: Option<saves::SaveLock>,
 }
 
 impl PlaySession {
@@ -188,6 +193,26 @@ impl DesktopApp {
     /// The shared boot path. `connect_mode` holds Left+Menu through early
     /// boot so the device starts in "Please Connect to PC".
     fn boot_session(&mut self, ctx: &egui::Context, slot: SaveSlot, connect_mode: bool) {
+        // Refuse to open a save a second instance is already playing:
+        // both would autosave into the same directory and clobber each
+        // other's progress. A lock file that can't be opened at all is
+        // treated as "no protection available" (e.g. a network mount)
+        // rather than blocking play.
+        let lock = match saves::SaveLock::try_acquire(&slot.dir) {
+            Ok(Some(lock)) => Some(lock),
+            Ok(None) => {
+                self.toast(
+                    ToastKind::Error,
+                    format!("\"{}\" is already open in another window.", slot.meta.name),
+                );
+                return;
+            }
+            Err(why) => {
+                eprintln!("Could not lock the save directory ({why}); opening unguarded");
+                None
+            }
+        };
+
         let read = |file: &str| std::fs::read(slot.path(file));
         let otp = match read(saves::OTP_FILE) {
             Ok(data) => data,
@@ -262,6 +287,7 @@ impl DesktopApp {
             fullscreen: false,
             click_mask: 0,
             blank_since: None,
+            _lock: lock,
         });
         self.link = None;
         self.view = View::Playing;

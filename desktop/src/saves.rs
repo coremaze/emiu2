@@ -17,10 +17,12 @@
 //! (see [`crate::emu`]); the UI owns `save.toml`. All writes go through
 //! [`write_atomic`] so a crash never leaves a truncated file.
 
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fs4::{FileExt, TryLockError};
 use serde::{Deserialize, Serialize};
 
 /// The longest a save's name can be typed (new-save form, rename). Older
@@ -32,6 +34,44 @@ pub const OTP_FILE: &str = "otp.bin";
 pub const FLASH_FILE: &str = "flash.bin";
 pub const SNAPSHOT_FILE: &str = "state.snapshot";
 pub const THUMB_FILE: &str = "thumb.png";
+pub const LOCK_FILE: &str = "save.lock";
+
+/// An exclusive advisory lock on a save directory, held for the lifetime
+/// of a play session so a second emulator instance cannot open the same
+/// save and race its autosaves, since both would rewrite `state.snapshot` /
+/// `flash.bin` every 15s, and last-writer-wins silently loses one side's
+/// progress. The OS releases the lock when this value is dropped, and
+/// also if the process dies, so a crash never leaves a save stuck locked.
+///
+/// The lock is advisory and only coordinates between emiu2 instances
+/// (nothing else touches these files); over a network-mounted home
+/// directory it may not be enforced, so it is a best-effort guard against
+/// the common local-disk case, not a hard guarantee.
+pub struct SaveLock {
+    // Holding the handle open holds the lock; dropping it releases it.
+    _file: File,
+}
+
+impl SaveLock {
+    /// Tries to take the lock on `dir`. `Ok(Some(_))` acquired it;
+    /// `Ok(None)` means another instance holds it; `Err` means the lock
+    /// file itself could not be opened.
+    pub fn try_acquire(dir: &Path) -> io::Result<Option<SaveLock>> {
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(dir.join(LOCK_FILE))?;
+        // Fully qualified so it is unambiguously fs4's trait method, not
+        // std's inherent `File::try_lock`.
+        match FileExt::try_lock(&file) {
+            Ok(()) => Ok(Some(SaveLock { _file: file })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(why)) => Err(why),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -277,6 +317,33 @@ mod tests {
             has_snapshot: false,
         };
         assert!(library.delete(&stray).is_err());
+        std::fs::remove_dir_all(library.root()).ok();
+    }
+
+    #[test]
+    fn save_lock_is_exclusive_and_released_on_drop() {
+        let library = temp_library("lock");
+        let slot = library
+            .create("Locked", "Roc", "1.09.03", &[], &[])
+            .unwrap();
+
+        let held = SaveLock::try_acquire(&slot.dir)
+            .expect("lock file")
+            .expect("first acquire takes the lock");
+        // A second instance (here, a second handle; the OS lock contends
+        // across handles even within one process) is refused.
+        assert!(
+            SaveLock::try_acquire(&slot.dir).unwrap().is_none(),
+            "a held save must not lock twice"
+        );
+
+        drop(held);
+        // Once released, it can be taken again.
+        assert!(
+            SaveLock::try_acquire(&slot.dir).unwrap().is_some(),
+            "the lock should be free after the holder drops"
+        );
+
         std::fs::remove_dir_all(library.root()).ok();
     }
 }
