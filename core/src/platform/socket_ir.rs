@@ -31,7 +31,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-const MAGIC: [u8; 8] = *b"EMIU2IR\x01";
+const MAGIC: [u8; 8] = *b"EMIU2IR\x02";
 
 /// How long a reconnect waits after a failed attempt or lost connection.
 const RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -54,13 +54,18 @@ struct TaggedEdge {
     level: bool,
 }
 
+/// One outgoing write's worth of edge records. Live edges travel alone;
+/// a completed burst's atomic copy travels as one item so it goes out
+/// in a single write (see `crate::ir_replay` on atomic resend).
+type OutgoingRecords = Vec<(u64, bool)>;
+
 enum Endpoint {
     Listen(TcpListener),
     Connect(String),
 }
 
 pub struct SocketIr {
-    outgoing: mpsc::Sender<(u64, bool)>,
+    outgoing: mpsc::Sender<OutgoingRecords>,
     incoming: mpsc::Receiver<TaggedEdge>,
     shared: Arc<Shared>,
     local_addr: Option<SocketAddr>,
@@ -143,8 +148,14 @@ impl IrInterface for SocketIr {
         if !self.connected() {
             return;
         }
-        let wire_ns = self.engine.borrow_mut().outgoing_wire_ns(cycle, carrier);
-        let _ = self.outgoing.send((wire_ns, carrier));
+        let mut engine = self.engine.borrow_mut();
+        let wire_ns = engine.outgoing_wire_ns(cycle, carrier);
+        // If this edge started a new burst, the previous burst's atomic
+        // copy goes out first, keeping the wire in stream order.
+        while let Some(burst) = engine.take_burst_resend(cycle) {
+            let _ = self.outgoing.send(burst);
+        }
+        let _ = self.outgoing.send(vec![(wire_ns, carrier)]);
     }
 
     fn carrier_detected(&mut self, cycle: u64) -> bool {
@@ -179,13 +190,28 @@ impl IrInterface for SocketIr {
 /// platform's run loop (same thread as the emulator).
 pub struct SocketIrRollback {
     engine: Rc<RefCell<ReplayEngine>>,
-    outgoing: mpsc::Sender<(u64, bool)>,
+    outgoing: mpsc::Sender<OutgoingRecords>,
     shared: Arc<Shared>,
+}
+
+impl SocketIrRollback {
+    /// Sends any completed burst's atomic copy; unconnected copies are
+    /// discarded (the engine resets on the next connection anyway).
+    fn pump_resends(&self, engine: &mut ReplayEngine, now_cycle: u64) {
+        while let Some(burst) = engine.take_burst_resend(now_cycle) {
+            if self.shared.connected.load(Ordering::Relaxed) {
+                let _ = self.outgoing.send(burst);
+            }
+        }
+    }
 }
 
 impl IrRollbackControl for SocketIrRollback {
     fn poll(&mut self, now_cycle: u64) -> RollbackDirective {
-        self.engine.borrow_mut().poll(now_cycle)
+        let mut engine = self.engine.borrow_mut();
+        let directive = engine.poll(now_cycle);
+        self.pump_resends(&mut engine, now_cycle);
+        directive
     }
 
     fn snapshot_taken(&mut self, cycle: u64) {
@@ -193,15 +219,14 @@ impl IrRollbackControl for SocketIrRollback {
     }
 
     fn rolled_back(&mut self, restored_cycle: u64, abandoned_cycle: u64) {
-        let close = self
-            .engine
-            .borrow_mut()
-            .rolled_back(restored_cycle, abandoned_cycle);
+        let mut engine = self.engine.borrow_mut();
+        let close = engine.rolled_back(restored_cycle, abandoned_cycle);
         if let Some(close_ns) = close {
             if self.shared.connected.load(Ordering::Relaxed) {
-                let _ = self.outgoing.send((close_ns, false));
+                let _ = self.outgoing.send(vec![(close_ns, false)]);
             }
         }
+        self.pump_resends(&mut engine, restored_cycle);
     }
 }
 
@@ -214,7 +239,7 @@ enum After {
 
 fn connection_loop(
     endpoint: Endpoint,
-    outgoing: mpsc::Receiver<(u64, bool)>,
+    outgoing: mpsc::Receiver<OutgoingRecords>,
     incoming: mpsc::SyncSender<TaggedEdge>,
     shared: Arc<Shared>,
 ) {
@@ -262,7 +287,7 @@ fn connection_loop(
 
 fn run_connection(
     mut stream: TcpStream,
-    outgoing: &mpsc::Receiver<(u64, bool)>,
+    outgoing: &mpsc::Receiver<OutgoingRecords>,
     incoming: &mpsc::SyncSender<TaggedEdge>,
     shared: &Shared,
 ) -> std::io::Result<After> {
@@ -296,9 +321,18 @@ fn run_connection(
     let mut inbuf = Vec::new();
     let mut chunk = [0u8; 1024];
     loop {
+        // Each channel item goes out in one write. The bare-records
+        // wire has no framing, so TCP may still split a burst copy;
+        // the engine reassembles a split copy before replaying it.
         loop {
             match outgoing.try_recv() {
-                Ok((ns, level)) => stream.write_all(&encode_edge(ns, level))?,
+                Ok(edges) => {
+                    let mut records = Vec::with_capacity(edges.len() * EDGE_RECORD_LEN);
+                    for (ns, level) in edges {
+                        records.extend_from_slice(&encode_edge(ns, level));
+                    }
+                    stream.write_all(&records)?;
+                }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => return Ok(After::Shutdown),
             }

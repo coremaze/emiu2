@@ -6,7 +6,7 @@ use crate::code::{FriendCode, CODE_LEN};
 /// tell a native connection from a WebSocket upgrade by the first byte.
 pub const CLIENT_MAGIC: [u8; 8] = *b"\xE2MIU2NP\x01";
 
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// Upper bound on any payload; an `IrData` this large would be absurd.
 pub const MAX_PAYLOAD: usize = 64 * 1024;
