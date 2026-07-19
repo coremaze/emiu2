@@ -13,7 +13,9 @@
 
 use crate::ir::{IrInterface, IrRollbackControl, RollbackDirective};
 use crate::ir_replay::ReplayEngine;
-use emiu2_netplay::{decode_edges, encode_edge, FriendCode, Message, PROTOCOL_VERSION};
+use emiu2_netplay::{
+    decode_edges, encode_edge, FriendCode, Message, EDGE_RECORD_LEN, PROTOCOL_VERSION,
+};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -80,6 +82,25 @@ impl WebIrState {
         if let Some(socket) = &self.socket {
             if socket.ready_state() == WebSocket::OPEN {
                 let _ = socket.send_with_u8_array(&message.encode());
+            }
+        }
+    }
+
+    /// Sends edge records as one IrData message.
+    fn send_edges(&self, edges: &[(u64, bool)]) {
+        let mut records = Vec::with_capacity(edges.len() * EDGE_RECORD_LEN);
+        for &(ns, level) in edges {
+            records.extend_from_slice(&encode_edge(ns, level));
+        }
+        self.send(&Message::IrData { records });
+    }
+
+    /// Sends any completed burst's atomic copy, each as one message
+    /// (see `crate::ir_replay` on atomic resend).
+    fn pump_resends(&mut self, now_cycle: u64) {
+        while let Some(burst) = self.engine.take_burst_resend(now_cycle) {
+            if self.paired {
+                self.send_edges(&burst);
             }
         }
     }
@@ -228,8 +249,10 @@ impl IrInterface for WebIr {
             return;
         }
         let wire_ns = state.engine.outgoing_wire_ns(cycle, carrier);
-        let records = encode_edge(wire_ns, carrier).to_vec();
-        state.send(&Message::IrData { records });
+        // If this edge started a new burst, the previous burst's atomic
+        // copy goes out first, keeping the wire in stream order.
+        state.pump_resends(cycle);
+        state.send_edges(&[(wire_ns, carrier)]);
     }
 
     fn carrier_detected(&mut self, cycle: u64) -> bool {
@@ -260,7 +283,10 @@ impl WebIrControl {
 
 impl IrRollbackControl for WebIrControl {
     fn poll(&mut self, now_cycle: u64) -> RollbackDirective {
-        self.state.borrow_mut().engine.poll(now_cycle)
+        let mut state = self.state.borrow_mut();
+        let directive = state.engine.poll(now_cycle);
+        state.pump_resends(now_cycle);
+        directive
     }
 
     fn snapshot_taken(&mut self, cycle: u64) {
@@ -272,9 +298,9 @@ impl IrRollbackControl for WebIrControl {
         let close = state.engine.rolled_back(restored_cycle, abandoned_cycle);
         if let Some(close_ns) = close {
             if state.paired {
-                let records = encode_edge(close_ns, false).to_vec();
-                state.send(&Message::IrData { records });
+                state.send_edges(&[(close_ns, false)]);
             }
         }
+        state.pump_resends(restored_cycle);
     }
 }

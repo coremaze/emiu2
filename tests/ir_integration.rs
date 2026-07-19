@@ -601,6 +601,74 @@ fn delay_pipe(mut from: TcpStream, mut to: TcpStream, delay: Duration) {
     }
 }
 
+/// A TCP proxy that, on top of a fixed delay, releases bytes only in
+/// periodic clumps, modeling what real internet paths do to a stream of
+/// tiny packets (head-of-line blocking dumps a round trip's worth of
+/// edges at once). Measured against a deployed relay, such stalls
+/// corrupt every live-streamed frame; only a burst resent as one
+/// message survives.
+fn spawn_clumpy_proxy(target_port: u16, delay: Duration, clump: Duration) -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("could not bind proxy");
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let Ok((client, _)) = listener.accept() else {
+            return;
+        };
+        let Ok(upstream) = TcpStream::connect(("127.0.0.1", target_port)) else {
+            return;
+        };
+        client.set_nodelay(true).ok();
+        upstream.set_nodelay(true).ok();
+        let (Ok(client_copy), Ok(upstream_copy)) = (client.try_clone(), upstream.try_clone())
+        else {
+            return;
+        };
+        std::thread::spawn(move || clumpy_pipe(client, upstream_copy, delay, clump));
+        clumpy_pipe(upstream, client_copy, delay, clump);
+    });
+    port
+}
+
+fn clumpy_pipe(mut from: TcpStream, mut to: TcpStream, delay: Duration, clump: Duration) {
+    let (tx, rx) = mpsc::channel::<(Instant, Vec<u8>)>();
+    std::thread::spawn(move || {
+        let mut pending: Vec<(Instant, Vec<u8>)> = Vec::new();
+        loop {
+            std::thread::sleep(clump);
+            loop {
+                match rx.try_recv() {
+                    Ok(item) => pending.push(item),
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => return,
+                }
+            }
+            // Everything whose delay has elapsed goes out as one write.
+            let now = Instant::now();
+            let due = pending
+                .iter()
+                .take_while(|(arrived, _)| *arrived + delay <= now)
+                .count();
+            if due > 0 {
+                let batch: Vec<u8> = pending.drain(..due).flat_map(|(_, data)| data).collect();
+                if to.write_all(&batch).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    let mut buf = [0u8; 4096];
+    loop {
+        match from.read(&mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(n) => {
+                if tx.send((Instant::now(), buf[..n].to_vec())).is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
 /// High-latency handshake tests pace both machines at 1/8 of real time:
 /// a debug build cannot sustain two full-speed machines on one thread,
 /// and uniform slow motion is invisible to the transport (all scheduling
@@ -676,6 +744,7 @@ fn drive_high_latency_handshake(
     let mut listening_since: Option<u64> = None;
     let mut retransmits = 0u32;
     let mut responder_transmitting = false;
+    let mut responder_listening_since = responder.mcu.core.cycles;
     let mut replies_sent = 0u32;
     let mut rollbacks = 0u32;
 
@@ -728,6 +797,26 @@ fn drive_high_latency_handshake(
             responder_transmitting = false;
             set_rx_power(responder, true);
             setup_receive(responder);
+            responder_listening_since = responder.mcu.core.cycles;
+        }
+
+        // A listen window that heard nothing gets re-armed, as the
+        // firmware's own listen loop does. Without this, a garbled
+        // frame parks the modem (its substate stays nonzero) and every
+        // later frame would fall on a dead receive driver.
+        if !responder_transmitting
+            && read(responder, IR_STATE) & 0x80 == 0
+            && responder
+                .mcu
+                .core
+                .cycles
+                .saturating_sub(responder_listening_since)
+                > listen_window
+        {
+            set_rx_power(responder, false);
+            set_rx_power(responder, true);
+            setup_receive(responder);
+            responder_listening_since = responder.mcu.core.cycles;
         }
     };
 
@@ -800,7 +889,10 @@ fn rollback_recovers_handshake_over_high_latency_link() {
     let mut requester_driver = RollbackDriver::new(Box::new(requester_control));
     let mut responder_driver = RollbackDriver::new(Box::new(responder_control));
 
-    let request: Vec<u8> = (0..16).map(|i| 0xC0 + i).collect();
+    // Window-sized, like real exchange frames: with both sides cycling
+    // ~98ms listen windows, a frame plus its replay anchor must fit in
+    // one window to be receivable at all.
+    let request: Vec<u8> = (0..6).map(|i| 0xC0 + i).collect();
     let reply = [0xF1, 0x02];
     let outcome = drive_high_latency_handshake(
         &mut requester,
@@ -863,7 +955,10 @@ fn relay_with_rollback_recovers_handshake_over_high_latency_link() {
     let mut requester_driver = RollbackDriver::new(Box::new(requester_control));
     let mut responder_driver = RollbackDriver::new(Box::new(responder_control));
 
-    let request: Vec<u8> = (0..16).map(|i| 0xC0 + i).collect();
+    // Window-sized, like real exchange frames: with both sides cycling
+    // ~98ms listen windows, a frame plus its replay anchor must fit in
+    // one window to be receivable at all.
+    let request: Vec<u8> = (0..6).map(|i| 0xC0 + i).collect();
     let reply = [0xE7, 0x15];
     let outcome = drive_high_latency_handshake(
         &mut requester,
@@ -874,6 +969,90 @@ fn relay_with_rollback_recovers_handshake_over_high_latency_link() {
         &reply,
     );
     assert_handshake_needed_rollback(&mut requester, &outcome, &reply);
+}
+
+/// The handshake through the relay over a link that both delays and
+/// clumps traffic: bytes are released in bursts a whole round trip
+/// apart, as measured on real internet paths (TCP head-of-line
+/// blocking on the per-edge stream of tiny packets). Every live-
+/// streamed frame arrives with mid-burst stalls far past the replay
+/// budget, so the handshake can only complete through each burst's
+/// atomic resend.
+#[test]
+fn relay_recovers_handshake_over_clumpy_link() {
+    let Some((otp, flash)) = load_firmware() else {
+        eprintln!("skipping: firmware images not present");
+        return;
+    };
+
+    let server_addr = emiu2_relay::RelayServer::bind(("127.0.0.1", 0))
+        .expect("could not bind relay")
+        .spawn();
+    // 400ms of wall clumping is 50ms of emulated mid-burst stall at
+    // this pacing: five times the replay latency budget, so no live
+    // frame survives, as on the measured real-world path.
+    let clump = Duration::from_millis(400);
+    let proxy_port = spawn_clumpy_proxy(server_addr.port(), ONE_WAY_DELAY, clump);
+
+    let requester_ir = RelayIr::connect(format!("127.0.0.1:{proxy_port}"));
+    let responder_ir = RelayIr::connect(format!("127.0.0.1:{}", server_addr.port()));
+    let requester_commander = requester_ir.commander();
+    let responder_commander = responder_ir.commander();
+    let requester_control = requester_ir.rollback_handle();
+    let responder_control = responder_ir.rollback_handle();
+
+    let start = Instant::now();
+    let responder_code = loop {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "clients never received their friend codes"
+        );
+        if let (Some(_), Some(code)) = (requester_commander.code(), responder_commander.code()) {
+            break code;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    requester_commander.join(responder_code);
+    while !(requester_commander.paired() && responder_commander.paired()) {
+        assert!(
+            start.elapsed() < Duration::from_secs(15),
+            "clients never paired"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let mut requester = make_handheld(&otp, &flash, Box::new(requester_ir));
+    let mut responder = make_handheld(&otp, &flash, Box::new(responder_ir));
+    let mut requester_driver = RollbackDriver::new(Box::new(requester_control));
+    let mut responder_driver = RollbackDriver::new(Box::new(responder_control));
+
+    // Window-sized, as in the other handshake tests.
+    let request: Vec<u8> = (0..6).map(|i| 0xA0 + i).collect();
+    let reply = [0x3C, 0x99];
+    let outcome = drive_high_latency_handshake(
+        &mut requester,
+        &mut responder,
+        &mut requester_driver,
+        &mut responder_driver,
+        &request,
+        &reply,
+    );
+
+    assert!(
+        outcome.heard_reply,
+        "handshake never completed over the clumpy link"
+    );
+    assert!(
+        outcome.retransmits >= 1,
+        "this link cannot possibly fit the listen window \
+         (retransmits: {})",
+        outcome.retransmits
+    );
+    assert_eq!(read(&mut requester, IR_LEN) as usize, reply.len());
+    for (i, &b) in reply.iter().enumerate() {
+        assert_eq!(read(&mut requester, IR_RX_BUF + i), b, "reply byte {i}");
+    }
+    assert!(outcome.replies_sent >= 1);
 }
 
 #[test]

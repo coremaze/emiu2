@@ -20,7 +20,8 @@
 use crate::ir::{IrInterface, IrRollbackControl, RollbackDirective};
 use crate::ir_replay::ReplayEngine;
 use emiu2_netplay::{
-    decode_edges, encode_edge, Decoder, FriendCode, Message, CLIENT_MAGIC, PROTOCOL_VERSION,
+    decode_edges, encode_edge, Decoder, FriendCode, Message, CLIENT_MAGIC, EDGE_RECORD_LEN,
+    PROTOCOL_VERSION,
 };
 use std::cell::RefCell;
 use std::io::{ErrorKind, Read, Write};
@@ -90,8 +91,14 @@ pub enum RelayCommand {
     Leave,
 }
 
+/// One outgoing wire message: the edge records it carries. Live edges
+/// travel alone; a completed burst's atomic copy travels as one item so
+/// it reaches the peer in a single message (see `crate::ir_replay` on
+/// atomic resend).
+type OutgoingRecords = Vec<(u64, bool)>;
+
 pub struct RelayIr {
-    outgoing: mpsc::Sender<(u64, bool)>,
+    outgoing: mpsc::Sender<OutgoingRecords>,
     incoming: mpsc::Receiver<TaggedEdge>,
     commands: mpsc::Sender<RelayCommand>,
     shared: Arc<Shared>,
@@ -163,8 +170,14 @@ impl IrInterface for RelayIr {
         if !self.paired() {
             return;
         }
-        let wire_ns = self.engine.borrow_mut().outgoing_wire_ns(cycle, carrier);
-        let _ = self.outgoing.send((wire_ns, carrier));
+        let mut engine = self.engine.borrow_mut();
+        let wire_ns = engine.outgoing_wire_ns(cycle, carrier);
+        // If this edge started a new burst, the previous burst's atomic
+        // copy goes out first, keeping the wire in stream order.
+        while let Some(burst) = engine.take_burst_resend(cycle) {
+            let _ = self.outgoing.send(burst);
+        }
+        let _ = self.outgoing.send(vec![(wire_ns, carrier)]);
     }
 
     fn carrier_detected(&mut self, cycle: u64) -> bool {
@@ -227,13 +240,28 @@ impl RelayCommander {
 /// The [`IrRollbackControl`] endpoint of a [`RelayIr`].
 pub struct RelayIrRollback {
     engine: Rc<RefCell<ReplayEngine>>,
-    outgoing: mpsc::Sender<(u64, bool)>,
+    outgoing: mpsc::Sender<OutgoingRecords>,
     shared: Arc<Shared>,
+}
+
+impl RelayIrRollback {
+    /// Sends any completed burst's atomic copy; unpaired copies are
+    /// discarded (the engine resets on the next pairing anyway).
+    fn pump_resends(&self, engine: &mut ReplayEngine, now_cycle: u64) {
+        while let Some(burst) = engine.take_burst_resend(now_cycle) {
+            if self.shared.paired.load(Ordering::Relaxed) {
+                let _ = self.outgoing.send(burst);
+            }
+        }
+    }
 }
 
 impl IrRollbackControl for RelayIrRollback {
     fn poll(&mut self, now_cycle: u64) -> RollbackDirective {
-        self.engine.borrow_mut().poll(now_cycle)
+        let mut engine = self.engine.borrow_mut();
+        let directive = engine.poll(now_cycle);
+        self.pump_resends(&mut engine, now_cycle);
+        directive
     }
 
     fn snapshot_taken(&mut self, cycle: u64) {
@@ -241,21 +269,20 @@ impl IrRollbackControl for RelayIrRollback {
     }
 
     fn rolled_back(&mut self, restored_cycle: u64, abandoned_cycle: u64) {
-        let close = self
-            .engine
-            .borrow_mut()
-            .rolled_back(restored_cycle, abandoned_cycle);
+        let mut engine = self.engine.borrow_mut();
+        let close = engine.rolled_back(restored_cycle, abandoned_cycle);
         if let Some(close_ns) = close {
             if self.shared.paired.load(Ordering::Relaxed) {
-                let _ = self.outgoing.send((close_ns, false));
+                let _ = self.outgoing.send(vec![(close_ns, false)]);
             }
         }
+        self.pump_resends(&mut engine, restored_cycle);
     }
 }
 
 fn connection_loop(
     addr: String,
-    outgoing: mpsc::Receiver<(u64, bool)>,
+    outgoing: mpsc::Receiver<OutgoingRecords>,
     incoming: mpsc::SyncSender<TaggedEdge>,
     commands: mpsc::Receiver<RelayCommand>,
     shared: Arc<Shared>,
@@ -282,7 +309,7 @@ fn connection_loop(
 
 fn run_connection(
     mut stream: TcpStream,
-    outgoing: &mpsc::Receiver<(u64, bool)>,
+    outgoing: &mpsc::Receiver<OutgoingRecords>,
     incoming: &mpsc::SyncSender<TaggedEdge>,
     commands: &mpsc::Receiver<RelayCommand>,
     shared: &Shared,
@@ -305,14 +332,18 @@ fn run_connection(
     let mut decoder = Decoder::new();
     let mut chunk = [0u8; 4096];
     loop {
-        // Outgoing edges, each as one IrData record.
+        // Outgoing records; each channel item becomes one IrData
+        // message, so a burst's atomic copy stays in one piece.
         loop {
             match outgoing.try_recv() {
-                Ok((ns, level)) => {
+                Ok(edges) => {
                     if !shared.paired.load(Ordering::Relaxed) {
                         continue;
                     }
-                    let records = encode_edge(ns, level).to_vec();
+                    let mut records = Vec::with_capacity(edges.len() * EDGE_RECORD_LEN);
+                    for (ns, level) in edges {
+                        records.extend_from_slice(&encode_edge(ns, level));
+                    }
                     stream.write_all(&Message::IrData { records }.encode())?;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
