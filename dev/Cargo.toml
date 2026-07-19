@@ -5,6 +5,8 @@
 name = "emiu2-dev"
 version = "0.1.0"
 edition = "2021"
+# First-party crate: not on crates.io; exempt from the third-party license allowlist.
+publish = false
 
 [[bin]]
 name = "emiu2-dev"

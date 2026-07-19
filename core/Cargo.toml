@@ -7,6 +7,8 @@
 name = "emiu2"
 version = "0.1.0"
 edition = "2021"
+# First-party crate: not on crates.io; exempt from the third-party license allowlist.
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

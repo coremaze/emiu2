@@ -2,6 +2,8 @@
 name = "emiu2-relay"
 version = "0.1.0"
 edition = "2021"
+# First-party crate: not on crates.io; exempt from the third-party license allowlist.
+publish = false
 
 [dependencies]
 emiu2-netplay = { path = "../netplay" }
