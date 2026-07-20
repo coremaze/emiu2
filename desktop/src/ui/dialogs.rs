@@ -58,13 +58,32 @@ fn new_save(app: &mut DesktopApp, ctx: &egui::Context, mut state: library::NewSa
         return;
     }
     let modal = egui::Modal::new(Id::new("new_save")).show(ctx, |ui| {
-        // Wide enough that all seven characters sit on one row.
-        ui.set_width(580.0);
+        // Keep a clear gap of backdrop all around, even on a small window;
+        // when the form is taller than that fits, it scrolls.
+        const GAP: f32 = 16.0;
+        let max = ctx.content_rect().shrink(GAP).size()
+            - egui::Frame::popup(ui.style()).total_margin().sum();
+        // Wide enough that all seven characters sit on one row, but never
+        // wider than the window allows.
+        ui.set_width(580.0_f32.min(max.x));
+        ui.set_max_height(max.y);
+
         ui.heading("New save");
         ui.add_space(2.0);
         ui.label(RichText::new("Pick a character; the game is built in.").color(theme::TEXT_DIM));
         ui.add_space(12.0);
-        library::new_save_form(ui, &mut state, true)
+
+        // A solid, always-there scrollbar so a cramped window still shows
+        // there is more form below.
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        theme::scrollbar_fills(ui);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.reset_style();
+                library::new_save_form(ui, &mut state, true)
+            })
+            .inner
     });
     let close = modal.should_close();
     let action = modal.inner;

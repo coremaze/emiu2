@@ -98,20 +98,11 @@ pub fn show(app: &mut DesktopApp, root: &mut egui::Ui) {
 
     let first_run = app.saves.is_empty();
 
-    // The gallery carries its padding inside its scroll area so the scroll
-    // viewport (and its frost fade) reaches the panel edges; the first-run
-    // hero keeps the padding on the panel.
-    let margin = if first_run {
-        egui::Margin::same(28)
-    } else {
-        egui::Margin::ZERO
-    };
+    // Both screens carry their padding inside their scroll area, so content
+    // clips at the true panel edges under the frost fade and the scrollbar
+    // reaches the panel edges.
     egui::CentralPanel::default_margins()
-        .frame(
-            egui::Frame::new()
-                .fill(Color32::TRANSPARENT)
-                .inner_margin(margin),
-        )
+        .frame(egui::Frame::new().fill(Color32::TRANSPARENT))
         .show(root, |ui| {
             if first_run {
                 hero_new_save(app, &ctx, ui);
@@ -168,29 +159,57 @@ fn hero_new_save(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
         app.dialog = Dialog::NewSave(NewSaveState::default());
     }
 
-    ui.vertical_centered(|ui| {
-        ui.add_space(ui.available_height() * 0.06);
-        ui.label(theme::display(32.0, "Pick your Miuchiz").color(theme::TEXT));
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new(
-                "Choose a character to start. Your game saves itself while you play.",
-            )
-            .color(theme::TEXT_DIM)
-            .size(14.5),
-        );
-        ui.add_space(24.0);
-    });
-
     let mut action = FormAction::None;
     let Dialog::NewSave(state) = &mut app.dialog else {
         return;
     };
-    ui.vertical_centered(|ui| {
-        // Wide enough that all seven characters sit on one row.
-        ui.set_max_width(590.0);
-        action = new_save_form(ui, state, false);
-    });
+
+    // Scroll the whole screen so a short window can still reach the form's
+    // footer and the advanced-options panel below it. Mirror the gallery:
+    // the scrollbar floats a little off the edges, and content clips at the
+    // true panel edges under a frost fade.
+    ui.spacing_mut().scroll.bar_outer_margin = 6.0;
+    theme::scrollbar_fills(ui);
+    let track = ui.max_rect().shrink2(egui::vec2(0.0, 12.0));
+    let scrolled = egui::ScrollArea::vertical()
+        .scroll_bar_rect(track)
+        .show(ui, |ui| {
+            // The screen's padding lives in here, not on the panel, so
+            // content clips at the true panel edges, under the frost fade.
+            let pad = egui::Frame::new().inner_margin(egui::Margin::symmetric(28, 14));
+            pad.show(ui, |ui| {
+                ui.reset_style();
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() * 0.06);
+                    ui.label(theme::display(32.0, "Pick a Miuchiz Character").color(theme::TEXT));
+                    ui.add_space(16.0);
+                });
+                // A fixed-width form column, centered in the panel. Wide
+                // enough that all seven characters sit on one row, but never
+                // wider than the window — on a narrow window it shrinks so the
+                // tiles wrap and the fields fit. Giving the column an *exact*
+                // width (as the modal does) keeps the advanced-options frame
+                // from spilling past the column on the right, which a
+                // max-width Center layout lets it do.
+                let column = 590.0_f32.min(ui.available_width());
+                ui.vertical_centered(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(column, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.set_width(column);
+                            action = new_save_form(ui, state, false);
+                        },
+                    );
+                });
+            });
+        });
+    theme::scroll_edge_fade(
+        ui,
+        scrolled.inner_rect,
+        scrolled.content_size,
+        scrolled.state.offset,
+    );
     apply_form_action(app, ctx, action);
 }
 
@@ -608,19 +627,6 @@ pub fn new_save_form(ui: &mut egui::Ui, state: &mut NewSaveState, show_cancel: b
         }
     });
 
-    if !ready {
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(if state.character.is_none() {
-                "Pick a character above."
-            } else {
-                "Give the save a name."
-            })
-            .small()
-            .color(theme::TEXT_FAINT),
-        );
-    }
-
     // Deliberately quiet: nothing here matters to a player. Firmware
     // version choice and custom image files live behind this link.
     ui.add_space(18.0);
@@ -700,15 +706,21 @@ pub fn new_save_form(ui: &mut egui::Ui, state: &mut NewSaveState, show_cancel: b
                 let path_row = |ui: &mut egui::Ui, value: &mut String, hint: &str| {
                     let mut browse = false;
                     ui.horizontal(|ui| {
-                        let browse_w = 76.0 + ui.spacing().item_spacing.x;
-                        ui.add(
-                            egui::TextEdit::singleline(value)
-                                .hint_text(hint)
-                                .desired_width(ui.available_width() - browse_w),
-                        );
-                        browse = ui
-                            .add_enabled(!picking, egui::Button::new("Browse…"))
-                            .clicked();
+                        // Lay the button out from the right at its true width,
+                        // then let the field fill what's left. Reserving a
+                        // guessed button width instead lets a wider-than-
+                        // guessed button spill past the panel's right edge
+                        // (and stretch the frame with it).
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            browse = ui
+                                .add_enabled(!picking, egui::Button::new("Browse…"))
+                                .clicked();
+                            ui.add(
+                                egui::TextEdit::singleline(value)
+                                    .hint_text(hint)
+                                    .desired_width(ui.available_width()),
+                            );
+                        });
                     });
                     browse
                 };
