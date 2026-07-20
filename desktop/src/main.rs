@@ -3,6 +3,10 @@
 //! No arguments needed — firmware is built in and saves manage themselves.
 //! The few flags that exist are development tools (see [`StartupOptions`]).
 
+// Don't spawn a console window on Windows for release builds. Debug builds
+// keep it so the dev flags' `eprintln!` diagnostics stay visible.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod config;
 mod controls;
