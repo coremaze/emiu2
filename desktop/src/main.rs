@@ -115,7 +115,7 @@ fn main() {
     // stays reachable by resizing. An explicit --shot-size may be smaller
     // still; let it win so low-resolution layouts can be exercised.
     let floor = ui::player::window_size_for_scale(ui::player::MIN_SCALE);
-    let size = options.window_size.unwrap_or([floor.x, floor.y]);
+    let size = options.window_size.unwrap_or([800.0, 500.0]);
     let mut viewport = eframe::egui::ViewportBuilder::default()
         .with_title("Emiu2 Desktop")
         .with_app_id("emiu2-desktop")
