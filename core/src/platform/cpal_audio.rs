@@ -11,24 +11,40 @@ use cpal::{
 
 use crate::audio::AudioInterface;
 
+/// If the buffer falls further behind real time than this, drop the oldest
+/// samples (down to [`TARGET_BUFFERED`]) instead of letting latency
+/// accumulate forever.
+const MAX_BUFFERED: f64 = 0.5;
+/// What the buffer is trimmed back to after falling behind: enough cushion
+/// that trimming doesn't cause an immediate underrun.
+const TARGET_BUFFERED: f64 = 0.1;
+
 struct AudioReceiver {
     audio_rx: Receiver<Vec<f32>>,
     buffer: VecDeque<f32>,
     last_sample: f32,
+    max_buffered: usize,
+    target_buffered: usize,
 }
 
 impl AudioReceiver {
-    fn new(audio_rx: Receiver<Vec<f32>>) -> Self {
+    fn new(audio_rx: Receiver<Vec<f32>>, sample_rate: u32) -> Self {
         Self {
             audio_rx,
             buffer: VecDeque::new(),
             last_sample: 0.0,
+            max_buffered: (sample_rate as f64 * MAX_BUFFERED) as usize,
+            target_buffered: (sample_rate as f64 * TARGET_BUFFERED) as usize,
         }
     }
 
     fn update(&mut self) {
-        if let Ok(values) = self.audio_rx.try_recv() {
+        while let Ok(values) = self.audio_rx.try_recv() {
             self.buffer.extend(values);
+        }
+        if self.buffer.len() > self.max_buffered {
+            let excess = self.buffer.len() - self.target_buffered;
+            self.buffer.drain(..excess);
         }
     }
 
@@ -84,10 +100,10 @@ pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>>
         host_sample_rate: config.sample_rate.0,
         clock_of_last_sample: 0.0,
         clocks_between_samples: 0.0,
-        frame_size: match config.buffer_size {
-            cpal::BufferSize::Fixed(size) => size as usize,
-            cpal::BufferSize::Default => 64,
-        },
+        // Send granularity only; the callback drains everything available,
+        // so this doesn't need to match the device's callback size (WASAPI
+        // callbacks are variable-sized regardless of the requested buffer).
+        frame_size: 128,
         buffer: Vec::new(),
     };
 
@@ -164,7 +180,10 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let num_channels = config.channels as usize;
-    let player = Arc::new(Mutex::new(AudioReceiver::new(audio_rx)));
+    let player = Arc::new(Mutex::new(AudioReceiver::new(
+        audio_rx,
+        config.sample_rate.0,
+    )));
 
     let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
 
