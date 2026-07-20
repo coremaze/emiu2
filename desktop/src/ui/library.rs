@@ -212,7 +212,7 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             // The screen's padding lives in here, not on the panel, so content
             // clips at the true panel edges, under the frost fade.
-            let pad = egui::Frame::new().inner_margin(egui::Margin::same(28));
+            let pad = egui::Frame::new().inner_margin(egui::Margin::symmetric(28, 14));
             pad.show(ui, |ui| {
                 ui.reset_style();
                 ui.horizontal(|ui| {
@@ -230,7 +230,7 @@ fn gallery(app: &mut DesktopApp, ctx: &egui::Context, ui: &mut egui::Ui) {
                         }
                     });
                 });
-                ui.add_space(16.0);
+                ui.add_space(2.0);
 
                 // Make sure thumbnails are loaded (once per refresh).
                 let ids: Vec<String> = app.saves.iter().map(|s| s.id.clone()).collect();
