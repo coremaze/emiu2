@@ -7,7 +7,7 @@ emiu2 = { path = "core" }
 emiu2-netplay = { path = "netplay" }
 emiu2-relay = { path = "server" }
 miuchiz-reborn-paths = { git = "https://github.com/coremaze/Miuchiz-Reborn-Paths" }
-cpal = "0.15.3"
+cpal = { version = "0.18.1", features = ["pipewire", "pulseaudio"] }
 
 # An unoptimized machine core can't reach the Miuchiz's 8M CPU cycles per
 # second, which turns debug builds of the frontends into slow motion.
