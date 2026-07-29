@@ -87,9 +87,9 @@ impl Default for Bindings {
             bind(MiuchizGpio::Down, "D-pad down", "down", Key::ArrowDown),
             bind(MiuchizGpio::Left, "D-pad left", "left", Key::ArrowLeft),
             bind(MiuchizGpio::Right, "D-pad right", "right", Key::ArrowRight),
-            bind(MiuchizGpio::Action, "Action", "action", Key::Space),
-            bind(MiuchizGpio::Menu, "Menu", "menu", Key::Enter),
-            // The four soft buttons hugging the screen corners; Q/E/A/D
+            bind(MiuchizGpio::Action, "Action", "action", Key::A),
+            bind(MiuchizGpio::Menu, "Menu", "menu", Key::M),
+            // The four soft buttons hugging the screen corners; Q/E/Z/C
             // mirror their positions on a QWERTY board.
             bind(
                 MiuchizGpio::ScreenTopLeft,
@@ -107,16 +107,16 @@ impl Default for Bindings {
                 MiuchizGpio::ScreenBottomLeft,
                 "Screen bottom-left",
                 "screen_bottom_left",
-                Key::A,
+                Key::Z,
             ),
             bind(
                 MiuchizGpio::ScreenBottomRight,
                 "Screen bottom-right",
                 "screen_bottom_right",
-                Key::D,
+                Key::C,
             ),
             bind(MiuchizGpio::Power, "Power", "power", Key::P),
-            bind(MiuchizGpio::Mute, "Mute", "mute", Key::M),
+            bind(MiuchizGpio::Mute, "Mute", "mute", Key::U),
         ])
     }
 }
@@ -208,14 +208,14 @@ mod tests {
     #[test]
     fn assigning_a_key_steals_it_from_other_bindings() {
         let mut bindings = Bindings::default();
-        // Give the Action key (Space) to Power.
+        // Give the Action key (A) to Power.
         let power_index = bindings
             .0
             .iter()
             .position(|b| b.gpio == MiuchizGpio::Power)
             .unwrap();
-        bindings.assign(power_index, Key::Space);
-        assert_eq!(bindings.key_for(MiuchizGpio::Power), Some(Key::Space));
+        bindings.assign(power_index, Key::A);
+        assert_eq!(bindings.key_for(MiuchizGpio::Power), Some(Key::A));
         assert_eq!(bindings.key_for(MiuchizGpio::Action), None);
     }
 
