@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use cpal::StreamConfig;
 use cpal::{
-    traits::{DeviceTrait, HostTrait},
+    traits::{DeviceTrait, HostTrait, StreamTrait},
     FromSample, Sample, SizedSample,
 };
 
@@ -91,7 +91,48 @@ impl AudioInterface for AudioSender {
 }
 
 pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>> {
-    let (_host, device, config) = host_device_setup()?;
+    let host = cpal::default_host();
+
+    let default_device = host.default_output_device();
+    let default_name = default_device.as_ref().and_then(|d| d.name().ok());
+
+    let mut last_err: Box<dyn Error> = "no audio output devices found".into();
+
+    if let Some(device) = &default_device {
+        match stream_for_device(device) {
+            Ok(ok) => return Ok(ok),
+            Err(why) => {
+                eprintln!("Default audio output unusable ({why}); trying other devices");
+                last_err = why;
+            }
+        }
+    }
+
+    // The default device can be broken while real ones work (e.g. ALSA's
+    // `default` PCM routing to dmix on a card with no playback stream), so
+    // walk the full device list before giving up.
+    if let Ok(devices) = host.output_devices() {
+        for device in devices {
+            let name = device.name().ok();
+            let is_default = default_name.is_some() && name == default_name;
+            if is_default || name.as_deref() == Some("null") {
+                continue;
+            }
+            match stream_for_device(&device) {
+                Ok(ok) => {
+                    eprintln!("Audio output: {}", name.as_deref().unwrap_or("(unnamed)"));
+                    return Ok(ok);
+                }
+                Err(why) => last_err = why,
+            }
+        }
+    }
+
+    Err(last_err)
+}
+
+fn stream_for_device(device: &cpal::Device) -> Result<(cpal::Stream, AudioSender), Box<dyn Error>> {
+    let (config, sample_format) = select_config(device)?;
     let (tx, rx) = channel();
 
     let audio_sender = AudioSender {
@@ -107,29 +148,43 @@ pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>>
         buffer: Vec::new(),
     };
 
-    let stream = make_stream::<f32>(&device, &config.into(), rx)?;
+    let stream = match sample_format {
+        cpal::SampleFormat::F32 => make_stream::<f32>(device, &config, rx),
+        cpal::SampleFormat::F64 => make_stream::<f64>(device, &config, rx),
+        cpal::SampleFormat::I16 => make_stream::<i16>(device, &config, rx),
+        cpal::SampleFormat::U16 => make_stream::<u16>(device, &config, rx),
+        cpal::SampleFormat::I8 => make_stream::<i8>(device, &config, rx),
+        cpal::SampleFormat::U8 => make_stream::<u8>(device, &config, rx),
+        cpal::SampleFormat::I32 => make_stream::<i32>(device, &config, rx),
+        cpal::SampleFormat::U32 => make_stream::<u32>(device, &config, rx),
+        cpal::SampleFormat::I64 => make_stream::<i64>(device, &config, rx),
+        cpal::SampleFormat::U64 => make_stream::<u64>(device, &config, rx),
+        other => Err(format!("unsupported sample format {other:?}").into()),
+    }?;
+
+    // Start here rather than in the caller so a device that opens but can't
+    // begin playback still falls through to the next candidate.
+    stream.play()?;
+
     Ok((stream, audio_sender))
 }
 
-fn host_device_setup() -> Result<(cpal::Host, cpal::Device, cpal::StreamConfig), Box<dyn Error>> {
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or("Default output device is not available")?;
-
-    // println!("Output device: {}", device.name()?);
-
-    // let supported_configs_range = device.supported_output_configs()?;
-
-    // println!("Supported configs:");
-    // for config in supported_configs_range {
-    //     println!("  {:?}", config);
-    // }
-
+fn select_config(
+    device: &cpal::Device,
+) -> Result<(cpal::StreamConfig, cpal::SampleFormat), Box<dyn Error>> {
+    // F32 is a preference, not a requirement: raw ALSA devices are often
+    // S16-only.
     let supported_config = device
         .supported_output_configs()?
-        .find(|config| config.sample_format() == cpal::SampleFormat::F32)
+        .min_by_key(|config| match config.sample_format() {
+            cpal::SampleFormat::F32 => 0,
+            cpal::SampleFormat::I16 => 1,
+            cpal::SampleFormat::U16 => 2,
+            _ => 3,
+        })
         .ok_or("No supported audio configuration found")?;
+
+    let sample_format = supported_config.sample_format();
 
     // Choose sample rate closest to 44100
     let min_sample_rate = supported_config.min_sample_rate();
@@ -167,8 +222,7 @@ fn host_device_setup() -> Result<(cpal::Host, cpal::Device, cpal::StreamConfig),
         buffer_size,
     };
 
-    // println!("Selected output config: {:?}", output_config);
-    Ok((host, device, output_config))
+    Ok((output_config, sample_format))
 }
 
 fn make_stream<T>(
