@@ -94,7 +94,6 @@ pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>>
     let host = cpal::default_host();
 
     let default_device = host.default_output_device();
-    let default_name = default_device.as_ref().and_then(|d| d.name().ok());
 
     let mut last_err: Box<dyn Error> = "no audio output devices found".into();
 
@@ -113,14 +112,12 @@ pub fn stream_setup_for() -> Result<(cpal::Stream, AudioSender), Box<dyn Error>>
     // walk the full device list before giving up.
     if let Ok(devices) = host.output_devices() {
         for device in devices {
-            let name = device.name().ok();
-            let is_default = default_name.is_some() && name == default_name;
-            if is_default || name.as_deref() == Some("null") {
+            if Some(&device) == default_device.as_ref() || device.to_string() == "null" {
                 continue;
             }
             match stream_for_device(&device) {
                 Ok(ok) => {
-                    eprintln!("Audio output: {}", name.as_deref().unwrap_or("(unnamed)"));
+                    eprintln!("Audio output: {device}");
                     return Ok(ok);
                 }
                 Err(why) => last_err = why,
@@ -138,7 +135,7 @@ fn stream_for_device(device: &cpal::Device) -> Result<(cpal::Stream, AudioSender
     let audio_sender = AudioSender {
         tx,
         emulated_clock_rate: 1,
-        host_sample_rate: config.sample_rate.0,
+        host_sample_rate: config.sample_rate,
         clock_of_last_sample: 0.0,
         clocks_between_samples: 0.0,
         // Send granularity only; the callback drains everything available,
@@ -191,15 +188,15 @@ fn select_config(
     let max_sample_rate = supported_config.max_sample_rate();
 
     let target_sample_rate = 44100;
-    let sample_rate = if min_sample_rate.0 >= target_sample_rate {
-        min_sample_rate.0
-    } else if max_sample_rate.0 <= target_sample_rate {
-        max_sample_rate.0
+    let sample_rate = if min_sample_rate >= target_sample_rate {
+        min_sample_rate
+    } else if max_sample_rate <= target_sample_rate {
+        max_sample_rate
     } else {
         target_sample_rate
     };
 
-    let config = supported_config.with_sample_rate(cpal::SampleRate(sample_rate));
+    let config = supported_config.with_sample_rate(sample_rate);
 
     // Choose buffer size closest to 512 without going under
     let buffer_size = match config.buffer_size() {
@@ -234,15 +231,12 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let num_channels = config.channels as usize;
-    let player = Arc::new(Mutex::new(AudioReceiver::new(
-        audio_rx,
-        config.sample_rate.0,
-    )));
+    let player = Arc::new(Mutex::new(AudioReceiver::new(audio_rx, config.sample_rate)));
 
     let err_fn = |err| eprintln!("Error building output sound stream: {}", err);
 
     Ok(device.build_output_stream(
-        config,
+        *config,
         move |output: &mut [T], _: &cpal::OutputCallbackInfo| {
             process_frame(output, &player, num_channels)
         },
