@@ -565,24 +565,39 @@ fn load_thumb(ctx: &egui::Context, slot: &SaveSlot) -> Option<TextureHandle> {
     ))
 }
 
+/// Character tile size and spacing, shared between the row-width
+/// calculation below and `character_tile`'s own layout.
+const TILE_SIZE: egui::Vec2 = egui::vec2(72.0, 78.0);
+const TILE_GAP: f32 = 10.0;
+
 /// The shared new-save form (hero and modal). Returns what the player chose.
 pub fn new_save_form(ui: &mut egui::Ui, state: &mut NewSaveState, show_cancel: bool) -> FormAction {
     let mut action = FormAction::None;
 
-    // Character picker: a row of colored tiles.
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-        for &character in firmware::CHARACTERS {
-            if character_tile(ui, character, state.character == Some(character)) {
-                state.character = Some(character);
-                if !state.name_edited {
-                    state.name = character.to_owned();
-                }
-                if firmware::find(character, state.version).is_none() {
-                    state.version = firmware::RECOMMENDED_VERSION;
+    // Character picker: a centered row of colored tiles (wraps on a
+    // narrow window). Sizing the wrap region to the row's natural width,
+    // rather than the full column, keeps leftover space split evenly on
+    // both sides instead of collecting on the right.
+    let count = firmware::CHARACTERS.len() as f32;
+    let row_width = count * TILE_SIZE.x + (count - 1.0) * TILE_GAP;
+    let width = row_width.min(ui.available_width());
+    ui.vertical_centered(|ui| {
+        let layout = egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true);
+        ui.allocate_ui_with_layout(egui::vec2(width, 0.0), layout, |ui| {
+            ui.set_width(width);
+            ui.spacing_mut().item_spacing = egui::Vec2::splat(TILE_GAP);
+            for &character in firmware::CHARACTERS {
+                if character_tile(ui, character, state.character == Some(character)) {
+                    state.character = Some(character);
+                    if !state.name_edited {
+                        state.name = character.to_owned();
+                    }
+                    if firmware::find(character, state.version).is_none() {
+                        state.version = firmware::RECOMMENDED_VERSION;
+                    }
                 }
             }
-        }
+        });
     });
 
     ui.add_space(14.0);
@@ -741,7 +756,7 @@ pub fn new_save_form(ui: &mut egui::Ui, state: &mut NewSaveState, show_cancel: b
 }
 
 fn character_tile(ui: &mut egui::Ui, character: &str, selected: bool) -> bool {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(72.0, 78.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(TILE_SIZE, Sense::click());
     let hovered = response.hovered();
     let color = theme::character_color(character);
     let painter = ui.painter();
