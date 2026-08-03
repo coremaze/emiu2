@@ -12,6 +12,8 @@ mod config;
 mod controls;
 mod emu;
 mod firmware;
+#[cfg(target_os = "macos")]
+mod macos_menu;
 mod saves;
 mod shot;
 mod theme;

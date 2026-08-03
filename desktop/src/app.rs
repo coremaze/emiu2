@@ -566,6 +566,8 @@ impl DesktopApp {
 
 impl eframe::App for DesktopApp {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        #[cfg(target_os = "macos")]
+        crate::macos_menu::tick("Emiu2", env!("CARGO_PKG_VERSION"));
         let ctx = root.ctx().clone();
         self.poll_session_events();
 

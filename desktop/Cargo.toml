@@ -47,3 +47,21 @@ fs4 = { version = "1.1.0", features = ["sync"] }
 [build-dependencies]
 # Embeds assets/emiu2.ico into the .exe when targeting Windows.
 winresource = "0.1"
+
+# macOS: replaces winit's default app menu (whose About/Hide/Quit labels use
+# the process name) with properly-labeled items; see src/macos_menu.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = "0.19"
+objc2-app-kit = { version = "0.2", features = [
+    "NSApplication",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+] }
+objc2-foundation = { version = "0.2", features = [
+    "NSBundle",
+    "NSObjCRuntime",
+    "NSRunLoop",
+    "NSString",
+    "NSThread",
+] }
