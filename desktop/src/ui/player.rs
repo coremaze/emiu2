@@ -433,15 +433,6 @@ fn device_panel(
     // The bright inner top-edge highlight that sells the frosted glass.
     theme::frost_top_edge(ui.painter(), shell, cr, 240);
 
-    // The brand, printed above the screen like on the real shell.
-    ui.painter().text(
-        egui::pos2(shell.center().x, shell.top() + TOP_H / 2.0 + 6.0),
-        Align2::CENTER_CENTER,
-        "miuchiz",
-        FontId::new(13.0, theme::display_family()),
-        theme::TEXT_DIM,
-    );
-
     widgets::lcd(ui, glass, &session.texture);
     if session.looks_asleep() {
         asleep_hint(ui, glass, bindings);
