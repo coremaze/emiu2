@@ -15,3 +15,7 @@ cpal = "0.15.3"
 # edit-compile cycle of the frontends themselves.
 [profile.dev.package.emiu2]
 opt-level = 2
+
+[profile.release]
+strip = true
+lto = true
