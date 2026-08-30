@@ -238,7 +238,12 @@ pub fn apply(ctx: &egui::Context) {
 
     w.active.bg_fill = CARD_HOVER;
     w.active.weak_bg_fill = CARD_HOVER;
-    w.active.bg_stroke = Stroke::new(1.5, ACCENT);
+    // egui 0.35 sizes buttons from the state's frame margins: the stroke
+    // width is compensated inside the frame's inner margin but rounded to
+    // whole pixels, so a half-pixel stroke makes pressed widgets a pixel
+    // larger than resting/hovered ones and the layout jumps on click.
+    // Keep every widget bg_stroke width a whole number.
+    w.active.bg_stroke = Stroke::new(1.0, ACCENT);
     w.active.fg_stroke = Stroke::new(1.5, ACCENT_DIM);
     w.active.corner_radius = CornerRadius::same(10);
 

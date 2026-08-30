@@ -235,24 +235,37 @@ fn friends(app: &mut DesktopApp, ctx: &egui::Context, mut state: FriendsState) {
         ui.add_space(10.0);
 
         // The mode tabs. Switching applies to the running link right away.
+        //
+        // Built as always-framed selectable buttons: egui sizes a resting
+        // unselected selectable_label without the stroke compensation the
+        // stroked states get, so its pill would grow 2px on hover and
+        // shift the row (the theme's 1px inactive hairline arms this).
         let mode = app.config.ir.mode;
+        let tab = |ui: &mut egui::Ui, selected: bool, text: &str| {
+            // Transparent at rest so the hairline reads alone; selected
+            // keeps the theme's selection fill (an explicit fill would
+            // otherwise override it too).
+            let fill = if selected {
+                ui.visuals().selection.bg_fill
+            } else {
+                Color32::TRANSPARENT
+            };
+            ui.add(
+                egui::Button::selectable(selected, text)
+                    .frame_when_inactive(true)
+                    .fill(fill),
+            )
+            .clicked()
+        };
         ui.horizontal(|ui| {
-            if ui
-                .selectable_label(mode == IrMode::Local, "This computer")
-                .clicked()
-                && mode != IrMode::Local
-            {
+            if tab(ui, mode == IrMode::Local, "This computer") && mode != IrMode::Local {
                 app.config.ir.mode = IrMode::Local;
                 app.save_config();
                 if let Some(link) = &app.link {
                     link.set_local();
                 }
             }
-            if ui
-                .selectable_label(mode == IrMode::Online, "Online")
-                .clicked()
-                && mode != IrMode::Online
-            {
+            if tab(ui, mode == IrMode::Online, "Online") && mode != IrMode::Online {
                 app.config.ir.mode = IrMode::Online;
                 app.save_config();
                 // Always hand the mode to the transport, even with an

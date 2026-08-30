@@ -220,7 +220,14 @@ pub fn lcd(ui: &mut Ui, glass: Rect, texture: &egui::TextureHandle) {
 /// A small status chip for the menu bar ("USB", "IR"...).
 pub fn status_chip(ui: &mut Ui, label: &str, on: bool, on_color: Color32) -> Response {
     let (fill, stroke, text_color) = if on {
-        (on_color, Stroke::NONE, theme::ON_ACCENT)
+        // Transparent 1px, not NONE: the frame stroke width feeds the
+        // button's size, and the resting chrome is drawn around a 1px
+        // stroke. NONE would shrink the lit chip by 2px in each axis.
+        (
+            on_color,
+            Stroke::new(1.0, Color32::TRANSPARENT),
+            theme::ON_ACCENT,
+        )
     } else {
         (
             theme::with_alpha(theme::FROST_HILITE, 150),
